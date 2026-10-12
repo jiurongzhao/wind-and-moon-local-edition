@@ -443,6 +443,100 @@
     });
   }
 
+  /* 角色列表一次只渲染这么多张，滚到底再追加 —— 卡库扩到三万张后，
+     一次性建 32000 个 DOM 节点会让中低端机直接卡死（WebView 建节点是同步的）。 */
+  var CHAR_PAGE = 60;
+
+  /** 造一张角色卡（窗口化渲染时反复调用，所以单独抽出来） */
+  function buildCharCard(c, sessions) {
+    var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
+    var top = el('div', 'char-top');
+    top.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
+
+    var fav = el('button', 'char-fav' + (c.fav ? ' on' : ''));
+    fav.appendChild(iconEl(c.fav ? 'star' : 'star-o'));
+    fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
+    fav.onclick = function (ev) {
+      ev.stopPropagation();
+      S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
+      S.characters = S.store.listCharacters();
+      S.charCount = -1;
+      renderCharCats();
+      renderCharacters();
+    };
+    top.appendChild(fav);
+
+    var edit = el('button', 'char-edit');
+    edit.appendChild(iconEl('pen'));
+    edit.title = '编辑角色';
+    edit.onclick = function (ev) { ev.stopPropagation(); openCharSheet(c); };
+    top.appendChild(edit);
+    card.appendChild(top);
+
+    var nameRow = el('div', 'char-name');
+    nameRow.appendChild(el('span', '', c.name));
+    if (c.kind === 'story') nameRow.appendChild(el('span', 'badge accent', '剧情'));
+    card.appendChild(nameRow);
+
+    card.appendChild(el('div', 'char-tagline', c.tagline || c.persona.slice(0, 30) || '（没有简介）'));
+
+    var sess = null;
+    for (var i = 0; i < sessions.length; i++) {
+      if (sessions[i].mode === 'solo' && sessions[i].characterIds.length === 1 && sessions[i].characterIds[0] === c.id) { sess = sessions[i]; break; }
+    }
+    var meta = el('div', 'char-meta');
+    if (sess) meta.appendChild(el('span', 'badge accent', fmtWhen(sess.updatedAt) + '聊过'));
+    var temp = el('span', 'badge');
+    temp.appendChild(iconEl('thermo'));
+    temp.appendChild(el('span', '', (c.temperature || 0).toFixed(2)));
+    temp.title = '采样温度：越高越天马行空，越低越稳定';
+    meta.appendChild(temp);
+    card.appendChild(meta);
+
+    card.onclick = function () { openSoloChat(c.id, sess ? sess.id : ''); };
+    return card;
+  }
+
+  /** 只渲染窗口内的卡（追加式：已渲染的节点不动） */
+  function renderCharWindow() {
+    var grid = $('charGrid');
+    if (!grid) return;
+    var list = S.charFiltered || [];
+    var upto = Math.min(S.charShown, list.length);
+    var sessions = S.store.listSessions();
+    for (var i = S.charRendered; i < upto; i++) grid.appendChild(buildCharCard(list[i], sessions));
+    S.charRendered = upto;
+    renderCharMore();
+  }
+
+  /** 底部「已显示 N / M · 继续下滑加载」提示：全显示完就藏起来 */
+  function renderCharMore() {
+    var box = $('charMore');
+    if (!box) return;
+    var list = S.charFiltered || [];
+    var shown = Math.min(S.charShown, list.length);
+    if (!list.length || shown >= list.length) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = '';
+    box.appendChild(el('span', 'char-more-text', '已显示 ' + shown + ' / ' + list.length + ' · 继续下滑加载'));
+    var more = el('button', 'btn btn-sm', '加载更多');
+    more.onclick = function (ev) { ev.stopPropagation(); loadMoreCharacters(); };
+    box.appendChild(more);
+  }
+
+  /**
+   * 往下再放一屏（滚动到底部时自动调用；测试也直接调它）。
+   * @returns {number} 当前已显示的张数
+   */
+  function loadMoreCharacters() {
+    var list = S.charFiltered || [];
+    if (S.charShown < list.length) {
+      S.charShown = Math.min(S.charShown + CHAR_PAGE, list.length);
+      renderCharWindow();
+    }
+    return Math.min(S.charShown, list.length);
+  }
+
   function renderCharacters() {
     S.characters = S.store.listCharacters();
     var grid = $('charGrid');
@@ -464,59 +558,16 @@
       $('charEmpty').querySelector('.empty-text').textContent = '点右上角「新建」，或从设置里恢复内置角色';
     }
 
-    var sessions = S.store.listSessions();
-    shown.forEach(function (c) {
-      var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
-      var top = el('div', 'char-top');
-      top.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
-
-      var fav = el('button', 'char-fav' + (c.fav ? ' on' : ''));
-      fav.appendChild(iconEl(c.fav ? 'star' : 'star-o'));
-      fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
-      fav.onclick = function (ev) {
-        ev.stopPropagation();
-        S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
-        S.characters = S.store.listCharacters();
-        S.charCount = -1;
-        renderCharCats();
-        renderCharacters();
-      };
-      top.appendChild(fav);
-
-      var edit = el('button', 'char-edit');
-      edit.appendChild(iconEl('pen'));
-      edit.title = '编辑角色';
-      edit.onclick = function (ev) { ev.stopPropagation(); openCharSheet(c); };
-      top.appendChild(edit);
-      card.appendChild(top);
-
-      var nameRow = el('div', 'char-name');
-      nameRow.appendChild(el('span', '', c.name));
-      if (c.kind === 'story') nameRow.appendChild(el('span', 'badge accent', '剧情'));
-      card.appendChild(nameRow);
-
-      card.appendChild(el('div', 'char-tagline', c.tagline || c.persona.slice(0, 30) || '（没有简介）'));
-
-      var sess = null;
-      for (var i = 0; i < sessions.length; i++) {
-        if (sessions[i].mode === 'solo' && sessions[i].characterIds.length === 1 && sessions[i].characterIds[0] === c.id) { sess = sessions[i]; break; }
-      }
-      var meta = el('div', 'char-meta');
-      if (sess) meta.appendChild(el('span', 'badge accent', fmtWhen(sess.updatedAt) + '聊过'));
-      var temp = el('span', 'badge');
-      temp.appendChild(iconEl('thermo'));
-      temp.appendChild(el('span', '', (c.temperature || 0).toFixed(2)));
-      temp.title = '采样温度：越高越天马行空，越低越稳定';
-      meta.appendChild(temp);
-      card.appendChild(meta);
-
-      card.onclick = function () { openSoloChat(c.id, sess ? sess.id : ''); };
-      grid.appendChild(card);
-    });
+    /* 换分类 / 改搜索词 / 任何一次整体重渲染：窗口回到第一屏 */
+    S.charFiltered = shown;
+    S.charShown = CHAR_PAGE;
+    S.charRendered = 0;
+    renderCharWindow();
 
     var st = S.store.stats();
     $('setupBanner').hidden = !(S.models.length === 0 && !providerReady());
-    fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色（筛出 ' + shown.length + '），消息 ' + st.messages + ' 条');
+    fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色（筛出 ' + shown.length
+      + '，本次渲染 ' + S.charRendered + '），消息 ' + st.messages + ' 条');
   }
 
   /**
@@ -1390,6 +1441,50 @@
 
   /* ---------- 角色卡导入 / 导出（chara_card_v2，见 cards.js） ---------- */
 
+  /** 角色列表整体刷新一次（导入结束后统一调用，别每张卡渲染一遍） */
+  function refreshCharList() {
+    S.characters = S.store.listCharacters();
+    S.charCount = -1;                 // 让分类 chips 重新统计
+    renderCharCats();
+    renderCharacters();
+  }
+
+  /**
+   * 批量导入一批已归一化的卡片（内部字段，不是 chara_card_v2 原始结构）。
+   *
+   * 三万张卡的场景下，"每张卡 saveCharacter + renderCharacters" 是 O(n²)：
+   * 这里改成 store.saveCharacters 一次事务批量写、进度写进状态栏、**不碰 DOM 列表**
+   * （由调用方在整批结束后 refreshCharList() 一次）。
+   *
+   * @param {Array}  cards  FYCards 归一化后的卡片
+   * @param {object} opts   {statusEl, onProgress(processed,total)}
+   * @returns {{added:number, skipped:number}}
+   */
+  function importCardsBatch(cards, opts) {
+    var o = opts || {};
+    var st = o.statusEl || $('packStatus');
+    var list = Array.isArray(cards) ? cards : [];
+    var have = importedNames();
+    var pending = [];
+    var skipped = 0;
+    for (var i = 0; i < list.length; i++) {
+      var card = list[i];
+      if (!card || !card.name) continue;
+      if (have[card.name]) { skipped++; continue; }   // 同名视为同一张卡，重复导入幂等
+      have[card.name] = 1;
+      pending.push(card);
+    }
+    var total = list.length;
+    var processed = skipped;
+    var res = S.store.saveCharacters(pending, function (done, n) {
+      processed = skipped + done;
+      if (st && (done % 20 === 0 || done === n)) st.textContent = '已导入 ' + processed + ' / ' + total;
+      if (o.onProgress) { try { o.onProgress(processed, total); } catch (e) { /* 进度回调不许打断导入 */ } }
+    });
+    if (st && total) st.textContent = '已导入 ' + processed + ' / ' + total;
+    return { added: res.saved, skipped: skipped };
+  }
+
   /** 把一段卡片 JSON 文本导入成角色，返回导入数量。 */
   function importCardsFromText(text, srcName) {
     var cards;
@@ -1400,17 +1495,12 @@
       fyLog('角色卡解析失败：' + ((e && e.message) || e));
       return 0;
     }
-    var imported = 0;
-    for (var i = 0; i < cards.length; i++) {
-      var saved = S.store.saveCharacter(cards[i]);
-      if (saved && saved.id) imported++;
-    }
-    S.characters = S.store.listCharacters();
-    renderCharacters();
-    if (imported === 1) toast('已导入「' + cards[0].name + '」', 'ok', 3000);
-    else toast('已导入 ' + imported + ' 个角色', 'ok', 3000);
-    fyLog('角色卡导入：来源=' + (srcName || '?') + ' 数量=' + imported);
-    return imported;
+    var res = importCardsBatch(cards, { statusEl: $('packStatus') });
+    refreshCharList();
+    if (res.added === 1) toast('已导入「' + cards[0].name + '」', 'ok', 3000);
+    else toast('已导入 ' + res.added + ' 个角色', 'ok', 3000);
+    fyLog('角色卡导入：来源=' + (srcName || '?') + ' 数量=' + res.added);
+    return res.added;
   }
 
   /* ---------- 聊天记录搜索（走 store.searchMessages：后端有检索就用后端，否则走内存） ---------- */
@@ -1950,27 +2040,23 @@
   }
 
   /** 导入一个卡包文件：已存在同名的跳过，只补缺 */
-  function importPackFile(file, packName) {
+  function importPackFile(file, packName, opts) {
+    var o = opts || {};
+    var st = o.statusEl || $('packStatus');
+    var label0 = packName || file;
+    if (st) st.textContent = '正在读取「' + label0 + '」…';
     return fetch('packs/' + file).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.text();
     }).then(function (txt) {
       var pack = FYCards.parsePack(txt);
-      var have = importedNames();
-      var added = 0, skipped = 0;
-      pack.cards.forEach(function (card) {
-        if (have[card.name]) { skipped++; return; }
-        if (S.store.saveCharacter(card)) { added++; have[card.name] = 1; }
-      });
-      S.characters = S.store.listCharacters();
-      S.charCount = -1;   // 让分类 chips 重新统计
-      renderCharCats();
-      renderCharacters();
+      var res = importCardsBatch(pack.cards, { statusEl: st, onProgress: o.onProgress });
+      refreshCharList();                 // 整包只刷新一次列表
       var label = pack.packName || packName || file;
-      if (added) toast('「' + label + '」导入 ' + added + ' 张' + (skipped ? '（跳过已存在 ' + skipped + ' 张）' : ''), 'ok', 3600);
-      else toast('「' + label + '」里的 ' + skipped + ' 张都已经有了', 'warn', 3000);
-      fyLog('卡包导入：' + label + ' 新增=' + added + ' 跳过=' + skipped + ' 许可=' + (pack.license || '未标注'));
-      return { added: added, skipped: skipped };
+      if (res.added) toast('「' + label + '」导入 ' + res.added + ' 张' + (res.skipped ? '（跳过已存在 ' + res.skipped + ' 张）' : ''), 'ok', 3600);
+      else toast('「' + label + '」里的 ' + res.skipped + ' 张都已经有了', 'warn', 3000);
+      fyLog('卡包导入：' + label + ' 新增=' + res.added + ' 跳过=' + res.skipped + ' 许可=' + (pack.license || '未标注'));
+      return { added: res.added, skipped: res.skipped };
     });
   }
 
@@ -2049,8 +2135,344 @@
     });
   }
 
-  /* ---------- 存储后端（多后端可切换，见 store.js 的 BACKENDS） ---------- */
+  /* ==========================================================================
+   * 在线卡库（Task B）
+   *
+   * 为什么要有它：卡库要从 160 张扩到 32000 张（每分类 1000 角色 + 1000 剧情），
+   * 全塞进 APK 会让包体爆炸；改成 App 内按分类下载。
+   *
+   * 为什么必须走本机代理：Gitee 的 raw / 发行版附件都不带
+   * Access-Control-Allow-Origin，WebView 里 fetch 外域必被 CORS 拦死。
+   * 所以统一请求 `'/fetch?url=' + encodeURIComponent(真实地址)`（AssetServer 已实现），
+   * 前端只跟 127.0.0.1 同源打交道。
+   *
+   * 目录格式（fy_library_v1，字段固定）：
+   *   { spec, total, baseUrl, categories:[{slug,tag,emoji,character,story}],
+   *     packs:[{file,slug,tag,emoji,kind,part,parts,count,bytes,sha256}] }
+   * 分片文件就是内置卡包的格式（fy_pack_v1）。
+   * ======================================================================== */
 
+  /** 目录地址兜底值；用户可在卡库面板里改成自己的地址（存 S.settings.libCatalogUrl）。
+      目录本身很小（约 9KB）随仓库发，卡包分片走 Gitee 发行版附件；
+      两者都通过本机 AssetServer 的 /fetch 同源代理取（Gitee 不发 CORS 头）。 */
+  var LIB_CATALOG_URL = 'https://gitee.com/zhao-jiurong/wind-and-moon-local-edition/raw/main/cards/library-index.json';
+  /** 面板最多显示多少行「分类 × 类型」 */
+  var LIB_MAX_ROWS = 32;
+  var LIB_KIND_LABEL = { character: '角色卡', story: '剧情卡' };
+  var libState = { catalog: null, rows: [] };
+
+  function libCatalogUrl() {
+    return (S.settings && S.settings.libCatalogUrl) || LIB_CATALOG_URL;
+  }
+
+  /** https 地址一律经同源代理；相对路径直接取（网页预览 / 本地调试用） */
+  function fetchLibraryUrl(url) {
+    var u = String(url || '').trim();
+    if (/^https?:\/\//i.test(u)) return fetch('/fetch?url=' + encodeURIComponent(u));
+    return fetch(u);
+  }
+
+  /** 分片的真实地址：优先目录里给的绝对 url，其次 baseUrl + file。
+      留 url 这一层是为了以后拆发行版 / 换托管时只改目录（App 不用跟着发版）。 */
+  function libFileUrl(p) {
+    if (/^https?:\/\//i.test(p.url || '')) return p.url;
+    if (/^https?:\/\//i.test(p.file || '')) return p.file;
+    var base = (libState.catalog && libState.catalog.baseUrl) || '';
+    if (base && base.charAt(base.length - 1) !== '/') base += '/';
+    return base + (p.file || '');
+  }
+
+  function libImportedMap() {
+    var m = S.settings && S.settings.libraryImported;
+    return (m && typeof m === 'object') ? m : {};
+  }
+
+  function libRowImported(row) {
+    var m = libImportedMap();
+    var n = 0;
+    (row.packs || []).forEach(function (p) {
+      var hit = m[p.file];
+      if (hit) n += Number(hit.count) || Number(p.count) || 0;
+    });
+    return n;
+  }
+
+  /** 记住"这个分片已经导入过"（重开面板能看出来；再点也不会重复下载/建卡） */
+  function markLibraryImported(file, count) {
+    var m = {};
+    var old = libImportedMap();
+    for (var k in old) if (Object.prototype.hasOwnProperty.call(old, k)) m[k] = old[k];
+    m[file] = { count: Number(count) || 0, ts: Date.now() };
+    S.settings = S.store.saveSettings({ libraryImported: m });
+    return m;
+  }
+
+  function loadLibraryCatalog() {
+    var url = libCatalogUrl();
+    return fetchLibraryUrl(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function (txt) {
+      var idx;
+      try { idx = JSON.parse(txt); } catch (e) { throw new Error('目录不是合法 JSON'); }
+      if (!idx || !Array.isArray(idx.packs)) throw new Error('目录缺少 packs 数组');
+      libState.catalog = idx;
+      return idx;
+    });
+  }
+
+  /**
+   * 目录 → 「分类 × 类型」行（最多 LIB_MAX_ROWS 行）。
+   * 先按 categories 建行（顺序稳定），再把 packs 挂上去 —— 这样即使某个分类暂时没分片，
+   * 也能显示成"还没有分片"，而不是整行消失。
+   */
+  function libraryGroups(idx) {
+    var cats = (idx && Array.isArray(idx.categories)) ? idx.categories : [];
+    var packs = (idx && Array.isArray(idx.packs)) ? idx.packs : [];
+    var out = [], seen = {};
+    function makeRow(cat, kind) {
+      var key = (cat.slug || cat.tag || '?') + '|' + kind;
+      if (seen[key]) return seen[key];
+      var row = {
+        key: key, slug: cat.slug || '', tag: cat.tag || cat.slug || '未分类',
+        emoji: cat.emoji || '', kind: kind, packs: [], total: 0, bytes: 0
+      };
+      seen[key] = row;
+      out.push(row);
+      return row;
+    }
+    cats.forEach(function (cat) {
+      var kinds = [];
+      if (Number(cat.character) > 0) kinds.push('character');
+      if (Number(cat.story) > 0) kinds.push('story');
+      if (!kinds.length) kinds = ['character'];
+      kinds.forEach(function (k) { makeRow(cat, k); });
+    });
+    packs.forEach(function (p) {
+      var cat = null;
+      for (var i = 0; i < cats.length; i++) if (cats[i].slug === p.slug) { cat = cats[i]; break; }
+      if (!cat) cat = { slug: p.slug, tag: p.tag, emoji: p.emoji };
+      makeRow(cat, p.kind === 'story' ? 'story' : 'character').packs.push(p);
+    });
+    out.forEach(function (row) {
+      row.packs.sort(function (a, b) { return (Number(a.part) || 0) - (Number(b.part) || 0); });
+      var cat = null;
+      for (var j = 0; j < cats.length; j++) if (cats[j].slug === row.slug) { cat = cats[j]; break; }
+      var declared = cat ? Number(cat[row.kind]) : 0;
+      row.total = declared > 0 ? declared
+        : row.packs.reduce(function (a, p) { return a + (Number(p.count) || 0); }, 0);
+      row.bytes = row.packs.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0);
+    });
+    return out.slice(0, LIB_MAX_ROWS);
+  }
+
+  function setRowStatus(row, text, kind) {
+    if (!row || !row._statusEl) return;
+    row._statusEl.textContent = text;
+    row._statusEl.className = 'lib-row-status' + (kind ? ' ' + kind : '');
+  }
+
+  function libDefaultStatus(row) {
+    var imported = libRowImported(row);
+    if (row.total > 0 && imported >= row.total) return { text: '已导入 ' + imported + ' 张', kind: 'ok' };
+    if (imported > 0) return { text: '已导入 ' + imported + ' / ' + row.total + ' 张', kind: '' };
+    return { text: '未下载', kind: '' };
+  }
+
+  function renderLibraryRows() {
+    var list = $('libList');
+    var st = $('libStatus');
+    list.innerHTML = '';
+    var rows = libState.rows;
+    if (!rows.length) { st.textContent = '这个目录里没有可下载的卡包'; return; }
+    var importedAll = 0;
+    rows.forEach(function (row) { importedAll += libRowImported(row); });
+    st.textContent = '共 ' + rows.length + ' 组（分类 × 类型）· 已导入 ' + importedAll + ' 张'
+      + '（重复点不会重复建卡）';
+    rows.forEach(function (row) {
+      var dom = el('div', 'model-row');
+      var col = el('div', 'grow');
+      col.appendChild(el('div', 'model-name',
+        (row.emoji || '📦') + ' ' + row.tag + ' · ' + (LIB_KIND_LABEL[row.kind] || row.kind)));
+      var bits = [row.total + ' 张'];
+      if (row.packs.length) bits.push(row.packs.length + ' 个分片');
+      if (row.bytes) bits.push(fmtSize(row.bytes));
+      col.appendChild(el('div', 'model-size', bits.join(' · ')));
+      row._statusEl = el('div', 'lib-row-status');
+      var s = libDefaultStatus(row);
+      row._statusEl.textContent = s.text;
+      row._statusEl.className = 'lib-row-status' + (s.kind ? ' ' + s.kind : '');
+      col.appendChild(row._statusEl);
+      dom.appendChild(col);
+
+      var btn = el('button', 'btn btn-xs');
+      btn.appendChild(iconEl('download'));
+      btn.appendChild(el('span', '', '下载并导入'));
+      row._btn = btn;
+      btn.onclick = function (ev) {
+        ev.stopPropagation();
+        btn.disabled = true;
+        importLibraryRow(row).then(function () { btn.disabled = false; });
+      };
+      dom.appendChild(btn);
+      list.appendChild(dom);
+    });
+  }
+
+  function openLibrarySheet() {
+    openSheet($('libMask'));
+    var st = $('libStatus');
+    var list = $('libList');
+    var inp = $('libUrl');
+    if (inp) inp.value = libCatalogUrl();
+    list.innerHTML = '';
+    st.textContent = '正在加载卡库目录…';
+    $('libTotal').textContent = '加载中…';
+    var url = libCatalogUrl();
+    loadLibraryCatalog().then(function (idx) {
+      libState.rows = libraryGroups(idx);
+      renderLibraryRows();
+      $('libTotal').textContent = '目录共 ' + (Number(idx.total) || 0) + ' 张卡 · ' + libState.rows.length + ' 组';
+    }).catch(function (e) {
+      libState.rows = [];
+      st.textContent = '卡库目录加载失败：' + ((e && e.message) || e)
+        + ' —— 请检查网络或地址（' + url + '）';
+      $('libTotal').textContent = '目录加载失败';
+    });
+  }
+
+  /** 下载一个分片并交回"已校验"的卡片数组；任何一步不对就抛错（绝不写坏数据） */
+  function downloadLibraryShard(p) {
+    return fetchLibraryUrl(libFileUrl(p)).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status + '（' + p.file + '）');
+      return r.text();
+    }).then(function (txt) {
+      var raw;
+      try { raw = JSON.parse(txt); } catch (e) { throw new Error(p.file + ' 不是合法 JSON'); }
+      if (!raw || !Array.isArray(raw.cards)) throw new Error(p.file + ' 缺少 cards 数组');
+      /* 关键校验：目录声明的张数必须跟文件里的一致 —— 不一致说明下到半截或文件坏了，
+         这时候宁可报错也不能把残缺数据写进库。 */
+      if (Number(raw.count) !== raw.cards.length) {
+        throw new Error(p.file + ' 张数不符（声明 ' + raw.count + '，实际 ' + raw.cards.length + '）');
+      }
+      var pack = FYCards.parsePack(txt);
+      if (pack.cards.length !== raw.cards.length) {
+        throw new Error(p.file + ' 有 ' + (raw.cards.length - pack.cards.length) + ' 张卡解析失败');
+      }
+      return pack;
+    });
+  }
+
+  function libPercent(done, total, inflight) {
+    if (!total || total <= 0) return 0;
+    return Math.min(99, Math.floor(((done + (inflight || 0) * 0.5) / total) * 100));
+  }
+
+  /**
+   * 下载并导入一组（一个分类的一个类型，含它的全部分片）。
+   * 已导入过的分片直接跳过（幂等）。失败时**不会**写库，行状态变成「失败：原因」。
+   * @returns {Promise<{added:number, error?:string}>}
+   */
+  function importLibraryRow(row, opts) {
+    var o = opts || {};
+    var packs = (row.packs || []).slice();
+    if (row._busy) return Promise.resolve({ added: 0, error: '正在下载中' });
+    if (!packs.length) {
+      setRowStatus(row, '这个分类还没有分片文件', 'err');
+      return Promise.resolve({ added: 0, error: '没有分片文件' });
+    }
+    var imported = libImportedMap();
+    var totalBytes = packs.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0) || packs.length;
+    var added = 0, doneBytes = 0, err = '';
+    var i = 0;
+    row._busy = true;
+    if (row._btn) row._btn.disabled = true;
+
+    function finish() {
+      row._busy = false;
+      if (row._btn) row._btn.disabled = false;
+      if (err) {
+        setRowStatus(row, '失败：' + err, 'err');
+        return { added: added, error: err };
+      }
+      var s = libDefaultStatus(row);
+      setRowStatus(row, s.text, s.kind);
+      if (o.refresh !== false && added) refreshCharList();   // 整组只刷新一次列表
+      return { added: added };
+    }
+
+    function step() {
+      if (err || i >= packs.length) return Promise.resolve();
+      var p = packs[i];
+      var weight = Number(p.bytes) || 1;
+      if (imported[p.file]) {           // 已导入过：跳过下载，幂等
+        doneBytes += weight;
+        i++;
+        return step();
+      }
+      setRowStatus(row, '下载中 ' + libPercent(doneBytes, totalBytes, weight) + '%', '');
+      return downloadLibraryShard(p).then(function (pack) {
+        setRowStatus(row, '导入中 0 / ' + pack.cards.length, '');
+        var res = importCardsBatch(pack.cards, {
+          statusEl: null,
+          onProgress: function (processed, total) {
+            setRowStatus(row, '导入中 ' + processed + ' / ' + total, '');
+          }
+        });
+        added += res.added;
+        markLibraryImported(p.file, pack.cards.length);
+        imported[p.file] = { count: pack.cards.length, ts: Date.now() };
+        doneBytes += weight;
+        i++;
+        setRowStatus(row, '下载中 ' + libPercent(doneBytes, totalBytes, 0) + '%', '');
+        return step();
+      }).catch(function (e) {
+        err = (e && e.message) || String(e);
+      });
+    }
+
+    return Promise.resolve().then(step).then(finish).catch(function (e) {
+      err = err || (e && e.message) || String(e);
+      return finish();
+    });
+  }
+
+  /** 顶部「全部下载」：按行顺序下载，总进度写进 #libTotal */
+  function importAllLibrary() {
+    var rows = libState.rows.slice();
+    if (!rows.length) { toast('目录还没加载好', 'warn'); return Promise.resolve({ added: 0 }); }
+    var btn = $('btnLibAll');
+    var total = $('libTotal');
+    var done = 0, added = 0, failed = 0;
+    if (btn) btn.disabled = true;
+    function step() {
+      if (done >= rows.length) {
+        if (btn) btn.disabled = false;
+        if (added) refreshCharList();                  // 全部结束后统一刷新一次
+        if (total) {
+          total.textContent = '全部完成：新增 ' + added + ' 张'
+            + (failed ? ('，' + failed + ' 组失败') : '');
+        }
+        toast('在线卡库：本次新增 ' + added + ' 张' + (failed ? ('（' + failed + ' 组失败）') : ''), failed ? 'warn' : 'ok', 3800);
+        fyLog('在线卡库全部下载完成：新增=' + added + ' 失败组=' + failed);
+        return { added: added, failed: failed };
+      }
+      var row = rows[done];
+      if (total) total.textContent = '总进度 ' + done + ' / ' + rows.length + ' 组 · 已新增 ' + added + ' 张';
+      return importLibraryRow(row, { refresh: false }).then(function (r) {
+        added += (r && r.added) || 0;
+        if (r && r.error) failed++;
+        done++;
+        return step();
+      });
+    }
+    return Promise.resolve().then(step).catch(function (e) {
+      if (btn) btn.disabled = false;
+      return { added: added, failed: failed, error: (e && e.message) || String(e) };
+    });
+  }
+
+  /* ---------- 存储后端（多后端可切换，见 store.js 的 BACKENDS） ---------- */
   var BACKEND_LABEL = {
     indexeddb: 'IndexedDB（默认）',
     sqlite: 'SQLite（实验）',
@@ -4208,6 +4630,29 @@
     $('btnPackAll').onclick = importAllPacks;
     $('btnPackRefresh').onclick = function () { packIndexCache = null; openPackSheet(); };
     $('btnImportPacksEmpty').onclick = openPackSheet;
+    /* 在线卡库 */
+    $('btnLibrary').onclick = openLibrarySheet;
+    $('btnLibClose').onclick = $('btnLibDone').onclick = function () { closeSheet($('libMask')); };
+    $('btnLibRefresh').onclick = function () { libState.catalog = null; openLibrarySheet(); };
+    $('btnLibAll').onclick = importAllLibrary;
+    $('btnLibUrlSave').onclick = function () {
+      var v = ($('libUrl').value || '').trim();
+      if (!v) { toast('目录地址不能为空', 'warn'); return; }
+      S.settings = S.store.saveSettings({ libCatalogUrl: v });
+      toast('已保存目录地址，正在重新加载', 'ok', 2400);
+      libState.catalog = null;
+      openLibrarySheet();
+    };
+    $('libUrl').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); $('btnLibUrlSave').click(); }
+    });
+    /* 角色页滚动加载：接近底部就再放一屏（三万张卡全渲染会卡死，见 renderCharacters） */
+    var charPad = qs('#view-characters .pad');
+    if (charPad) {
+      charPad.addEventListener('scroll', function () {
+        if (charPad.scrollTop + charPad.clientHeight >= charPad.scrollHeight - 260) loadMoreCharacters();
+      }, { passive: true });
+    }
     $('btnSurprise').onclick = openRecSheet;
     $('charSearch').addEventListener('input', function () {
       var self = this;
@@ -4697,6 +5142,14 @@
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
     renderCharacters: renderCharacters,
+    loadMoreCharacters: loadMoreCharacters,
+    openLibrarySheet: openLibrarySheet,
+    importLibraryRow: importLibraryRow,
+    importAllLibrary: importAllLibrary,
+    libRows: function () { return libState.rows; },
+    libraryGroups: libraryGroups,
+    libCatalogUrl: libCatalogUrl,
+    LIB_CATALOG_URL: LIB_CATALOG_URL,
     renderMessages: renderMessages,
     renderOptionsBar: renderOptionsBar,
     applyAppearance: applyAppearance,

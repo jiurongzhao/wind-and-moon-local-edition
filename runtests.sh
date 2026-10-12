@@ -37,6 +37,17 @@ step "1.5/5 创作者工具模板库校验（三份 JSON 的对齐关系）"
 python3 "$ROOT/tools/check-creator.py" 2>&1 | tail -12
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 
+# ---------------------------------------------------------------- 1.6 卡库素材库
+step "1.6/5 卡库素材库校验（16 类的字段形状与条数）"
+python3 "$ROOT/tools/check-banks.py" 2>&1 | tail -6
+[ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+
+# ---------------------------------------------------------------- 1.7 大卡库解析
+# cards/library/ 是发布附件、不入库；没生成就跳过，不阻塞
+step "1.7/5 大卡库分片用 App 解析器自检（没有 cards/library/ 就跳过）"
+(cd "$ROOT/tests" && timeout 600 node library-pack.test.mjs 2>&1 | tail -5)
+[ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+
 # ---------------------------------------------------------------- 2 & 3. Java
 step "2/5 编译 JVM 测试桩"
 rm -rf build/jvmtest && mkdir -p build/jvmtest

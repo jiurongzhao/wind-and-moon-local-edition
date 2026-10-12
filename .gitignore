@@ -41,6 +41,14 @@ dist/
 # 卡包：由 tools/build-pack-index.py 从 cards/ 同步生成，不入库
 app/assets/ui/packs/
 
+# 大卡库（每分类 1000 角色 + 1000 剧情，约 100MB）：tools/gen-cards.py 产出，
+# 只作为发行版附件发布，不进仓库
+cards/library/
+
+# Python 缓存（tools/*.py 跑过就会留）
+__pycache__/
+*.pyc
+
 # Gitee 访问令牌（发版用，绝不入库）
 .gitee_token
 *.token

@@ -182,6 +182,53 @@
     } else if (view === 'ref') {
       App.switchView('characters');
       App.openRefSheet();
+    } else if (view === 'library') {
+      /* 在线卡库面板：把目录流（/fetch?url=…）用假目录截住，
+         并假装其中两片已经导入过，这样截图里能同时看到「已导入 / 未下载 / 全部下载」。 */
+      App.switchView('characters');
+      var cats = [
+        ['daily-healing', '日常治愈', '🌤'], ['romance', '恋爱', '💗'],
+        ['mystery', '悬疑推理', '🔍'], ['wuxia', '古风仙侠', '⚔️'],
+        ['scifi', '科幻未来', '🛰'], ['fantasy', '奇幻冒险', '🐉'],
+        ['campus', '校园', '🎒'], ['workplace', '职场', '💼'],
+        ['history', '历史', '📜'], ['horror', '恐怖惊悚', '🕯'],
+        ['comedy', '喜剧沙雕', '🤣'], ['supernatural', '灵异怪谈', '👻'],
+        ['apocalypse', '末世生存', '☢️'], ['cyberpunk', '赛博朋克', '🌃'],
+        ['mythology', '神话志怪', '🐚'], ['comfort', '情感树洞', '🫂'],
+      ];
+      var packs = [];
+      cats.forEach(function (c) {
+        ['character', 'story'].forEach(function (k) {
+          packs.push({
+            file: c[0] + '-' + k + '-1.json', slug: c[0], tag: c[1], emoji: c[2],
+            kind: k, part: 1, parts: 1, count: 1000, bytes: 3100000, sha256: '',
+          });
+        });
+      });
+      var catalog = {
+        spec: 'fy_library_v1', total: 32000, baseUrl: 'https://example.invalid/library/',
+        categories: cats.map(function (c) {
+          return { slug: c[0], tag: c[1], emoji: c[2], character: 1000, story: 1000 };
+        }),
+        packs: packs,
+      };
+      var realFetch = window.fetch;
+      window.fetch = function (u) {
+        if (/\/fetch\?url=/.test(String(u)) || /fy-library|library\/index/.test(String(u))) {
+          return Promise.resolve(new Response(JSON.stringify(catalog), {
+            status: 200, headers: { 'content-type': 'application/json' },
+          }));
+        }
+        return realFetch.apply(window, arguments);
+      };
+      var imported = {};
+      imported['mystery-character-1.json'] = { count: 1000, ts: Date.now() };
+      imported['romance-story-1.json'] = { count: 1000, ts: Date.now() };
+      App.state.settings = App.state.store.saveSettings({
+        libCatalogUrl: 'https://example.invalid/library/index.json',
+        libraryImported: imported,
+      });
+      App.openLibrarySheet();
     } else if (view === 'sheet') {
       App.switchView('characters');
       var first = App.state.store.listCharacters()[0];

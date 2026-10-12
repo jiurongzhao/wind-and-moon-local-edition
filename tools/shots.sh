@@ -94,6 +94,7 @@ shot 11-creator-category "view=creator"
 shot 12-creator-skeleton "view=creator2"
 shot 13-editor-lint  "view=editor"
 shot 14-inspiration  "view=ref"
+shot 15-library      "view=library"
 
 echo
 echo "✅ 完成：$OUT"

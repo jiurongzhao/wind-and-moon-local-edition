@@ -56,13 +56,13 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 <table>
 <tr>
 <td width="33%"><img src="docs/shots/01-characters.png" alt="角色页：夜幕头图 + 分类筛选"><br><sub>角色页 · 头图 / 搜索 / 分类 / 卡包</sub></td>
+<td width="33%"><img src="docs/shots/15-library.png" alt="在线卡库：32 组按需下载"><br><sub>在线卡库 · 32 组按需下载（32000 张）</sub></td>
 <td width="33%"><img src="docs/shots/02-chat.png" alt="聊天页：流式对话与剧情选项"><br><sub>聊天页 · 流式对话与剧情选项</sub></td>
-<td width="33%"><img src="docs/shots/11-creator-category.png" alt="创作者工具：选分类"><br><sub>创作者工具 · 16 分类模板（第一步）</sub></td>
 </tr>
 <tr>
+<td width="33%"><img src="docs/shots/11-creator-category.png" alt="创作者工具：选分类"><br><sub>创作者工具 · 16 分类模板（第一步）</sub></td>
 <td width="33%"><img src="docs/shots/12-creator-skeleton.png" alt="创作者工具：挑骨架"><br><sub>创作者工具 · 48 个人设骨架（第二步）</sub></td>
 <td width="33%"><img src="docs/shots/13-editor-lint.png" alt="角色编辑面板与七维评分"><br><sub>角色编辑 · 七维质量评分 + AI 辅助</sub></td>
-<td width="33%"><img src="docs/shots/14-inspiration.png" alt="灵感面板"><br><sub>灵感 · 公开参考（只借鉴模式）</sub></td>
 </tr>
 <tr>
 <td width="33%"><img src="docs/shots/07-settings.png" alt="设置页"><br><sub>设置 · 引擎 / 模型来源 / 存储后端</sub></td>
@@ -76,8 +76,10 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 </tr>
 </table>
 
-> 这些图是 `./tools/shots.sh` 用无头 Chromium 自动生成的（`tools/preview-seed.js` 注入假数据），
-> 改完界面重新跑一次即可，不需要真机也不需要 Android Studio。
+> 这些图是 `./tools/shots.sh` 用无头 Chromium 自动生成的（`tools/preview-seed.js` 注入假数据，
+> 包括「在线卡库」那张——用假目录把 `/fetch` 拦下来，所以截图不需要联网）。
+> 改完界面重新跑一次即可（共 15 张），不需要真机也不需要 Android Studio；
+> 没往表里塞的还有浅色聊天页、灵感面板、斜杠指令三张，在 `docs/shots/` 里。
 
 ## 现状
 
@@ -86,7 +88,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.4 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **337 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统） |
+| 前端功能（jsdom 集成测试） | ✅ **360 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
@@ -94,9 +96,11 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 角色卡解析真跑（JVM） | ✅ **6 项通过**：`PngCardText` 解 PNG 的 `tEXt`/`zTXt`/`iTXt` 三种卡块（含截断文件不崩） |
 | 本地数据库 | ✅ **四个后端**（IndexedDB / SQLite / localStorage / 内存）+ 一键迁移 + 跨会话搜索；内存索引 + 增量落盘；修掉「设置表每次保存被清空」的持久化 bug |
 | 界面主题 | ✅ 深/浅/跟随系统 + 强调色对比度自适应，有 jsdom 回归测试（12 项） |
-| 前端 jsdom 覆盖 | ✅ **337 项**：含数据库持久化、备份恢复、token 自校正、多后端协议、搜索界面、分类/推荐/卡包导入、模型来源路由、创作者工具（模板/七维评分/AI 辅助/灵感面板）、界面图标系统与列表结构 |
+| 前端 jsdom 覆盖 | ✅ **360 项**：含数据库持久化、备份恢复、token 自校正、多后端协议、搜索界面、分类/推荐/卡包导入、模型来源路由、创作者工具（模板/七维评分/AI 辅助/灵感面板）、界面图标系统、角色列表窗口化、批量入库、在线卡库（目录/下载/幂等/坏数据拒写） |
 | 外部模型代理 | ✅ 15 项 JVM 实跑（假上游）：路由拼接、body 逐字节转发、key 注入、**SSE 实时透传**、502 快速失败 |
 | 内置卡包 | ✅ 16 个分类 / 160 张原创卡（CC0），随 APK 发布，有发布前真实性校验 |
+| **在线卡库** | ✅ **16 类 ×（1000 角色卡 + 1000 剧情卡）= 32000 张**（CC0），由 `tools/gen-cards.py` 从叙事母题素材库组合生成；发布闸门 `check-cards.py` **32000 张全过**、App 解析器全量自检全过；每类约 6MB，按需下载不进 APK |
+| `/fetch` 下载代理 | ✅ **26 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
 | 创作者工具 | ✅ 16 分类 × 3 个人设骨架 + 每类写作要点（全部原创 CC0）；七维质量评分（维度口径借鉴 CC-BY-4.0 的 SPB-2603，判定逻辑自研）；AI 辅助扩写走同一条流式通道；`tools/check-creator.py` 校验三份模板 JSON 的对齐关系 |
 | 联网灵感面板 | ✅ 全部端点都用 curl 实测过 CORS：`api.chub.ai`（只取名字与 topics 标签，按 `nsfw_image` 过滤）、`api.github.com`（仓库元数据 + 许可证）、`datasets-server.huggingface.co`（字段结构）。**运行时即时拉取，不打包任何第三方内容** |
 | 性能实测脚本 | ✅ `tests/bench-flags.mjs`（启动参数 A/B）、`tests/bench-prefix.mjs`（前缀复用）、`tests/bench-db.mjs`（数据库真实规模） |
@@ -319,6 +323,25 @@ python3 tools/check-cards.py --all --stats    # 校验全部卡包（结构/长�
 python3 tools/dedupe-cards.py                # 跨包重名消歧（会同步改卡内正文）
 python3 tools/build-pack-index.py            # 生成目录 + 同步进 App 资源
 ```
+
+**更大规模的「在线卡库」**：内置那 160 张是随包走的开胃菜；另有
+**16 类 ×（1000 角色卡 + 1000 剧情卡）= 32000 张**（CC0），**不打包进 APK**
+（否则包体会从 13MB 涨到几十 MB）。角色页「⬇ 卡库」→ 面板按「分类 × 类型」列成 32 组
+（分类名 + 类型 + 总张数 + 状态），可单组「下载并导入」或「全部下载」：
+
+- 卡是**从叙事母题素材库组合生成**的（`cards/banks/*.json` → `tools/gen-cards.py`），
+  固定种子可复现；发布前过两道闸门：`tools/check-cards.py` 与
+  `tests/library-pack.test.mjs`（用 App 自己的 `cards.js` 解析器再吃一遍）；
+- 下载统一走本机 `AssetServer` 的 `GET /fetch?url=…` 同源 https 代理 —— Gitee 的 raw / 发行版附件
+  都不带 CORS 头，WebView 直连必被拦；代理只放行 https，且不转发前端的 Cookie / Authorization；
+- 每个分片下载后校验「目录声明的张数 = 文件里的卡片数」，不符就报错并**一张都不写**；
+- 已导入的分片记在 `settings.libraryImported`，重开面板能看出哪些已导入，重复导入幂等；
+- 配合**窗口化渲染**（角色页一次只建 60 张卡，滚到底再追加，底部显示「已显示 60 / 1234」）
+  与**批量导入**（一次事务写库 + 一次列表刷新，进度写到面板），三万张规模下界面不会被 DOM 拖死。
+
+卡库的分片作为发行版附件发布（`cards-v1`），目录 `cards/library-index.json`（约 9KB，随仓库走）
+里带着每片的张数、字节数与下载地址；**只借结构与母题、不抄任何第三方正文**，
+每个分类的素材库都有一份 `do_not` 清单点名要避开的高风险 IP，参考来源（优先公版）逐条登记许可证。
 
 ### 分类 / 搜索 / 推荐
 

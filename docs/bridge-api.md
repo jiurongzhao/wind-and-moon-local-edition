@@ -72,6 +72,26 @@ POST http://127.0.0.1:<port>/v1/chat/completions
 - llama-server 已开启 `Access-Control-Allow-Origin: *`，`file://` 页面的 fetch 可直连。
 - 其它可用端点：`GET /health`、`GET /v1/models`、`POST /v1/chat/completions`。
 
+### 3.1 通用下载代理 `GET /fetch?url=<urlencoded>`
+
+AssetServer 自己提供的同源 https 下载接口（**不是** `window.FY` 桥方法，前端直接 `fetch` 本机地址）。
+「在线卡库」用它拉目录与卡包分片：Gitee 的 raw / 发行版附件都不带 `Access-Control-Allow-Origin`，
+WebView 直连外域必被 CORS 拦，走同源代理就没这个问题。
+
+```
+GET http://127.0.0.1:<port>/fetch?url=https%3A%2F%2Fexample.com%2Ffy-library%2Fmystery-character-1.json
+```
+
+| 情况 | 返回 |
+|---|---|
+| 正常 | `200` + 上游响应体（Content-Type 透传） |
+| 缺 `url` / 地址非法 / 非 `https` / 非 GET | `400` / `405`（纯文本原因） |
+| 上游非 200、连不上、超时 | `502`（附上游状态码或异常原因） |
+| 响应体超过上限（默认 64MB） | `413` |
+
+安全边界：**只允许 `https`**；**不转发前端的任何请求头**（Cookie / Authorization / Referer 全部丢弃），
+所以它不能被当成任意内网探测器，也不会泄漏凭证。跟随重定向，连接 15s / 读取 60s 超时。
+
 ## 4. 数据存储
 
 前端自己用 **IndexedDB**（或 localStorage）保存角色卡、会话历史、记忆摘要。

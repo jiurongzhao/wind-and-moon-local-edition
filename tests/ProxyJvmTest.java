@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
  *   3. Authorization: Bearer <key> 被带上（key 只存在原生侧）
  *   4. **SSE 分块实时透传**：上游每写一块，客户端能立刻收到（而不是等结束）
  *   5. 没配置外部服务时返回 503，而不是挂死
+ *   6. GET /fetch?url=…（在线卡库的通用下载代理）：成功透传、只放行 https、
+ *      不转发前端 Cookie/Authorization、上游 404/连不上 → 502、超上限 → 413
  *
  * 用法: java -cp <classes> ProxyJvmTest
  */
@@ -55,7 +57,8 @@ public class ProxyJvmTest {
     /** 假的 OpenAI 兼容上游 */
     static HttpServer startUpstream(AtomicReference<String> seenAuth, AtomicReference<String> seenBody,
                                     AtomicReference<String> seenPath, AtomicLong firstChunkAt,
-                                    AtomicLong lastChunkAt) throws Exception {
+                                    AtomicLong lastChunkAt, AtomicReference<String> seenCookie,
+                                    AtomicReference<String> seenFetchAuth) throws Exception {
         HttpServer srv = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 
         srv.createContext("/v1/models", (HttpExchange ex) -> {
@@ -98,6 +101,50 @@ public class ProxyJvmTest {
             os.close();
         });
 
+        /* ---- /fetch 用的假下载源 ------------------------------------------
+           全部在回环明文上，只有「JVM 测试放行回环 http」时 AssetServer 才会去连。 */
+        srv.createContext("/lib/pack.json", (HttpExchange ex) -> {
+            /* 记录 AssetServer 转发过来的头：用来证明 /fetch 不转发前端的凭证 */
+            seenCookie.set(ex.getRequestHeaders().getFirst("Cookie"));
+            seenFetchAuth.set(ex.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = "{\"spec\":\"fy_pack_v1\",\"count\":1,\"cards\":[]}".getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, body.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+
+        srv.createContext("/lib/notfound", (HttpExchange ex) -> {
+            byte[] body = "nope".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(404, body.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+
+        /* 声明了 Content-Length 的超限响应：应被"先拦"（不读 body） */
+        srv.createContext("/lib/big", (HttpExchange ex) -> {
+            byte[] body = new byte[4096];
+            java.util.Arrays.fill(body, (byte) 'x');
+            ex.getResponseHeaders().add("Content-Type", "text/plain");
+            ex.sendResponseHeaders(200, body.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+
+        /* chunked（不发 Content-Length）的超限响应：应被"边读边数"兜住 */
+        srv.createContext("/lib/bigchunk", (HttpExchange ex) -> {
+            byte[] body = new byte[4096];
+            java.util.Arrays.fill(body, (byte) 'y');
+            ex.getResponseHeaders().add("Content-Type", "text/plain");
+            ex.sendResponseHeaders(200, 0);      // 0 = chunked
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+
         srv.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(4));
         srv.start();
         return srv;
@@ -115,13 +162,17 @@ public class ProxyJvmTest {
         AtomicReference<String> path = new AtomicReference<>();
         AtomicLong firstChunk = new AtomicLong(0);
         AtomicLong lastChunk = new AtomicLong(0);
+        AtomicReference<String> fetchCookie = new AtomicReference<>();
+        AtomicReference<String> fetchAuth = new AtomicReference<>();
 
-        HttpServer upstream = startUpstream(auth, body, path, firstChunk, lastChunk);
+        HttpServer upstream = startUpstream(auth, body, path, firstChunk, lastChunk, fetchCookie, fetchAuth);
         int upPort = upstream.getAddress().getPort();
         System.out.println("假上游: http://127.0.0.1:" + upPort + "/v1");
 
         Context ctx = new Context(home + "/2/fy/native", tmp + "/files", tmp + "/cache");
-        AssetServer server = new AssetServer(new AssetManager(assetsDir), ctx);
+        /* JVM 测试专用构造器：放行回环明文 http（生产永远 false），并把 /fetch 上限压到 1KB
+           好让"超限 → 413"这条能用一个几百字节的假响应覆盖。 */
+        AssetServer server = new AssetServer(new AssetManager(assetsDir), ctx, 1024, true);
         int port = server.start();
         System.out.println("AssetServer: http://127.0.0.1:" + port + "\n");
 
@@ -201,6 +252,66 @@ public class ProxyJvmTest {
                 index.startsWith("HTTP/1.1 200") && index.contains("<html"),
                 index.split("\r\n")[0]);
 
+        // ---------- 7. /fetch 通用下载代理（在线卡库：Gitee 无 CORS，必须同源代理） ----------
+        System.out.println("\n【/fetch 通用下载代理】");
+        String okUrl = "http://127.0.0.1:" + upPort + "/lib/pack.json";
+        long tFetch = System.currentTimeMillis();
+        String okResp = rawHeaders("http://127.0.0.1:" + port + "/fetch?url=" + enc(okUrl),
+                new String[][]{{"Cookie", "fy-should-not-leak=1"}, {"Authorization", "Bearer should-not-leak"}});
+        check("/fetch 成功透传上游内容（200 + 原文）",
+                statusOf(okResp) == 200 && okResp.contains("fy_pack_v1"),
+                "HTTP " + statusOf(okResp));
+        check("/fetch 不转发前端 Cookie（无凭证泄漏）",
+                fetchCookie.get() == null, String.valueOf(fetchCookie.get()));
+        check("/fetch 不转发前端 Authorization（无凭证泄漏）",
+                fetchAuth.get() == null, String.valueOf(fetchAuth.get()));
+        check("/fetch 失败也快速返回（不挂死）", System.currentTimeMillis() - tFetch < 10000,
+                (System.currentTimeMillis() - tFetch) + "ms");
+
+        String httpResp = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("http://example.com/pack.json"), null, null);
+        check("非 https 地址被拒（400，不回显内容）",
+                httpResp.startsWith("HTTP/1.1 400") && httpResp.contains("只允许 https"),
+                httpResp.split("\r\n")[0]);
+
+        String fileResp = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("file:///etc/passwd"), null, null);
+        check("file:// 之类的 scheme 被拒（400）",
+                fileResp.startsWith("HTTP/1.1 400"), fileResp.split("\r\n")[0]);
+
+        String noUrl = raw("GET", "http://127.0.0.1:" + port + "/fetch", null, null);
+        check("缺少 url 参数时 400 并给出提示",
+                noUrl.startsWith("HTTP/1.1 400") && noUrl.contains("url"), noUrl.split("\r\n")[0]);
+
+        long t404 = System.currentTimeMillis();
+        String notFound = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("http://127.0.0.1:" + upPort + "/lib/notfound"),
+                null, null);
+        long cost404 = System.currentTimeMillis() - t404;
+        check("上游 404 → 502 且带上游状态码、快速返回",
+                notFound.startsWith("HTTP/1.1 502") && notFound.contains("404") && cost404 < 10000,
+                notFound.split("\r\n")[0] + " 耗时 " + cost404 + "ms");
+
+        long tDead = System.currentTimeMillis();
+        String dead = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("http://127.0.0.1:9/pack.json"), null, null);
+        long costDead = System.currentTimeMillis() - tDead;
+        check("上游连不上 → 502 且快速失败（不挂死）",
+                dead.startsWith("HTTP/1.1 502") && costDead < 15000,
+                dead.split("\r\n")[0] + " 耗时 " + costDead + "ms");
+
+        String big = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("http://127.0.0.1:" + upPort + "/lib/big"),
+                null, null);
+        check("声明 Content-Length 超上限 → 413（先拦，不读 body）",
+                big.startsWith("HTTP/1.1 413"), big.split("\r\n")[0]);
+
+        String bigChunk = raw("GET",
+                "http://127.0.0.1:" + port + "/fetch?url=" + enc("http://127.0.0.1:" + upPort + "/lib/bigchunk"),
+                null, null);
+        check("chunked 响应边读边数、超上限 → 413",
+                bigChunk.startsWith("HTTP/1.1 413"), bigChunk.split("\r\n")[0]);
+
         upstream.stop(0);
         server.stop();
 
@@ -214,6 +325,49 @@ public class ProxyJvmTest {
         StringBuilder sb = new StringBuilder();
         long[] t = new long[1];
         return rawStreaming(method, url, body, auth, sb, t);
+    }
+
+    /** 带自定义请求头的 GET；返回 "HTTP/1.1 <code>\r\n...\r\n\r\n<body>"（够断言用） */
+    static String rawHeaders(String url, String[][] headers) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("GET");
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(30000);
+        for (String[] h : headers) c.setRequestProperty(h[0], h[1]);
+        int code = c.getResponseCode();
+        InputStream in;
+        try {
+            in = c.getInputStream();
+        } catch (Exception e) {
+            in = c.getErrorStream();
+        }
+        StringBuilder out = new StringBuilder("HTTP/1.1 ").append(code).append("\r\n\r\n");
+        if (in != null) {
+            byte[] buf = new byte[512];
+            int n;
+            while ((n = in.read(buf)) > 0) out.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+            in.close();
+        }
+        c.disconnect();
+        return out.toString();
+    }
+
+    /** 从 raw/rawHeaders 的返回里抠出状态码（抠不到算 -1） */
+    static int statusOf(String resp) {
+        int i = String.valueOf(resp).indexOf("HTTP/1.1 ");
+        if (i < 0) return -1;
+        String rest = resp.substring(i + 9).trim();
+        int sp = rest.indexOf(' ');
+        if (sp < 0) sp = rest.indexOf('\r');
+        try {
+            return Integer.parseInt(rest.substring(0, sp < 0 ? rest.length() : sp).trim());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    static String enc(String s) throws Exception {
+        return java.net.URLEncoder.encode(s, "UTF-8");
     }
 
     /** 发请求并按块读响应；首块到达时间写进 firstAt[0]，首块内容写进 firstSeen */

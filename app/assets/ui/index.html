@@ -130,6 +130,8 @@
             <svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>推荐</button>
           <button class="btn btn-sm" id="btnPacks" title="内置卡包">
             <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>卡包</button>
+          <button class="btn btn-sm" id="btnLibrary" title="在线卡库：按分类下载并导入（不占 APK 体积）">
+            <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>卡库</button>
           <button class="btn btn-sm" id="btnImportCard" title="导入 SillyTavern 角色卡（.json / .png）">
             <svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>导入卡</button>
           <button class="btn btn-sm" id="btnIdea" title="联网参考：看看公开社区里同类角色怎么写">
@@ -138,6 +140,7 @@
         <div class="chips" id="charCats"></div>
 
         <div class="grid" id="charGrid"></div>
+        <div class="char-more" id="charMore" hidden></div>
         <div class="empty" id="charEmpty" hidden>
           <div class="empty-emoji"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
           <div class="empty-title">还没有角色</div>
@@ -764,6 +767,41 @@
       </div>
       <div class="model-list" id="packList"></div>
       <div class="muted xs" style="margin-top:8px">卡包均为本项目原创（CC0），可自由使用与修改；导入后可在角色页按分类筛选。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 在线卡库（不随 APK 发布，按需下载） ======================= -->
+<div class="sheet-mask" id="libMask" hidden>
+  <div class="sheet" id="libSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>在线卡库</div>
+      <button class="icon-btn" id="btnLibClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted xs" id="libStatus">正在加载卡库目录…</div>
+      <div class="row gap wrap">
+        <button class="btn btn-sm btn-primary" id="btnLibAll">
+          <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>全部下载</button>
+        <button class="btn btn-sm" id="btnLibRefresh">
+          <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>刷新目录</button>
+      </div>
+      <div class="model-list" id="libList"></div>
+      <div class="field">
+        <label class="label" for="libUrl">目录地址（JSON）</label>
+        <div class="row gap">
+          <input class="input grow" id="libUrl" autocomplete="off" spellcheck="false" placeholder="https://…/fy-library/index.json">
+          <button class="btn btn-sm" id="btnLibUrlSave">保存</button>
+        </div>
+      </div>
+      <div class="muted xs" style="margin-top:8px">卡包不随 APK 发布，从同一个 https 地址按需下载；
+        下载走本机代理（Gitee 等站点没有 CORS 头，WebView 直连会被拦）。已导入的分片会记住，重复点不会重复建卡。</div>
+    </div>
+    <div class="sheet-foot">
+      <span class="muted xs" id="libTotal">选一个分类开始，或点「全部下载」</span>
+      <span class="grow"></span>
+      <button class="btn" id="btnLibDone">完成</button>
     </div>
   </div>
 </div>

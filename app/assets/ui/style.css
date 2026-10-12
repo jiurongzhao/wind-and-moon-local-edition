@@ -808,6 +808,16 @@ select.input option { background: var(--surface-2); color: var(--text); }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 @media (min-width: 560px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 820px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* 窗口化渲染的"已显示 N / M"提示（三万张卡不可能一次渲染，滚到底再追加） */
+.char-more {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: 10px; padding: 14px 8px 2px;
+}
+.char-more-text { font-size: 12px; color: var(--text-3); line-height: 1.5; }
+/* 在线卡库：每行一个「分类 × 类型」，状态字跟在按钮旁边 */
+.lib-row-status { font-size: 11px; color: var(--text-3); line-height: 1.6; }
+.lib-row-status.err { color: var(--danger-text); }
+.lib-row-status.ok { color: var(--accent-strong); }
 
 .char-card {
   position: relative;

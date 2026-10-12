@@ -28,19 +28,38 @@ import java.util.concurrent.Executors;
  *
  * 只监听 127.0.0.1，仅本机可访问，不暴露到局域网。
  *
- * 另外承担 /api/ 反向代理：把外部的 OpenAI 兼容服务（Ollama / LM Studio / 云端 API）
- * 通过本机 127.0.0.1 转发出去。这样做有两个好处：
- *   1. WebView 只跟同源地址打交道，没有跨域（CORS）问题 —— Ollama 默认只允许 localhost 源，
- *      直连必然失败；
- *   2. API key 只存在原生侧，前端拿不到。
- * 转发是**流式**的：边读上游边 flush，SSE 增量照常到达前端。
+ * 另外承担两个反向代理：
+ *
+ * 1) /api/ —— 把外部的 OpenAI 兼容服务（Ollama / LM Studio / 云端 API）
+ *    通过本机 127.0.0.1 转发出去。这样做有两个好处：
+ *      - WebView 只跟同源地址打交道，没有跨域（CORS）问题 —— Ollama 默认只允许 localhost 源，
+ *        直连必然失败；
+ *      - API key 只存在原生侧，前端拿不到。
+ *    转发是**流式**的：边读上游边 flush，SSE 增量照常到达前端。
+ *
+ * 2) GET /fetch?url=<urlencoded> —— 通用 https GET 代理，给「在线卡库」这类纯下载用。
+ *    原因同上：Gitee 的 raw / release 附件不带 Access-Control-Allow-Origin，WebView 直连必被 CORS 拦。
+ *    安全边界（见 fetchProxy）：
+ *      - 只允许 https（http/file/ftp… 一律 400），避免被前端当成任意内网探测器；
+ *      - 不转发前端的任何请求头（Cookie / Authorization / Referer 全部丢掉），无凭证泄漏；
+ *      - 跟随重定向、连接 15s / 读取 60s 超时、响应体上限 64MB（超出 413），失败快速回 502。
  */
 public class AssetServer {
 
     private static final String TAG = "FY/AssetServer";
+
+    /** /fetch 单次响应体上限：64MB（三万张卡的单个分片约 1~2MB，留足余量）。 */
+    public static final long DEFAULT_MAX_FETCH_BYTES = 64L * 1024 * 1024;
+    private static final int FETCH_CONNECT_TIMEOUT_MS = 15000;
+    private static final int FETCH_READ_TIMEOUT_MS = 60000;
+
     private final AssetManager assets;
     private final Context ctx;
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    /** /fetch 响应体字节上限，超出回 413。 */
+    private final long maxFetchBytes;
+    /** 仅供 JVM 测试：允许 http://127.0.0.1 之类的回环明文地址。生产构造器永远是 false。 */
+    private final boolean allowLoopbackHttp;
     private ServerSocket server;
     private Thread acceptThread;
     private volatile boolean running = false;
@@ -62,8 +81,20 @@ public class AssetServer {
     }
 
     public AssetServer(AssetManager assets, Context ctx) {
+        this(assets, ctx, DEFAULT_MAX_FETCH_BYTES, false);
+    }
+
+    /**
+     * @param maxFetchBytes        /fetch 响应体上限（字节）
+     * @param allowLoopbackHttp    仅 JVM 测试用：放行 http://127.0.0.1 / localhost。
+     *                             生产代码走两参构造器，永远是 false —— 前端无法影响它，
+     *                             所以线上的安全边界没有被放宽。
+     */
+    public AssetServer(AssetManager assets, Context ctx, long maxFetchBytes, boolean allowLoopbackHttp) {
         this.assets = assets;
         this.ctx = ctx;
+        this.maxFetchBytes = maxFetchBytes > 0 ? maxFetchBytes : DEFAULT_MAX_FETCH_BYTES;
+        this.allowLoopbackHttp = allowLoopbackHttp;
     }
 
     public int getPort() {
@@ -108,11 +139,15 @@ public class AssetServer {
             String requestLine = readLine(s.getInputStream());
             if (requestLine == null) return;
 
-            // "GET /path HTTP/1.1"
+            // "GET /path?query HTTP/1.1"
             String[] parts = requestLine.split(" ");
             String rawPath = parts.length > 1 ? parts[1] : "/";
+            String rawQuery = "";
             int q = rawPath.indexOf('?');
-            if (q >= 0) rawPath = rawPath.substring(0, q);
+            if (q >= 0) {
+                rawQuery = rawPath.substring(q + 1);
+                rawPath = rawPath.substring(0, q);
+            }
             if (rawPath.equals("/")) rawPath = "/index.html";
 
             String method = parts.length > 0 ? parts[0] : "GET";
@@ -126,6 +161,12 @@ public class AssetServer {
                     headers.put(line.substring(0, colon).trim().toLowerCase(),
                             line.substring(colon + 1).trim());
                 }
+            }
+
+            // GET /fetch?url=… → 通用 https 下载代理（在线卡库等纯下载用）
+            if (rawPath.equals("/fetch")) {
+                fetchProxy(s, rawQuery, method);
+                return;
             }
 
             // /api/... → 转发到外部 OpenAI 兼容服务（配置在 Providers 里）
@@ -241,6 +282,154 @@ public class AssetServer {
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    /**
+     * GET /fetch?url=&lt;urlencoded&gt; —— 通用下载代理。
+     *
+     * 跟 /api/ 的区别：这里不碰 Providers、不带任何凭证、不流式（先收完整段再回，
+     * 因为要能对超限的响应干净地回 413）。下载场景对"首字节延迟"不敏感，对"不要写坏数据"敏感。
+     */
+    private void fetchProxy(Socket sock, String rawQuery, String method) {
+        OutputStream out = null;
+        HttpURLConnection c = null;
+        try {
+            out = sock.getOutputStream();
+
+            if (!"GET".equalsIgnoreCase(method)) {
+                replyText(out, "405 Method Not Allowed", "只支持 GET");
+                return;
+            }
+
+            String target = queryParam(rawQuery, "url");
+            if (target == null || target.trim().isEmpty()) {
+                replyText(out, "400 Bad Request", "缺少 url 参数");
+                return;
+            }
+            target = target.trim();
+
+            URL url;
+            try {
+                url = new URL(target);
+            } catch (Exception e) {
+                replyText(out, "400 Bad Request", "地址不合法：" + e.getMessage());
+                return;
+            }
+
+            /* 安全边界一：只允许 https。
+               明文 http 只在"测试放行 + 回环地址"这个组合下才可能通过，
+               生产构造器的 allowLoopbackHttp 恒为 false。 */
+            String scheme = url.getProtocol() == null ? "" : url.getProtocol().toLowerCase();
+            boolean https = "https".equals(scheme);
+            boolean loopbackTest = allowLoopbackHttp && "http".equals(scheme) && isLoopbackHost(url.getHost());
+            if (!https && !loopbackTest) {
+                replyText(out, "400 Bad Request",
+                        "只允许 https 地址（当前 " + (scheme.isEmpty() ? "没有 scheme" : scheme) + "）");
+                return;
+            }
+
+            c = (HttpURLConnection) url.openConnection();
+            c.setInstanceFollowRedirects(true);   // 跟随重定向；跨协议（https→http）Java 不会跟，落到非 200 → 502
+            c.setConnectTimeout(FETCH_CONNECT_TIMEOUT_MS);
+            c.setReadTimeout(FETCH_READ_TIMEOUT_MS);
+            c.setRequestMethod("GET");
+            c.setUseCaches(false);
+            /* 安全边界二：不转发前端的任何请求头。Cookie / Authorization / Referer /
+               自定义头统一丢弃，只带上这两个无害的固定值。 */
+            c.setRequestProperty("Accept", "*/*");
+            c.setRequestProperty("User-Agent", "fy-local/1.0 AssetServer");
+
+            int code = c.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) {
+                String msg = "上游返回 HTTP " + code
+                        + (c.getResponseMessage() != null ? (" " + c.getResponseMessage()) : "");
+                Log.w(TAG, "/fetch 上游非 200：" + code + " " + url.getHost());
+                replyText(out, "502 Bad Gateway", msg);
+                return;
+            }
+
+            /* 安全边界三：体积上限。声明了 Content-Length 的先拦，边读边数兜住 chunked。 */
+            long declared = -1;
+            try { declared = c.getContentLengthLong(); } catch (Throwable ignored) { }
+            if (declared > maxFetchBytes) {
+                replyText(out, "413 Payload Too Large", "上游响应 " + fmtBytes(declared) + "，超过上限 " + fmtBytes(maxFetchBytes));
+                return;
+            }
+
+            InputStream in = c.getInputStream();
+            int initial = declared > 0 ? (int) Math.min(declared, 256 * 1024) : 16384;
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(initial);
+            byte[] buf = new byte[16384];
+            long total = 0;
+            boolean tooBig = false;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                total += n;
+                if (total > maxFetchBytes) { tooBig = true; break; }
+                bos.write(buf, 0, n);
+            }
+            in.close();
+            if (tooBig) {
+                replyText(out, "413 Payload Too Large", "上游响应超过上限 " + fmtBytes(maxFetchBytes));
+                return;
+            }
+
+            String ct = c.getContentType();
+            if (ct == null || ct.isEmpty()) ct = "application/octet-stream";
+            ct = ct.replace('\r', ' ').replace('\n', ' ');   // 不让上游往响应头里塞 CRLF
+            byte[] body = bos.toByteArray();
+            writeHeaders(out, "200 OK", ct, body.length);
+            out.write(body);
+            out.flush();
+            Log.i(TAG, "/fetch " + url.getHost() + " → " + body.length + "B");
+        } catch (Exception e) {
+            Log.w(TAG, "/fetch 失败：" + e);
+            try {
+                if (out != null) replyText(out, "502 Bad Gateway", "拉取失败：" + e);
+            } catch (IOException ignored) {
+            }
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** 小段文本响应（错误提示用），自带 Content-Length。 */
+    private void replyText(OutputStream out, String status, String text) throws IOException {
+        byte[] msg = (text == null ? "" : text).getBytes("UTF-8");
+        writeHeaders(out, status, "text/plain; charset=utf-8", msg.length);
+        out.write(msg);
+        out.flush();
+    }
+
+    /** 从 query string 里取一个参数并 URL 解码；取不到返回 null。 */
+    private static String queryParam(String query, String name) {
+        if (query == null || query.isEmpty()) return null;
+        String[] parts = query.split("&");
+        for (String p : parts) {
+            int eq = p.indexOf('=');
+            String k = eq >= 0 ? p.substring(0, eq) : p;
+            if (!k.equals(name)) continue;
+            String v = eq >= 0 ? p.substring(eq + 1) : "";
+            try {
+                return java.net.URLDecoder.decode(v, "UTF-8");
+            } catch (Exception e) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        if (host == null) return false;
+        String h = host.trim().toLowerCase();
+        return h.equals("127.0.0.1") || h.equals("localhost") || h.equals("::1") || h.equals("[::1]");
+    }
+
+    private static String fmtBytes(long n) {
+        if (n < 0) return "未知";
+        if (n < 1024) return n + "B";
+        if (n < 1024 * 1024) return (n / 1024) + "KB";
+        return (n / 1024 / 1024) + "MB";
     }
 
     private static byte[] readN(InputStream in, int n) throws IOException {

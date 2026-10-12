@@ -539,7 +539,9 @@
     bgPattern: true,         /* 背景图案（星野/点阵）开关 */
     fontScale: 1,            /* 正文字号倍率（0.9 / 1 / 1.12 / 1.25） */
     onboarded: false,        /* 是否走过首次引导（三选一） */
-    lastModel: ''
+    lastModel: '',
+    libCatalogUrl: '',       /* 在线卡库目录地址（空 = 用前端常量兜底） */
+    libraryImported: {}      /* 在线卡库已导入的分片：{"<file>": {count, ts}} —— 重开面板据此显示"已导入" */
   };
 
   function makeSettings(patch) {
@@ -548,6 +550,8 @@
     if (patch && typeof patch === 'object') {
       for (var k2 in patch) if (Object.prototype.hasOwnProperty.call(patch, k2)) out[k2] = patch[k2];
     }
+    /* 对象型设置不能共用 DEFAULT_SETTINGS 里那个引用（防止一份实例改了污染其它实例） */
+    out.libraryImported = Object.assign({}, out.libraryImported || {});
     return out;
   }
 
@@ -736,6 +740,54 @@
       save();
       return copy(c);
     }
+
+    /**
+     * 批量写入角色（导入卡包 / 在线卡库专用）。
+     *
+     * 跟"循环调用 saveCharacter"的区别（32000 张卡时这个差别是决定性的）：
+     *   1. 只标脏、只 save() 一次 —— 不产生 N 次落盘；
+     *   2. 不做"每张卡都扫一遍全部消息去同步改名"那步（导入的卡 id 是新的，本来就没消息）；
+     *      只有命中已有 id（真的是在改老卡）时才做。
+     * @param {Array}    list        卡片补丁数组（chara_card_v2 先经 FYCards 归一化再传）
+     * @param {Function} onProgress  (done, total) 每写一张回调一次；抛错不影响导入
+     * @returns {{saved:number, items:Array}}
+     */
+    function saveCharacters(list, onProgress) {
+      var arr = Array.isArray(list) ? list : [];
+      var total = arr.length;
+      var out = [];
+      var where = {};                                   // id -> data.characters 下标
+      for (var i0 = 0; i0 < data.characters.length; i0++) where[data.characters[i0].id] = i0;
+      for (var i = 0; i < total; i++) {
+        var c = makeCharacter(arr[i]);
+        var at = where[c.id];
+        var isUpdate = (at !== undefined && at >= 0);
+        if (isUpdate) {
+          c.createdAt = data.characters[at].createdAt || c.createdAt;
+          c.builtin = c.builtin || data.characters[at].builtin;
+          c.updatedAt = now();
+          data.characters[at] = c;
+          /* 改名同步消息显示名：只有"改老卡"才可能命中，导入新卡这步是空转 */
+          for (var mi = 0; mi < data.messages.length; mi++) {
+            var m = data.messages[mi];
+            if (m.characterId === c.id) {
+              m.speakerName = c.name;
+              m.speakerAvatar = c.avatar;
+              markPut('messages', m.id);
+            }
+          }
+        } else {
+          data.characters.push(c);
+          where[c.id] = data.characters.length - 1;
+        }
+        markPut('characters', c.id);
+        out.push(copy(c));
+        if (onProgress) { try { onProgress(i + 1, total); } catch (e) { /* 进度回调不许打断导入 */ } }
+      }
+      save();                                            // 脏标记已攒齐，一次防抖落盘
+      return { saved: out.length, items: out };
+    }
+
     function deleteCharacter(id) {
       var i = indexOfId(data.characters, id);
       if (i >= 0) data.characters.splice(i, 1);
@@ -1122,6 +1174,7 @@
       getSettings: getSettings, saveSettings: saveSettings,
       /* 角色 */
       listCharacters: listCharacters, getCharacter: getCharacter, saveCharacter: saveCharacter,
+      saveCharacters: saveCharacters,
       deleteCharacter: deleteCharacter, characterCount: characterCount,
       /* 会话 */
       listSessions: listSessions, getSession: getSession, saveSession: saveSession, deleteSession: deleteSession,

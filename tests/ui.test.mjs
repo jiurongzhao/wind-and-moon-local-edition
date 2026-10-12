@@ -1687,6 +1687,183 @@ check('消息工具条换成自绘图标（朗读 / 重新生成）',
   !!(readBtn2 && readBtn2.querySelector('.ico')));
 window.FYApp.switchView('characters');
 
+console.log('\n【34】在线卡库与窗口化渲染');
+
+/* ---------- 34a. 窗口化渲染：卡库到三万张后不可能一次建完 DOM ---------- */
+const charCountBeforeWin = S.store.listCharacters().length;
+const winBatch = [];
+for (let i = 0; i < 200; i++) {
+  winBatch.push({
+    name: '窗口卡' + i, avatar: '🙂', tagline: '窗口化测试 ' + i,
+    persona: '窗口化测试人设，要够长才像一张真卡。'.repeat(3),
+    greeting: '你好，我是窗口卡' + i + '。', tags: ['窗口测试'],
+  });
+}
+S.store.saveCharacters(winBatch);
+S.charCat = 'all'; S.charQuery = '';
+window.FYApp.renderCharacters();
+const winTotal = S.charFiltered.length;
+check('窗口化：200 张新卡入列后总数正确', winTotal === charCountBeforeWin + 200,
+  '总数 ' + winTotal);
+const firstPage = doc.querySelectorAll('#charGrid .char-card').length;
+check('窗口化：默认只渲染前 60 张', firstPage === 60, '实际 ' + firstPage);
+check('#charMore 提示「已显示 60 / N · 继续下滑加载」',
+  $('charMore').hidden === false && /已显示\s*60\s*\/\s*\d+/.test($('charMore').textContent),
+  $('charMore').textContent.trim().slice(0, 60));
+const afterMore = window.FYApp.loadMoreCharacters();
+const secondPage = doc.querySelectorAll('#charGrid .char-card').length;
+check('调用加载函数后再追加 60 张（60 → 120）',
+  afterMore === 120 && secondPage === 120, '返回 ' + afterMore + ' / DOM ' + secondPage);
+let winGuard = 0;
+while (window.FYApp.loadMoreCharacters() < winTotal && winGuard++ < 80) { /* 一直加载到底 */ }
+check('全部显示后 #charMore 自动隐藏', $('charMore').hidden === true,
+  'DOM ' + doc.querySelectorAll('#charGrid .char-card').length + ' / 总数 ' + winTotal);
+window.FYApp.renderCharacters();
+check('重新渲染时窗口重置回 60 张',
+  doc.querySelectorAll('#charGrid .char-card').length === 60,
+  String(doc.querySelectorAll('#charGrid .char-card').length));
+S.charCat = '窗口测试';
+window.FYApp.renderCharacters();
+check('切分类同样重置窗口（不会沿用上一屏的 200 张）',
+  doc.querySelectorAll('#charGrid .char-card').length === 60
+  && /已显示\s*60\s*\//.test($('charMore').textContent),
+  doc.querySelectorAll('#charGrid .char-card').length + ' 张 / ' + $('charMore').textContent.trim().slice(0, 40));
+S.charCat = 'all'; S.charQuery = '';
+window.FYApp.renderCharacters();
+
+/* ---------- 34b. 在线卡库：目录解析 / 下载导入 / 幂等 / 坏数据 / 拉不到目录 ---------- */
+const realFetchLib = window.fetch;
+const libCard = (name) => ({
+  spec: 'chara_card_v2', spec_version: '2.0',
+  data: {
+    name,
+    description: '在线卡库测试人设：' + name + '。' + '这是用来凑长度的人设正文。'.repeat(4),
+    personality: name + ' 的一句话简介',
+    scenario: '',
+    first_mes: '（看着你）你好，我是' + name + '。',
+    mes_example: '用户：hi\n' + name + '：嗯。',
+    system_prompt: '你扮演' + name + '。/no_think',
+    tags: ['在线卡库'],
+    extensions: { fy: { avatar: '🌙', temperature: 0.85, kind: 'character', plot: false } },
+  },
+});
+const libShard = (tag, n, count) => JSON.stringify({
+  spec: 'fy_pack_v1', name: tag, license: 'CC0-1.0',
+  count: count === undefined ? n : count,
+  cards: Array.from({ length: n }, (_, i) => libCard(tag + '-' + (i + 1))),
+});
+const libCatalog = {
+  spec: 'fy_library_v1', total: 20, baseUrl: 'https://lib.example.invalid/fy-library/',
+  categories: [
+    { slug: 'mystery', tag: '悬疑推理', emoji: '🔍', character: 10, story: 0 },
+    { slug: 'badcount', tag: '坏张数', emoji: '💥', character: 5, story: 0 },
+    { slug: 'badjson', tag: '坏JSON', emoji: '🧨', character: 5, story: 0 },
+  ],
+  packs: [
+    { file: 'mystery-character-1.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 1, parts: 2, count: 5, bytes: 1000 },
+    { file: 'mystery-character-2.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 2, parts: 2, count: 5, bytes: 1000 },
+    { file: 'badcount-character-1.json', slug: 'badcount', tag: '坏张数', emoji: '💥', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500 },
+    { file: 'badjson-character-1.json', slug: 'badjson', tag: '坏JSON', emoji: '🧨', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500 },
+  ],
+};
+const jsonResp = (text) => new globalThis.Response(text, { status: 200, headers: { 'content-type': 'application/json' } });
+window.fetch = async (input) => {
+  const url = String(input && input.url ? input.url : input);
+  const at = url.indexOf('/fetch?url=');
+  if (at >= 0) {
+    const target = decodeURIComponent(url.slice(at + '/fetch?url='.length));
+    if (/fy-library\/index\.json$/.test(target)) return jsonResp(JSON.stringify(libCatalog));
+    if (/mystery-character-1\.json$/.test(target)) return jsonResp(libShard('悬疑角色甲', 5));
+    if (/mystery-character-2\.json$/.test(target)) return jsonResp(libShard('悬疑角色乙', 5));
+    if (/badcount-character-1\.json$/.test(target)) return jsonResp(libShard('坏张数卡', 5, 99));
+    if (/badjson-character-1\.json$/.test(target)) return jsonResp('{"spec":"fy_pack_v1","count":5,"cards":[Ooops');
+    return new globalThis.Response('missing', { status: 404 });
+  }
+  return realFetchLib(input);
+};
+
+const libBefore = S.store.listCharacters().length;
+window.FYApp.openLibrarySheet();
+check('在线卡库面板能打开', $('libMask').hidden === false);
+const rowsShown = await until(() => doc.querySelectorAll('#libList .model-row').length >= 3, 6000);
+check('目录渲染出「分类 × 类型」行（3 组）', rowsShown,
+  '行数 ' + doc.querySelectorAll('#libList .model-row').length);
+const libRows = window.FYApp.libRows();
+check('每行带分类名 / 类型 / 总张数',
+  libRows.length === 3
+  && libRows.some((r) => r.tag === '悬疑推理' && r.kind === 'character' && r.total === 10),
+  libRows.map((r) => r.tag + '/' + r.kind + ':' + r.total).join(' | '));
+const firstLibName = doc.querySelector('#libList .model-row .model-name');
+check('行标题含分类名与类型',
+  /悬疑推理/.test(firstLibName.textContent) && /角色卡/.test(firstLibName.textContent),
+  firstLibName.textContent.trim());
+check('未下载的分类显示「未下载」',
+  /未下载/.test(doc.querySelector('#libList .lib-row-status').textContent),
+  doc.querySelector('#libList .lib-row-status').textContent.trim());
+
+/* 进度回调：把 store.saveCharacters 包一层，数一数真的被调了几次 */
+const realSaveMany = S.store.saveCharacters;
+let saveManyCalls = 0, progressCalls = 0;
+S.store.saveCharacters = function (list, onProgress) {
+  saveManyCalls++;
+  return realSaveMany.call(S.store, list, typeof onProgress === 'function'
+    ? function (d, t) { progressCalls++; return onProgress(d, t); } : onProgress);
+};
+
+const rowMystery = libRows.find((r) => r.slug === 'mystery');
+const libRes1 = await window.FYApp.importLibraryRow(rowMystery);
+check('下载并导入：2 片 × 5 张全部进库（+10）',
+  libRes1.added === 10 && S.store.listCharacters().length === libBefore + 10,
+  '新增 ' + libRes1.added + ' / 库 ' + S.store.listCharacters().length);
+check('批量写入：每片一次 saveCharacters，不是每张一次',
+  saveManyCalls === 2, saveManyCalls + ' 次（卡 10 张）');
+check('导入过程的进度回调被调用过',
+  progressCalls >= 10, progressCalls + ' 次');
+check('导入完成后行状态显示「已导入 10 张」',
+  /已导入/.test(rowMystery._statusEl.textContent), rowMystery._statusEl.textContent);
+check('已导入的分片持久化到 settings.libraryImported（重开面板能看出）',
+  !!(S.settings.libraryImported
+    && S.settings.libraryImported['mystery-character-1.json']
+    && S.settings.libraryImported['mystery-character-2.json']),
+  Object.keys(S.settings.libraryImported).join(', '));
+
+const libRes2 = await window.FYApp.importLibraryRow(rowMystery);
+check('重复导入幂等：不翻倍、不重复建卡',
+  libRes2.added === 0 && S.store.listCharacters().length === libBefore + 10,
+  '第二次新增 ' + libRes2.added + ' / 库 ' + S.store.listCharacters().length);
+
+const beforeBad = S.store.listCharacters().length;
+const badCountRow = libRows.find((r) => r.slug === 'badcount');
+const badCountRes = await window.FYApp.importLibraryRow(badCountRow);
+check('坏数据：count 与 cards.length 不符 → 报错且不写库',
+  !!badCountRes.error && /张数不符/.test(badCountRes.error)
+  && S.store.listCharacters().length === beforeBad,
+  (badCountRes.error || '(没有报错)') + ' / 库 ' + S.store.listCharacters().length);
+check('坏数据：行状态显示失败原因',
+  /失败/.test(badCountRow._statusEl.textContent), badCountRow._statusEl.textContent);
+check('坏数据：不会被记进 libraryImported',
+  !S.settings.libraryImported['badcount-character-1.json'],
+  Object.keys(S.settings.libraryImported).join(', '));
+
+const badJsonRow = libRows.find((r) => r.slug === 'badjson');
+const badJsonRes = await window.FYApp.importLibraryRow(badJsonRow);
+check('坏数据：坏 JSON → 报错且不写库',
+  !!badJsonRes.error && S.store.listCharacters().length === beforeBad,
+  (badJsonRes.error || '(没有报错)') + ' / 库 ' + S.store.listCharacters().length);
+
+/* 目录拉不到：必须给明确提示，不能静默失败 */
+S.settings = S.store.saveSettings({ libCatalogUrl: 'https://lib.example.invalid/nowhere/index.json' });
+window.FYApp.openLibrarySheet();
+const libFailed = await until(() => /失败/.test($('libStatus').textContent), 5000);
+check('目录拉不到时给出明确失败提示（不静默）',
+  libFailed && /卡库目录加载失败/.test($('libStatus').textContent),
+  $('libStatus').textContent.trim().slice(0, 80));
+S.settings = S.store.saveSettings({ libCatalogUrl: '' });
+
+S.store.saveCharacters = realSaveMany;
+window.fetch = realFetchLib;
+$('libMask').hidden = true;
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }
