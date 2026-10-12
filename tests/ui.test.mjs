@@ -1760,10 +1760,14 @@ const libCatalog = {
     { slug: 'badjson', tag: '坏JSON', emoji: '🧨', character: 5, story: 0 },
   ],
   packs: [
-    { file: 'mystery-character-1.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 1, parts: 2, count: 5, bytes: 1000 },
-    { file: 'mystery-character-2.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 2, parts: 2, count: 5, bytes: 1000 },
-    { file: 'badcount-character-1.json', slug: 'badcount', tag: '坏张数', emoji: '💥', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500 },
-    { file: 'badjson-character-1.json', slug: 'badjson', tag: '坏JSON', emoji: '🧨', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500 },
+    { file: 'mystery-character-1.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 1, parts: 2, count: 5, bytes: 1000,
+      topic: '法医鉴定', topics: ['法医鉴定'], keywords: ['解剖室', '验尸报告', '法医'] },
+    { file: 'mystery-character-2.json', slug: 'mystery', tag: '悬疑推理', emoji: '🔍', kind: 'character', part: 2, parts: 2, count: 5, bytes: 1000,
+      topic: '画像师', topics: ['画像师'], keywords: ['画像师', '模拟画像', '断桥'] },
+    { file: 'badcount-character-1.json', slug: 'badcount', tag: '坏张数', emoji: '💥', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500,
+      topic: '坏张数主题', topics: ['坏张数主题'], keywords: ['坏张数'] },
+    { file: 'badjson-character-1.json', slug: 'badjson', tag: '坏JSON', emoji: '🧨', kind: 'character', part: 1, parts: 1, count: 5, bytes: 500,
+      topic: '坏JSON主题', topics: ['坏JSON主题'], keywords: ['坏JSON'] },
   ],
 };
 const jsonResp = (text) => new globalThis.Response(text, { status: 200, headers: { 'content-type': 'application/json' } });
@@ -1876,6 +1880,103 @@ check('目录拉不到时给出明确失败提示（不静默）',
   libFailed && /卡库目录加载失败/.test($('libStatus').textContent),
   $('libStatus').textContent.trim().slice(0, 80));
 S.settings = S.store.saveSettings({ libCatalogUrl: '' });
+
+/* ---------- 34b-2. v2 目录：按关键词只下载某一片（topic / topics / keywords） ---------- */
+const libTypeSearch = (v) => {
+  const el = $('libSearch');
+  el.value = v;
+  el.dispatchEvent(new window.Event('input', { bubbles: true }));
+};
+
+check('搜索是纯函数：空查询返回 []（表示走整组视图）',
+  window.FYApp.libSearchPacks('').length === 0 && window.FYApp.libSearchPacks('   ').length === 0);
+const hitAnJie = window.FYApp.libSearchPacks('解剖室');
+check('搜「解剖室」只命中法医那一片（keywords 命中）',
+  hitAnJie.length === 1 && hitAnJie[0].file === 'mystery-character-1.json',
+  hitAnJie.map((p) => p.file).join(', ') || '(0 片)');
+const hitHuaXiang = window.FYApp.libSearchPacks('悬疑 画像师');
+check('搜「悬疑 画像师」两个 token 都要命中 → 只命中画像师那一片',
+  hitHuaXiang.length === 1 && hitHuaXiang[0].file === 'mystery-character-2.json',
+  hitHuaXiang.map((p) => p.file).join(', ') || '(0 片)');
+check('搜分类名「悬疑」把该分类两片都列出来（按 part 排序）',
+  (() => {
+    const h = window.FYApp.libSearchPacks('悬疑');
+    return h.length === 2 && h[0].part === 1 && h[1].part === 2;
+  })(),
+  window.FYApp.libSearchPacks('悬疑').map((p) => p.file).join(', '));
+check('搜不存在的词返回 0 片', window.FYApp.libSearchPacks('没有这个词xyz').length === 0);
+
+/* 重新打开面板（上一段把目录地址改坏了），验证搜索交互 */
+S.settings = S.store.saveSettings({ libCatalogUrl: 'https://lib.example.invalid/fy-library/index.json' });
+window.FYApp.openLibrarySheet();
+const libRowsBack = await until(() => doc.querySelectorAll('#libList .model-row').length >= 3, 6000);
+check('重开面板默认回整组视图（搜索框清空、libResults 为空）',
+  libRowsBack && window.FYApp.libResults().length === 0 && $('libSearch').value === '',
+  '行数 ' + doc.querySelectorAll('#libList .model-row').length + ' / 框=' + JSON.stringify($('libSearch').value));
+check('重开面板主按钮回到「全部下载」',
+  /全部下载/.test($('btnLibAll').textContent) && !/下载全部匹配/.test($('btnLibAll').textContent),
+  $('btnLibAll').textContent.trim());
+
+/* 搜不存在的词 → 列表为空 + 明确提示（不能静默留白） */
+libTypeSearch('没有这个词xyz');
+const libNoHit = await until(() => /没有匹配/.test($('libStatus').textContent), 4000);
+check('搜不到时 #libStatus 给出明确提示，且列表为空',
+  libNoHit && /没有匹配/.test($('libStatus').textContent) && /换个词/.test($('libStatus').textContent)
+  && doc.querySelectorAll('#libList .model-row').length === 0,
+  $('libStatus').textContent.trim().slice(0, 80));
+
+/* 搜「解剖室」→ 只列一片，主按钮变「下载全部匹配（1 片）」 */
+libTypeSearch('解剖室');
+const libOneHit = await until(() => /匹配 1 片/.test($('libStatus').textContent), 4000);
+check('搜索后只列命中的分片（1 行）',
+  libOneHit && doc.querySelectorAll('#libList .model-row').length === 1,
+  '状态=' + $('libStatus').textContent.trim().slice(0, 60)
+  + ' 行数=' + doc.querySelectorAll('#libList .model-row').length);
+const searchName = doc.querySelector('#libList .model-row .model-name');
+check('结果行标题是「分类 · 类型 · 主题」',
+  !!(searchName && /悬疑推理/.test(searchName.textContent)
+    && /角色卡/.test(searchName.textContent) && /法医鉴定/.test(searchName.textContent)),
+  searchName ? searchName.textContent.trim() : '(没有行)');
+check('#libStatus 汇总命中片数 / 总张数 / 分类',
+  /匹配 1 片 · 共 5 张 · 悬疑推理 1/.test($('libStatus').textContent),
+  $('libStatus').textContent.trim());
+check('有查询时 #btnLibAll 变成「下载全部匹配（N 片）」',
+  /下载全部匹配/.test($('btnLibAll').textContent) && /1 片/.test($('btnLibAll').textContent),
+  $('btnLibAll').textContent.trim());
+
+/* 只下载命中的那一片：先把前面整组导入的卡与记录清干净，才能断言"只多 5 张" */
+S.store.listCharacters().filter((c) => (c.tags || []).indexOf('在线卡库') >= 0)
+  .forEach((c) => S.store.deleteCharacter(c.id));
+S.settings = S.store.saveSettings({ libraryImported: {} });
+const shardBefore = S.store.listCharacters().length;
+const shardRes = await window.FYApp.importLibraryPacks(window.FYApp.libSearchPacks('解剖室'));
+check('只下载命中的那一片：+5 张（不是整组 +10）',
+  shardRes.added === 5 && S.store.listCharacters().length === shardBefore + 5,
+  '新增 ' + shardRes.added + ' / 库 ' + S.store.listCharacters().length);
+check('只有命中的分片进了 settings.libraryImported',
+  !!S.settings.libraryImported['mystery-character-1.json']
+  && !S.settings.libraryImported['mystery-character-2.json'],
+  Object.keys(S.settings.libraryImported).join(', '));
+check('libPackImported / libPacksImported 反映单片与合计已导入',
+  window.FYApp.libPackImported({ file: 'mystery-character-1.json', count: 5 }) === 5
+  && window.FYApp.libPacksImported(window.FYApp.libSearchPacks('解剖室')) === 5,
+  '单片 ' + window.FYApp.libPackImported({ file: 'mystery-character-1.json', count: 5 })
+  + ' / 合计 ' + window.FYApp.libPacksImported(window.FYApp.libSearchPacks('解剖室')));
+check('libResults 在搜索视图返回命中的分片',
+  window.FYApp.libResults().length === 1
+  && window.FYApp.libResults()[0].file === 'mystery-character-1.json',
+  window.FYApp.libResults().map((p) => p.file).join(', '));
+
+/* 清空搜索 → 回整组行视图 */
+libTypeSearch('');
+const libGroupBack = await until(() => doc.querySelectorAll('#libList .model-row').length >= 3, 4000);
+check('清空搜索后回到整组行视图（≥3 行）',
+  libGroupBack && doc.querySelectorAll('#libList .model-row').length >= 3,
+  '行数 ' + doc.querySelectorAll('#libList .model-row').length);
+check('清空搜索后 libResults 归零、主按钮回到「全部下载」',
+  window.FYApp.libResults().length === 0
+  && /全部下载/.test($('btnLibAll').textContent) && !/下载全部匹配/.test($('btnLibAll').textContent),
+  '结果 ' + window.FYApp.libResults().length + ' / 按钮 ' + $('btnLibAll').textContent.trim());
 
 S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;

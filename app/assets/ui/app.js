@@ -2154,6 +2154,10 @@
    *   { spec, total, baseUrl, categories:[{slug,tag,emoji,character,story}],
    *     packs:[{file,slug,tag,emoji,kind,part,parts,count,bytes,sha256}] }
    * 分片文件就是内置卡包的格式（fy_pack_v1）。
+   *
+   * v2 是纯增量：分片多出 topic/topics/keywords（主题与关键词），老字段语义不变。
+   * 不搜关键词时行为和 v1 一样按「分类 × 类型」整组下；搜了就只列命中的小片。
+   * 契约见 docs/library-catalog.md。
    * ======================================================================== */
 
   /** 目录地址兜底值；用户可在卡库面板里改成自己的地址（存 S.settings.libCatalogUrl）。
@@ -2163,7 +2167,10 @@
   /** 面板最多显示多少行「分类 × 类型」 */
   var LIB_MAX_ROWS = 32;
   var LIB_KIND_LABEL = { character: '角色卡', story: '剧情卡' };
-  var libState = { catalog: null, rows: [] };
+  /* results/packRows 只在搜索视图里有值；query 为空时 results 必须是 []（对外导出 libResults 的约定） */
+  var libState = { catalog: null, rows: [], results: [], packRows: {}, query: '' };
+  /* 搜索框防抖定时器；重开面板要能把它清掉，否则旧的一次延迟渲染会打回来 */
+  var libSearchTimer = null;
 
   function libCatalogUrl() {
     return (S.settings && S.settings.libCatalogUrl) || LIB_CATALOG_URL;
@@ -2192,13 +2199,53 @@
   }
 
   function libRowImported(row) {
-    var m = libImportedMap();
+    return libPacksImported((row && row.packs) || []);
+  }
+
+  /** 单个分片已导入的张数（按文件名记在 settings.libraryImported，跟整组视图共用同一份状态） */
+  function libPackImported(p) {
+    if (!p) return 0;
+    var hit = libImportedMap()[p.file];
+    if (!hit) return 0;
+    return Number(hit.count) || Number(p.count) || 0;
+  }
+
+  function libPacksImported(packs) {
     var n = 0;
-    (row.packs || []).forEach(function (p) {
-      var hit = m[p.file];
-      if (hit) n += Number(hit.count) || Number(p.count) || 0;
-    });
+    (packs || []).forEach(function (p) { n += libPackImported(p); });
     return n;
+  }
+
+  /** 一个分片的检索文本：tag + slug + 类型中文名 + topic + topics[] + keywords[]（契约见 docs/library-catalog.md） */
+  function libPackSearchText(p) {
+    var parts = [p.tag || '', p.slug || '', LIB_KIND_LABEL[p.kind] || p.kind || '', p.topic || ''];
+    (Array.isArray(p.topics) ? p.topics : []).forEach(function (t) { if (t) parts.push(String(t)); });
+    (Array.isArray(p.keywords) ? p.keywords : []).forEach(function (k) { if (k) parts.push(String(k)); });
+    return parts.join(' ').toLowerCase();
+  }
+
+  /**
+   * 按关键词搜分片（纯函数：只翻内存里的目录，绝不发网络请求）。
+   * 查询按空白切 token，每个 token 都要以子串命中检索文本（大小写不敏感）才算命中；
+   * 空查询返回 []，表示"该走整组视图"。排序固定成 tag → kind → part，避免每次刷新顺序乱跳。
+   */
+  function libSearchPacks(query) {
+    var tokens = String(query == null ? '' : query).toLowerCase().split(/\s+/).filter(function (t) { return !!t; });
+    if (!tokens.length) return [];
+    var packs = (libState.catalog && Array.isArray(libState.catalog.packs)) ? libState.catalog.packs : [];
+    var hits = packs.filter(function (p) {
+      var text = libPackSearchText(p);
+      for (var i = 0; i < tokens.length; i++) if (text.indexOf(tokens[i]) < 0) return false;
+      return true;
+    });
+    hits.sort(function (a, b) {
+      var ta = String(a.tag || ''), tb = String(b.tag || '');
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      var ka = String(a.kind || ''), kb = String(b.kind || '');
+      if (ka !== kb) return ka < kb ? -1 : 1;
+      return (Number(a.part) || 0) - (Number(b.part) || 0);
+    });
+    return hits;
   }
 
   /** 记住"这个分片已经导入过"（重开面板能看出来；再点也不会重复下载/建卡） */
@@ -2336,20 +2383,146 @@
     });
   }
 
+  /** 搜索结果里的"片行"：套用整组行的结构（packs/total），好复用状态判定、按钮重绘与下载逻辑 */
+  function libPackRow(p) {
+    return {
+      key: 'pack|' + p.file, slug: p.slug || '', tag: p.tag || p.slug || '未分类',
+      emoji: p.emoji || '', kind: p.kind === 'story' ? 'story' : 'character',
+      packs: [p], total: Number(p.count) || 0, bytes: Number(p.bytes) || 0, pack: p
+    };
+  }
+
+  /** 顶部主按钮：整组视图是「全部下载」，搜索视图是「下载全部匹配（N 片）」 */
+  function libUpdateAllBtn() {
+    var btn = $('btnLibAll');
+    if (!btn) return;
+    var label = $('libAllLabel');
+    if (libState.query) {
+      var n = libState.results.length;
+      if (label) label.textContent = '下载全部匹配（' + n + ' 片）';
+      btn.disabled = n === 0;
+      btn.title = n ? '只下载命中的 ' + n + ' 个分片' : '没有匹配的分片';
+    } else {
+      if (label) label.textContent = '全部下载';
+      btn.disabled = false;
+      btn.title = '下载全部「分类 × 类型」';
+    }
+  }
+
+  /** 底部计数：整组视图报目录规模，搜索视图报命中片数 / 张数 / 已导入（单片下完也要跟着变） */
+  function libUpdateFoot() {
+    var total = $('libTotal');
+    if (!total) return;
+    if (libState.query) {
+      var cards = 0;
+      libState.results.forEach(function (p) { cards += Number(p.count) || 0; });
+      total.textContent = '匹配 ' + libState.results.length + ' 片 · 共 ' + cards + ' 张 · 已导入 '
+        + libPacksImported(libState.results) + ' 张';
+      return;
+    }
+    var idx = libState.catalog;
+    total.textContent = '目录共 ' + (Number(idx && idx.total) || 0) + ' 张卡 · ' + libState.rows.length + ' 组';
+  }
+
+  /** 查询非空时一片一行；没命中就给明确提示，而不是留一屏空白让人以为卡了 */
+  function renderLibraryPackResults(packs) {
+    var list = $('libList');
+    var st = $('libStatus');
+    list.innerHTML = '';
+    libState.packRows = {};
+    if (!packs.length) {
+      st.textContent = '没有匹配「' + libState.query + '」的分片（换个词试试，或清空搜索看全部）';
+      return;
+    }
+    /* 顶部文案按分类汇总一句，用户一眼能看出命中落在哪些分类 */
+    var byTag = [], totalCards = 0;
+    packs.forEach(function (p) {
+      totalCards += Number(p.count) || 0;
+      var tag = p.tag || p.slug || '未分类';
+      for (var i = 0; i < byTag.length; i++) if (byTag[i].tag === tag) { byTag[i].n++; return; }
+      byTag.push({ tag: tag, n: 1 });
+    });
+    st.textContent = '匹配 ' + packs.length + ' 片 · 共 ' + totalCards + ' 张 · '
+      + byTag.map(function (g) { return g.tag + ' ' + g.n; }).join(' / ');
+    packs.forEach(function (p) {
+      var row = libPackRow(p);
+      libState.packRows[p.file] = row;
+      var dom = el('div', 'model-row');
+      var col = el('div', 'grow');
+      col.appendChild(el('div', 'model-name',
+        (p.emoji || '📦') + ' ' + (p.tag || p.slug || '未分类') + ' · '
+        + (LIB_KIND_LABEL[row.kind] || row.kind) + ' · ' + (p.topic || '未分类主题')));
+      col.appendChild(el('div', 'model-size', [
+        row.total + ' 张', fmtSize(Number(p.bytes) || 0),
+        '第 ' + (Number(p.part) || 1) + '/' + (Number(p.parts) || 1) + ' 片'
+      ].join(' · ')));
+      row._statusEl = el('div', 'lib-row-status');
+      var s = libDefaultStatus(row);
+      row._statusEl.textContent = s.text;
+      row._statusEl.className = 'lib-row-status' + (s.kind ? ' ' + s.kind : '');
+      col.appendChild(row._statusEl);
+      dom.appendChild(col);
+
+      var btn = el('button', 'btn btn-xs');
+      row._btn = btn;
+      var paint = function () {
+        var full = row.total > 0 && libPackImported(p) >= row.total;
+        btn.innerHTML = '';
+        btn.appendChild(iconEl(full ? 'refresh' : 'download'));
+        btn.appendChild(el('span', '', full ? '重新导入' : '下载并导入'));
+        btn.title = full ? '重新下载并导入这一片（你删掉的卡会被补回来）' : '只下载并导入这一片';
+      };
+      paint();
+      row._paintBtn = paint;
+      btn.onclick = function (ev) {
+        ev.stopPropagation();
+        var full = row.total > 0 && libPackImported(p) >= row.total;
+        btn.disabled = true;
+        importLibraryPacks([p], {
+          force: full, target: row,
+          onDone: function () { libUpdateFoot(); }   // 单片下完，顶部计数要跟着变
+        }).then(function () { btn.disabled = false; });
+      };
+      dom.appendChild(btn);
+      list.appendChild(dom);
+    });
+  }
+
+  /** 按当前查询决定渲染哪个视图；查询为空就回整组（老行为一字不改） */
+  function renderLibraryResults() {
+    if (libState.query) {
+      libState.results = libSearchPacks(libState.query);
+      renderLibraryPackResults(libState.results);
+    } else {
+      libState.results = [];
+      libState.packRows = {};
+      renderLibraryRows();
+    }
+    libUpdateAllBtn();
+    libUpdateFoot();
+  }
+
   function openLibrarySheet() {
     openSheet($('libMask'));
     var st = $('libStatus');
     var list = $('libList');
     var inp = $('libUrl');
     if (inp) inp.value = libCatalogUrl();
+    /* 重开面板一律从整组视图开始：搜索只是临时视图，不该粘着上一次的词 */
+    libState.query = '';
+    libState.results = [];
+    libState.packRows = {};
+    if (libSearchTimer) { clearTimeout(libSearchTimer); libSearchTimer = null; }
+    var sInp = $('libSearch');
+    if (sInp) sInp.value = '';
     list.innerHTML = '';
     st.textContent = '正在加载卡库目录…';
     $('libTotal').textContent = '加载中…';
+    libUpdateAllBtn();
     var url = libCatalogUrl();
     loadLibraryCatalog().then(function (idx) {
       libState.rows = libraryGroups(idx);
-      renderLibraryRows();
-      $('libTotal').textContent = '目录共 ' + (Number(idx.total) || 0) + ' 张卡 · ' + libState.rows.length + ' 组';
+      renderLibraryResults();
     }).catch(function (e) {
       libState.rows = [];
       st.textContent = '卡库目录加载失败：' + ((e && e.message) || e)
@@ -2386,15 +2559,19 @@
   }
 
   /**
-   * 下载并导入一组（一个分类的一个类型，含它的全部分片）。
-   * 已导入过的分片直接跳过（幂等）。失败时**不会**写库，行状态变成「失败：原因」。
+   * 下载并导入一批分片（整组一行、或搜索命中的一片，都走这里）。
+   * 已导入过的分片直接跳过（幂等）。失败时**不会**写库，也不会把失败的分片记进 libraryImported。
+   * opts.target：带 _statusEl/_btn/_paintBtn/_busy 的行对象，用来显示进度、禁用按钮；
+   *   不给就静默下载（测试 / 后台批量调用）。
+   * opts.onDone：收尾回调，单片下载完要顺手刷新顶部计数时用。
    * @returns {Promise<{added:number, error?:string}>}
    */
-  function importLibraryRow(row, opts) {
+  function importLibraryPacks(packs, opts) {
     var o = opts || {};
-    var packs = (row.packs || []).slice();
-    if (row._busy) return Promise.resolve({ added: 0, error: '正在下载中' });
-    if (!packs.length) {
+    var row = o.target || null;
+    var list = (packs || []).slice();
+    if (row && row._busy) return Promise.resolve({ added: 0, error: '正在下载中' });
+    if (!list.length) {
       setRowStatus(row, '这个分类还没有分片文件', 'err');
       return Promise.resolve({ added: 0, error: '没有分片文件' });
     }
@@ -2403,29 +2580,39 @@
        用途是"我后来把某些卡删了，想补回来"——导入本身按名字幂等，
        已存在的卡会跳过，缺的卡会被补上。 */
     if (o.force) imported = {};
-    var totalBytes = packs.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0) || packs.length;
+    var totalBytes = list.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0) || list.length;
     var added = 0, doneBytes = 0, err = '';
     var i = 0;
-    row._busy = true;
-    if (row._btn) row._btn.disabled = true;
+    if (row) {
+      row._busy = true;
+      if (row._btn) row._btn.disabled = true;
+    }
 
     function finish() {
-      row._busy = false;
-      if (row._btn) row._btn.disabled = false;
+      if (row) {
+        row._busy = false;
+        if (row._btn) row._btn.disabled = false;
+      }
+      var result;
       if (err) {
         setRowStatus(row, '失败：' + err, 'err');
-        return { added: added, error: err };
+        result = { added: added, error: err };
+      } else {
+        if (row) {
+          var s = libDefaultStatus(row);
+          setRowStatus(row, s.text, s.kind);
+          if (row._paintBtn) row._paintBtn();
+        }
+        if (o.refresh !== false && added) refreshCharList();   // 一批只刷新一次列表
+        result = { added: added };
       }
-      var s = libDefaultStatus(row);
-      setRowStatus(row, s.text, s.kind);
-      if (row._paintBtn) row._paintBtn();
-      if (o.refresh !== false && added) refreshCharList();   // 整组只刷新一次列表
-      return { added: added };
+      if (o.onDone) o.onDone(result);
+      return result;
     }
 
     function step() {
-      if (err || i >= packs.length) return Promise.resolve();
-      var p = packs[i];
+      if (err || i >= list.length) return Promise.resolve();
+      var p = list[i];
       var weight = Number(p.bytes) || 1;
       if (imported[p.file]) {           // 已导入过：跳过下载，幂等
         doneBytes += weight;
@@ -2459,8 +2646,21 @@
     });
   }
 
-  /** 顶部「全部下载」：按行顺序下载，总进度写进 #libTotal */
+  /**
+   * 下载并导入一组（一个分类的一个类型，含它的全部分片）。
+   * 保留这个入口：整组视图的按钮和既有调用都还走它，只是循环体挪去了 importLibraryPacks。
+   * @returns {Promise<{added:number, error?:string}>}
+   */
+  function importLibraryRow(row, opts) {
+    var o = opts || {};
+    return importLibraryPacks((row && row.packs) || [], {
+      force: o.force, refresh: o.refresh, target: row
+    });
+  }
+
+  /** 顶部「全部下载」：整组视图按行下，搜索视图只下命中的分片 */
   function importAllLibrary() {
+    if (libState.query) return importAllLibraryMatches();
     var rows = libState.rows.slice();
     if (!rows.length) { toast('目录还没加载好', 'warn'); return Promise.resolve({ added: 0 }); }
     var btn = $('btnLibAll');
@@ -2490,6 +2690,42 @@
     }
     return Promise.resolve().then(step).catch(function (e) {
       if (btn) btn.disabled = false;
+      return { added: added, failed: failed, error: (e && e.message) || String(e) };
+    });
+  }
+
+  /** 搜索视图的「下载全部匹配（N 片）」：只碰命中的分片，逐片更新那一行的状态 */
+  function importAllLibraryMatches() {
+    var packs = libState.results.slice();
+    var btn = $('btnLibAll');
+    var total = $('libTotal');
+    if (!packs.length) { toast('没有匹配的分片', 'warn'); return Promise.resolve({ added: 0 }); }
+    var done = 0, added = 0, failed = 0;
+    if (btn) btn.disabled = true;
+    function step() {
+      if (done >= packs.length) {
+        if (added) refreshCharList();                  // 全部结束后统一刷新一次
+        libUpdateAllBtn();
+        if (total) {
+          total.textContent = '全部完成：新增 ' + added + ' 张'
+            + (failed ? ('，' + failed + ' 片失败') : '');
+        }
+        toast('在线卡库：本次新增 ' + added + ' 张' + (failed ? ('（' + failed + ' 片失败）') : ''), failed ? 'warn' : 'ok', 3800);
+        fyLog('在线卡库匹配下载完成：新增=' + added + ' 失败片=' + failed);
+        return { added: added, failed: failed };
+      }
+      var p = packs[done];
+      var row = libState.packRows[p.file] || libPackRow(p);
+      if (total) total.textContent = '总进度 ' + done + ' / ' + packs.length + ' 片 · 已新增 ' + added + ' 张';
+      return importLibraryPacks([p], { target: row, refresh: false }).then(function (r) {
+        added += (r && r.added) || 0;
+        if (r && r.error) failed++;
+        done++;
+        return step();
+      });
+    }
+    return Promise.resolve().then(step).catch(function (e) {
+      libUpdateAllBtn();
       return { added: added, failed: failed, error: (e && e.message) || String(e) };
     });
   }
@@ -4657,6 +4893,18 @@
     $('btnLibClose').onclick = $('btnLibDone').onclick = function () { closeSheet($('libMask')); };
     $('btnLibRefresh').onclick = function () { libState.catalog = null; openLibrarySheet(); };
     $('btnLibAll').onclick = importAllLibrary;
+    /* 卡库搜索：目录已经在内存里，输入只做本地筛选；防抖 120ms 免得每敲一个字就重建一屏 DOM */
+    var libSearchBox = $('libSearch');
+    if (libSearchBox) {
+      libSearchBox.addEventListener('input', function () {
+        libState.query = String(this.value || '').trim();
+        if (libSearchTimer) clearTimeout(libSearchTimer);
+        libSearchTimer = setTimeout(function () {
+          libSearchTimer = null;
+          renderLibraryResults();
+        }, 120);
+      });
+    }
     $('btnLibUrlSave').onclick = function () {
       var v = ($('libUrl').value || '').trim();
       if (!v) { toast('目录地址不能为空', 'warn'); return; }
@@ -5169,6 +5417,11 @@
     importLibraryRow: importLibraryRow,
     importAllLibrary: importAllLibrary,
     libRows: function () { return libState.rows; },
+    importLibraryPacks: importLibraryPacks,
+    libSearchPacks: libSearchPacks,
+    libPackImported: libPackImported,
+    libPacksImported: libPacksImported,
+    libResults: function () { return libState.results; },
     libraryGroups: libraryGroups,
     libCatalogUrl: libCatalogUrl,
     LIB_CATALOG_URL: LIB_CATALOG_URL,

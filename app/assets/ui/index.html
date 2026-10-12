@@ -781,9 +781,14 @@
     </div>
     <div class="sheet-body">
       <div class="muted xs" id="libStatus">正在加载卡库目录…</div>
+      <!-- v2 目录带 topic/topics/keywords：搜关键词就只列命中的小片，不用整组下 -->
+      <div class="row gap" style="margin-top:8px">
+        <input class="input grow" id="libSearch" type="search" autocomplete="off" spellcheck="false"
+          placeholder="搜主题/关键词，如：解剖室、画像师、断桥">
+      </div>
       <div class="row gap wrap">
         <button class="btn btn-sm btn-primary" id="btnLibAll">
-          <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>全部下载</button>
+          <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span id="libAllLabel">全部下载</span></button>
         <button class="btn btn-sm" id="btnLibRefresh">
           <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>刷新目录</button>
       </div>
@@ -796,7 +801,8 @@
         </div>
       </div>
       <div class="muted xs" style="margin-top:8px">卡包不随 APK 发布，从同一个 https 地址按需下载；
-        下载走本机代理（Gitee 等站点没有 CORS 头，WebView 直连会被拦）。已导入的分片会记住，重复点不会重复建卡。</div>
+        下载走本机代理（Gitee 等站点没有 CORS 头，WebView 直连会被拦）。已导入的分片会记住，重复点不会重复建卡。
+        输入关键词（如「解剖室」）可以只下载某一片（约 250 张），不用整组下。</div>
     </div>
     <div class="sheet-foot">
       <span class="muted xs" id="libTotal">选一个分类开始，或点「全部下载」</span>
