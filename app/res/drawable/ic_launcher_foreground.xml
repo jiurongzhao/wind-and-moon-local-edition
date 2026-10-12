@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用图标前景：一轮弯月 + 三颗星。
+  自己画的矢量图形，不依赖任何第三方图标库 —— 上架时省掉图标许可的麻烦。
+  自适应图标规范：画布 108x108，安全区是中间 72x72（这里主体都在安全区内）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 弯月：两个圆的 evenOdd 差集（重叠部分被挖掉） -->
+    <path
+        android:fillColor="#F2ECFF"
+        android:fillType="evenOdd"
+        android:pathData="M31,56 a21,21 0 1,0 42,0 a21,21 0 1,0 -42,0 Z
+                          M43,48 a19,19 0 1,0 38,0 a19,19 0 1,0 -38,0 Z" />
+
+    <!-- 三颗星 -->
+    <path
+        android:fillColor="#8E7BFF"
+        android:fillType="evenOdd"
+        android:pathData="M74,72 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0 Z" />
+    <path
+        android:fillColor="#5AD1C8"
+        android:fillType="evenOdd"
+        android:pathData="M29,30 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+    <path
+        android:fillColor="#F2ECFF"
+        android:fillType="evenOdd"
+        android:pathData="M78,34 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z" />
+</vector>

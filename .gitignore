@@ -1,0 +1,36 @@
+# ---- 签名密钥：绝对不能进版本库 ----
+# release.keystore 丢了 = 永远无法给已安装用户推送更新，
+# 它应该备份在密码管理器/离线介质里，而不是跟着代码走。
+release.keystore
+release-signing.properties
+debug.keystore
+*.keystore
+*.jks
+
+# ---- 构建产物 ----
+build/
+*.apk
+*.idsig
+
+# ---- 构建依赖：用 ./tools/fetch-deps.sh 现拉，不进仓库 ----
+# （native/ 是 llama.cpp 的第三方二进制，sdk/ 是 Google 的 android.jar，
+#   两者都很大且要保留各自许可证，所以由脚本获取而不是提交）
+native/
+sdk/
+engine/
+platform-36.zip
+repository2-1.xml
+
+# ---- 模型：几个 GB，用户自己下载 ----
+models/
+
+# ---- 依赖与缓存 ----
+node_modules/
+tests/node_modules/
+*.log
+
+# ---- 本地临时/实验产物 ----
+tmpwork/
+*.orig
+*.rej
+.DS_Store

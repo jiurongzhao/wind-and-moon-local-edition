@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d0c12">
+<meta name="format-detection" content="telephone=no">
+<title>风月·本地版</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 应用根：高度由 JS 写入 --app-h（visualViewport 方案，躲开软键盘） -->
+<div id="app" class="app">
+
+  <!-- ======================= 顶栏 ======================= -->
+  <header class="topbar">
+    <button class="icon-btn" id="btnBack" hidden aria-label="返回">‹</button>
+    <div class="topbar-main">
+      <div class="topbar-title" id="topTitle">风月·本地版</div>
+      <div class="topbar-sub" id="topSub">全离线 AI 角色扮演</div>
+    </div>
+    <div class="topbar-actions">
+      <span class="pill" id="enginePill" title="引擎状态">引擎：未启动</span>
+      <button class="icon-btn" id="btnTopMenu" aria-label="更多">⋯</button>
+    </div>
+  </header>
+
+  <!-- ======================= 视图区 ======================= -->
+  <main class="views" id="views">
+
+    <!-- ---------- 视图 1：角色列表 ---------- -->
+    <section class="view" id="view-characters" data-view="characters">
+      <div class="pad">
+        <div class="row-between">
+          <div>
+            <h2 class="h2">角色</h2>
+            <p class="muted sm" id="charCount">共 0 位角色</p>
+          </div>
+          <div class="row gap">
+            <button class="btn btn-sm" id="btnImportCard" title="导入 SillyTavern 角色卡（.json / .png）">导入卡</button>
+            <button class="btn btn-primary btn-sm" id="btnNewChar">＋ 新建</button>
+          </div>
+        </div>
+
+        <!-- 首次使用引导 -->
+        <div class="banner warn" id="setupBanner" hidden>
+          <div class="banner-icon">📦</div>
+          <div class="banner-body">
+            <div class="banner-title">还没有可用的模型</div>
+            <div class="banner-text">风月完全离线运行，需要先导入或下载一个 GGUF 模型。</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnGoSetup">去设置</button>
+        </div>
+
+        <div class="grid" id="charGrid"></div>
+        <div class="empty" id="charEmpty" hidden>
+          <div class="empty-emoji">🌙</div>
+          <div class="empty-title">还没有角色</div>
+          <div class="empty-text">点右上角「新建」，或从设置里恢复内置角色</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 视图 2：聊天 ---------- -->
+    <section class="view" id="view-chat" data-view="chat">
+      <div class="engine-banner" id="chatEngineBanner" hidden>
+        <span class="dot dot-warn"></span>
+        <span class="grow" id="chatEngineText">引擎未就绪</span>
+        <button class="btn btn-warn btn-sm" id="btnChatToSettings">去设置里启动引擎</button>
+      </div>
+
+      <div class="chat-head" id="chatHead">
+        <div class="chat-head-avatars" id="chatAvatars"></div>
+        <div class="chat-head-main">
+          <div class="chat-head-name" id="chatHeadName">未选择角色</div>
+          <div class="chat-head-sub" id="chatHeadSub"></div>
+        </div>
+        <div class="chat-head-actions">
+          <button class="chip" id="btnPlotToggle" title="剧情模式">剧情</button>
+          <button class="chip" id="btnGroupToggle" title="多角色群聊">群聊</button>
+          <button class="chip" id="btnChatMenu" title="会话菜单">⋯</button>
+        </div>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="options-bar" id="optionsBar" hidden></div>
+
+      <div class="composer" id="composer">
+        <button class="icon-btn round" id="btnMic" aria-label="语音输入">🎤</button>
+        <div class="composer-input-wrap">
+          <textarea id="input" class="composer-input" rows="1" placeholder="说点什么…（Shift+Enter 换行）"></textarea>
+        </div>
+        <button class="icon-btn round primary" id="btnSend" aria-label="发送">➤</button>
+        <button class="icon-btn round danger" id="btnStop" aria-label="停止生成" hidden>■</button>
+      </div>
+    </section>
+
+    <!-- ---------- 视图 3：剧情 ---------- -->
+    <section class="view" id="view-story" data-view="story">
+      <div class="pad">
+        <div class="row-between">
+          <div>
+            <h2 class="h2">剧情</h2>
+            <p class="muted sm">选项式推进 · 由模型在正文后给出 3 个选择</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="storySwitch">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="card" id="storyCard">
+          <div class="card-title">当前剧本</div>
+          <div class="card-body" id="storyBody">还没有进行中的剧情。</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">剧情模式怎么用</div>
+          <div class="card-body muted sm">
+            1. 在聊天页顶部点「剧情」按钮，或打开上面的开关。<br>
+            2. 每次回复后，模型会在正文末尾附上 3 个选项，聊天页会把它渲染成按钮。<br>
+            3. 点任意选项即可继续推进；也可以直接在输入框里自由行动。<br>
+            4. 若模型没有按格式输出，程序会安静降级——只显示正文，不显示按钮。
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">最近的选择</div>
+          <div class="card-body" id="storyChoices"><span class="muted sm">暂无记录</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 视图 4：设置 ---------- -->
+    <section class="view" id="view-settings" data-view="settings">
+      <div class="pad">
+
+        <!-- 引擎 -->
+        <div class="card">
+          <div class="card-title">推理引擎</div>
+          <div class="engine-status">
+            <span class="dot" id="setEngineDot"></span>
+            <span class="grow" id="setEngineState">未启动</span>
+            <span class="muted sm" id="setEnginePort"></span>
+          </div>
+          <div class="muted sm" id="setEngineMsg">—</div>
+          <div class="row gap">
+            <button class="btn btn-primary grow" id="btnEngineStart">启动引擎</button>
+            <button class="btn grow" id="btnEngineStop">停止</button>
+          </div>
+          <div class="field">
+            <label class="label">当前模型</label>
+            <select class="input" id="selModel"></select>
+          </div>
+          <div class="row gap">
+            <div class="field grow">
+              <label class="label">上下文 ctx</label>
+              <input class="input" id="setCtx" type="number" min="512" step="512" inputmode="numeric">
+            </div>
+            <div class="field grow">
+              <label class="label">线程（0=自动）</label>
+              <input class="input" id="setThreads" type="number" min="0" max="16" inputmode="numeric">
+            </div>
+            <div class="field grow">
+              <label class="label">GPU 层</label>
+              <input class="input" id="setGpu" type="number" min="0" max="99" inputmode="numeric">
+            </div>
+          </div>
+        </div>
+
+        <!-- 模型管理 -->
+        <div class="card">
+          <div class="card-title">模型管理</div>
+          <div class="model-list" id="modelList"></div>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnPickModel">从文件导入</button>
+            <button class="btn btn-sm" id="btnRefreshModels">刷新列表</button>
+          </div>
+          <div class="divider"></div>
+          <div class="card-subtitle">内置下载源</div>
+          <div class="dl-list" id="dlList"></div>
+          <div class="progress" id="dlProgress" hidden>
+            <div class="progress-bar" id="dlBar"></div>
+            <span class="progress-text" id="dlText">0%</span>
+          </div>
+        </div>
+
+        <!-- 采样参数 -->
+        <div class="card">
+          <div class="card-title">采样参数</div>
+          <div class="field">
+            <label class="label">温度 temperature <b id="valTemp">0.85</b></label>
+            <input class="range" id="setTemp" type="range" min="0" max="2" step="0.05">
+          </div>
+          <div class="field">
+            <label class="label">top_p <b id="valTopP">0.90</b></label>
+            <input class="range" id="setTopP" type="range" min="0.1" max="1" step="0.01">
+          </div>
+          <div class="field">
+            <label class="label">最大生成长度 max_tokens <b id="valMaxTok">512</b></label>
+            <input class="range" id="setMaxTokens" type="range" min="64" max="2048" step="64">
+          </div>
+          <div class="field">
+            <label class="label">送入模型的历史条数 <b id="valHist">20</b></label>
+            <input class="range" id="setHist" type="range" min="4" max="60" step="2">
+          </div>
+          <div class="field">
+            <label class="label">记忆压缩阈值（消息条数） <b id="valMemTh">20</b></label>
+            <input class="range" id="setMemTh" type="range" min="8" max="80" step="2">
+          </div>
+        </div>
+
+        <!-- 语音 -->
+        <div class="card">
+          <div class="card-title">语音</div>
+          <div class="field">
+            <label class="label">朗读语速 <b id="valTts">1.0</b></label>
+            <input class="range" id="setTts" type="range" min="0.5" max="2" step="0.1">
+          </div>
+          <div class="rows">
+            <label class="row-switch"><span>自动朗读 AI 回复</span>
+              <span class="switch"><input type="checkbox" id="setAutoRead"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <label class="row-switch"><span>语音识别结果自动发送</span>
+              <span class="switch"><input type="checkbox" id="setSttAuto"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 偏好 -->
+        <div class="card">
+          <div class="card-title">偏好</div>
+          <div class="field">
+            <label class="label">主题色</label>
+            <div class="swatches" id="swatches"></div>
+          </div>
+          <div class="rows">
+            <label class="row-switch"><span>默认开启剧情模式</span>
+              <span class="switch"><input type="checkbox" id="setPlotDefault"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <label class="row-switch"><span>关闭 Qwen3 思考模式（/no_think）</span>
+              <span class="switch"><input type="checkbox" id="setNoThink"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <label class="row-switch"><span>显示「思考过程」折叠区</span>
+              <span class="switch"><input type="checkbox" id="setShowThinking"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <label class="row-switch"><span>群聊随机发言（默认按顺序）</span>
+              <span class="switch"><input type="checkbox" id="setRandomSpeaker"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <label class="row-switch"><span>把模型锁定在内存（更快，更吃内存）</span>
+              <span class="switch"><input type="checkbox" id="setMlock"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+            <div class="row-switch">
+              <span>屏幕常亮</span>
+              <select class="input" id="setKeepScreen" style="width:118px">
+                <option value="auto">生成时</option>
+                <option value="always">一直</option>
+                <option value="off">不保持</option>
+              </select>
+            </div>
+            <div class="muted xs" id="keepScreenHint">生成期间不熄屏，切到后台也会把这一轮跑完</div>
+          </div>
+          <div class="divider"></div>
+          <div class="row-switch">
+            <span>存储后端<br><span class="muted xs" id="storageInfo">—</span></span>
+            <select class="input" id="setBackend" style="width:150px"></select>
+          </div>
+          <div class="muted xs" id="backendHint">IndexedDB 是默认后端；SQLite 为实验后端（需真机验证），切换时会自动迁移全部数据</div>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnBackupExport">导出全部数据</button>
+            <button class="btn btn-sm" id="btnBackupImport">从备份恢复</button>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnRestorePresets">恢复内置角色</button>
+            <button class="btn btn-sm danger" id="btnClearAll">清空全部数据</button>
+          </div>
+        </div>
+
+        <div class="muted xs center pad-b">风月·本地版 · <span id="setVersion">—</span> · 数据保存在本机</div>
+      </div>
+    </section>
+
+    <!-- ---------- 视图 5：调试 ---------- -->
+    <section class="view" id="view-debug" data-view="debug">
+      <div class="pad">
+        <div class="row-between">
+          <h2 class="h2">调试</h2>
+          <button class="btn btn-sm" id="btnPullMenu">命令面板</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">环境信息 appInfo()</div>
+          <pre class="code" id="dbgApp">…</pre>
+        </div>
+
+        <div class="card">
+          <div class="card-title">引擎状态 engineStatus()</div>
+          <pre class="code" id="dbgEngine">…</pre>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnDbgStart">启动</button>
+            <button class="btn btn-sm" id="btnDbgStop">停止</button>
+            <button class="btn btn-sm" id="btnDbgPing">测试推理连通性</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">存储 / 数据</div>
+          <pre class="code" id="dbgStore">…</pre>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnDbgSelftest">运行自检</button>
+            <button class="btn btn-sm" id="btnDbgSeed">生成测试会话</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title with-btn">
+            <span>引擎日志（最近 <b id="dbgLogCount">0</b> 行）</span>
+            <button class="btn btn-xs" id="btnExportDiag">导出诊断</button>
+            <button class="btn btn-xs" id="btnCopyLog">一键复制</button>
+          </div>
+          <pre class="code tall" id="dbgLog">（暂无日志）</pre>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnRefreshDbg">刷新</button>
+            <button class="btn btn-sm" id="btnClearLog">清空日志</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================= 底部导航 ======================= -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab" data-tab="characters"><span class="tab-ico">🎭</span><span class="tab-txt">角色</span></button>
+    <button class="tab" data-tab="chat"><span class="tab-ico">💬</span><span class="tab-txt">聊天</span></button>
+    <button class="tab" data-tab="story"><span class="tab-ico">📖</span><span class="tab-txt">剧情</span></button>
+    <button class="tab" data-tab="settings"><span class="tab-ico">⚙️</span><span class="tab-txt">设置</span></button>
+    <button class="tab" data-tab="debug"><span class="tab-ico">🧪</span><span class="tab-txt">调试</span></button>
+  </nav>
+
+</div><!-- /#app -->
+
+<!-- ======================= 角色编辑弹层 ======================= -->
+<div class="sheet-mask" id="charSheetMask" hidden>
+  <div class="sheet" id="charSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="charSheetTitle">新建角色</div>
+      <button class="icon-btn" id="btnCharSheetClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="row gap">
+        <div class="field" style="width:88px">
+          <label class="label">头像 emoji</label>
+          <input class="input center" id="fAvatar" maxlength="4" value="🙂">
+        </div>
+        <div class="field grow">
+          <label class="label">名字</label>
+          <input class="input" id="fName" placeholder="例如：林夏">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">一句话简介</label>
+        <input class="input" id="fTagline" placeholder="出现在角色卡上的那句话">
+      </div>
+      <div class="field">
+        <label class="label">人设</label>
+        <textarea class="input" id="fPersona" rows="4" placeholder="年龄、身份、性格、说话方式…"></textarea>
+      </div>
+      <div class="field">
+        <label class="label">开场白（首次进入自动插入）</label>
+        <textarea class="input" id="fGreeting" rows="3"></textarea>
+      </div>
+      <div class="field">
+        <label class="label">示例对话（给模型的语气参考）</label>
+        <textarea class="input" id="fExamples" rows="4" placeholder="用户：…&#10;角色：…"></textarea>
+      </div>
+      <div class="field">
+        <label class="label">系统提示词</label>
+        <textarea class="input" id="fSystem" rows="4"></textarea>
+      </div>
+      <div class="field">
+        <label class="label">温度 <b id="fTempVal">0.85</b></label>
+        <input class="range" id="fTemp" type="range" min="0" max="2" step="0.05" value="0.85">
+      </div>
+      <div class="err" id="charSheetErr" hidden></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn danger" id="btnCharDelete" hidden>删除</button>
+      <button class="btn" id="btnCharExport" hidden title="导出为 chara_card_v2">导出</button>
+      <span class="grow"></span>
+      <button class="btn" id="btnCharCancel">取消</button>
+      <button class="btn btn-primary" id="btnCharSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 聊天记录搜索 ======================= -->
+<div class="sheet-mask" id="searchMask" hidden>
+  <div class="sheet compact" id="searchSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">搜索聊天记录</div>
+      <button class="icon-btn" id="btnSearchClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <input class="input" id="searchInput" placeholder="输入关键词，回车或停顿即搜" autocomplete="off">
+      </div>
+      <div class="muted xs" id="searchStatus">输入关键词开始搜索（搜索的是全部会话的聊天记录）</div>
+      <div class="model-list" id="searchList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 通用底部动作面板 ======================= -->
+<div class="sheet-mask" id="actionMask" hidden>
+  <div class="sheet compact" id="actionSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="actionTitle">操作</div>
+      <button class="icon-btn" id="btnActionClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body actions" id="actionList"></div>
+  </div>
+</div>
+
+<!-- ======================= 记忆面板 ======================= -->
+<div class="sheet-mask" id="memMask" hidden>
+  <div class="sheet" id="memSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="memTitle">长期记忆</div>
+      <button class="icon-btn" id="btnMemClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <p class="muted sm" id="memHint">记忆是更早对话的压缩摘要，会自动拼进系统提示词。</p>
+      <div class="field">
+        <label class="label">记忆内容（可手动编辑）</label>
+        <textarea class="input" id="memText" rows="9" placeholder="还没有记忆。多聊一会儿，或点下面的按钮立即压缩。"></textarea>
+      </div>
+      <div class="muted xs" id="memMeta"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn danger" id="btnMemClear">清空</button>
+      <span class="grow"></span>
+      <button class="btn" id="btnMemCompress">立即压缩</button>
+      <button class="btn btn-primary" id="btnMemSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 轻提示 ======================= -->
+<div class="toasts" id="toasts"></div>
+
+<!-- ======================= 首次启动遮罩 ======================= -->
+<div class="boot" id="boot">
+  <div class="boot-logo">🌙</div>
+  <div class="boot-title">风月·本地版</div>
+  <div class="boot-text" id="bootText">正在初始化…</div>
+</div>
+
+<!-- 经典 script 加载（不用 ES module，保证 WebView 兼容性） -->
+<script src="store.js"></script>
+<script src="cards.js"></script>
+<script src="mock.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

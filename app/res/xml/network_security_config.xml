@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文流量只放行本地回环：
+  * App 的前端由内置资源服务器提供（http://127.0.0.1:<port>），前端也直连本机推理端口；
+  * 其余一律禁止明文（模型下载走 https）。
+  以前是整包 usesCleartextTraffic="true"，发布审核会挑这个。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

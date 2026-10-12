@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  风月·本地版 —— 发布清单
+
+  注意几个"发布必须"的点（都是踩过/被审核卡过的）：
+  * 这里【不能】有 android:debuggable="true"：那是调试后门，所有商店直接拒。
+    调试构建由 build.sh 的 debug 模式（aapt2 debug-mode 参数）打开，不写在清单里。
+  * 明文流量不再整包放开，改成只允许回环地址（App 自己的本地资源服务器 + 推理端口）。
+  * allowBackup=false：聊天记录/角色卡是本机隐私，不该跟着云备份走。
+  * 调试端口、诊断自动落盘在代码里按 isDevBuild() 判断，发布版自动关闭。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.fy.local"
+    android:versionCode="1"
+    android:versionName="1.0.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 语音输入（惰性申请：点麦克风才要） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 引擎运行期间的前台服务：否则 App 退到后台会被系统冻结（连带引擎一起停摆） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- extractNativeLibs 必须为 true：llama-server 可执行文件要以真实文件形式
+         存在于 nativeLibraryDir 才能被 exec（Android 10+ 禁止执行应用数据目录里的文件） -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:extractNativeLibs="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:hardwareAccelerated="true"
+        android:allowBackup="false"
+        android:largeHeap="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 引擎运行期间的前台服务：防止后台冻结（见 FyService 注释） -->
+        <service
+            android:name=".FyService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="本地大模型推理（离线对话，不上传任何数据）" />
+        </service>
+    </application>
+</manifest>

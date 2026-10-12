@@ -1,0 +1,47 @@
+name: tests
+
+# 说明：这里只跑"不需要真机、也不需要模型文件"的那部分。
+# 需要真实 llama-server + GGUF 的 EngineJvmTest、e2e-real.mjs 不进来（几分钟起、还要 500MB 模型）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: 安装测试依赖
+        working-directory: tests
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      - name: 前端集成测试（jsdom）
+        working-directory: tests
+        run: node ui.test.mjs
+
+      - name: JVM 侧真跑（AssetServer + PNG 角色卡解析，不需要模型）
+        run: ./runtests.sh --quick
+
+      - name: 脚本语法自检
+        run: |
+          for f in build.sh runtests.sh deploy.sh checkup.sh tools/*.sh; do
+            bash -n "$f" || exit 1
+          done
+          echo "所有 shell 脚本语法通过"
