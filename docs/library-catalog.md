@@ -96,3 +96,31 @@ v2 是**纯增量**：字段只加不改，老版本 App（读 `packs` 数组）
   「下载全部匹配（N 片）」，只下载命中的分片。
 - 导入记录仍按文件名记在 `settings.libraryImported`（`{[file]: {count, ts}}`），
   所以「某片已导入」在搜索列表和整组列表里是同一份状态。
+
+## 换版语义：seed、作废旧记录、同名卡覆盖（v1.6.1 起）
+
+分片文件名是 `<slug>-<kind>-<part>.json`，**跨版本会重名**：
+v1 的 `mystery-character-1.json` 是整组 1000 张，v2 的同名文件只是第 1 片（约 250 张）。
+"导入过没有"又是按文件名记的，所以换版后光看记录会得出错误结论。规则如下：
+
+1. 目录顶层的 `seed` 是**版本指纹**。App 把它记在 `settings.librarySeed`；
+2. 每次拉到目录，若 `index.seed` 与已记录的不同，就逐条核对旧记录：
+   **张数跟新目录对不上（`record.count !== pack.count`）、或新目录里已经没有这个文件 → 作废**；
+   张数一致的保留（说明本来就是这一版）。作废条数写进日志，面板上也会提示；
+3. 有作废时**自动置 `settings.libraryOverwrite = true`**（面板上「同名卡用新内容覆盖」勾上），
+   因为换版基本意味着"文本重写了"，不覆盖的话同名卡会一直留着旧文本；
+4. 覆盖导入（`importCardsBatch(cards, {overwrite:true})`）遇到同名卡不跳过，
+   而是**沿用库里那张卡的 `id` 覆盖内容**（`fav`、`createdAt` 一起保留），
+   所以收藏、位置和已有聊天记录都不受影响；不勾覆盖时行为与以前完全一致（同名跳过，幂等）；
+5. 没有 `seed` 字段的老目录：上述逻辑整段跳过，行为与 v1.6.0 一致。
+
+导出给测试/其它前端用的入口：`FYApp.libSearchPacks` / `libPackImported` / `libPacksImported`
+/ `importLibraryPacks` / `libResults` / `libOverwriteOn` / `importCardsBatch`。
+
+## 内置预设的分类迁移（v1.6.1 起）
+
+`app/assets/ui/presets.json` 里 4 张预设（林夏 / 沈砚堂 / 云无咎 / 拾光）现在带 `tags`
+（日常治愈+恋爱 / 悬疑推理+历史 / 古风仙侠 / 科幻未来）。
+预设只在角色库为空时建卡，老库里的这几张要靠迁移补：启动与设置页「恢复内置角色」时
+`patchPresetTags()` 按名字找到它们，**只对 `tags` 取并集（最多 6 个）**，不动任何文本字段。
+预设清单的缓存键同时升到 `fy.presets.v2`（老键里的缓存没有 `tags`，续用会让迁移看不到标签）。

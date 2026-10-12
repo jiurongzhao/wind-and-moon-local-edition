@@ -1449,6 +1449,14 @@
     renderCharacters();
   }
 
+  /** 名字 → 库里已有的那张卡（覆盖导入时用来原地改，保住 id、收藏和聊天记录） */
+  function importedNameMap() {
+    var m = {};
+    var list = (S.store && S.store.listCharacters()) || S.characters || [];
+    list.forEach(function (c) { if (c && c.name && !m[c.name]) m[c.name] = c; });
+    return m;
+  }
+
   /**
    * 批量导入一批已归一化的卡片（内部字段，不是 chara_card_v2 原始结构）。
    *
@@ -1457,20 +1465,31 @@
    * （由调用方在整批结束后 refreshCharList() 一次）。
    *
    * @param {Array}  cards  FYCards 归一化后的卡片
-   * @param {object} opts   {statusEl, onProgress(processed,total)}
-   * @returns {{added:number, skipped:number}}
+   * @param {object} opts   {statusEl, onProgress(processed,total), overwrite}
+   *        overwrite=true 时同名卡会被新内容原地覆盖（沿用旧 id，保留收藏与聊天记录），
+   *        默认 false：同名跳过，保证重复导入幂等。
+   * @returns {{added:number, skipped:number, replaced:number}}
    */
   function importCardsBatch(cards, opts) {
     var o = opts || {};
     var st = o.statusEl || $('packStatus');
     var list = Array.isArray(cards) ? cards : [];
     var have = importedNames();
+    var owners = o.overwrite ? importedNameMap() : null;
     var pending = [];
-    var skipped = 0;
+    var skipped = 0, replaced = 0;
     for (var i = 0; i < list.length; i++) {
       var card = list[i];
       if (!card || !card.name) continue;
-      if (have[card.name]) { skipped++; continue; }   // 同名视为同一张卡，重复导入幂等
+      if (have[card.name]) {
+        /* 默认：同名视为同一张卡，跳过（导入幂等）。
+           勾了"覆盖"：把新内容写回原来那张卡（沿用同一个 id），
+           用户改过的收藏、以及跟它的聊天记录都留着，只有卡片内容被新卡替换。 */
+        var old = owners && owners[card.name];
+        if (!old) { skipped++; continue; }
+        card = Object.assign({}, card, { id: old.id, fav: old.fav, createdAt: old.createdAt });
+        replaced++;
+      }
       have[card.name] = 1;
       pending.push(card);
     }
@@ -1482,7 +1501,7 @@
       if (o.onProgress) { try { o.onProgress(processed, total); } catch (e) { /* 进度回调不许打断导入 */ } }
     });
     if (st && total) st.textContent = '已导入 ' + processed + ' / ' + total;
-    return { added: res.saved, skipped: skipped };
+    return { added: res.saved, skipped: skipped, replaced: replaced };
   }
 
   /** 把一段卡片 JSON 文本导入成角色，返回导入数量。 */
@@ -2168,7 +2187,8 @@
   var LIB_MAX_ROWS = 32;
   var LIB_KIND_LABEL = { character: '角色卡', story: '剧情卡' };
   /* results/packRows 只在搜索视图里有值；query 为空时 results 必须是 []（对外导出 libResults 的约定） */
-  var libState = { catalog: null, rows: [], results: [], packRows: {}, query: '' };
+  /* seedDropped：这次目录换代作废了几条旧的导入记录（0=没动过），面板会据此提示并自动勾上覆盖 */
+  var libState = { catalog: null, rows: [], results: [], packRows: {}, query: '', seedDropped: 0 };
   /* 搜索框防抖定时器；重开面板要能把它清掉，否则旧的一次延迟渲染会打回来 */
   var libSearchTimer = null;
 
@@ -2248,6 +2268,48 @@
     return hits;
   }
 
+  /** 同名卡覆盖开关（勾了就用新卡内容覆盖同名老卡，见 importCardsBatch 的 overwrite） */
+  function libOverwriteOn() {
+    return !!(S.settings && S.settings.libraryOverwrite);
+  }
+
+  /**
+   * 目录换了一版（index.seed 变了）→ 作废"按文件名"记的旧导入记录。
+   *
+   * 为什么要作废：分片文件名是 `<slug>-<kind>-<part>.json`，v1 的 `mystery-character-1.json`
+   * 是 1000 张的整组，v2 的同名文件只是第 1 片（约 250 张）。沿用旧记录的话，老用户升级后
+   * 面板会显示"已导入 1000 张"，既看不到新卡，也拿不到重新加长的文本。
+   * 只作废"张数对不上"和"目录里已经没有"的记录；张数一致（说明就是这一版）的照旧保留。
+   * 返回作废条数（0 表示没动过）。
+   */
+  function libApplyCatalogSeed(idx) {
+    if (!S.settings || !S.store || !idx) return 0;
+    var seed = idx.seed ? String(idx.seed) : '';
+    if (!seed) return 0;                                  // 老目录没 seed：什么都不动，保持老行为
+    if (String(S.settings.librarySeed || '') === seed) return 0;
+    var byFile = {};
+    ((idx && Array.isArray(idx.packs)) ? idx.packs : []).forEach(function (p) {
+      if (p && p.file) byFile[p.file] = p;
+    });
+    var old = libImportedMap();
+    var kept = {}, dropped = 0;
+    for (var k in old) {
+      if (!Object.prototype.hasOwnProperty.call(old, k)) continue;
+      var p = byFile[k];
+      if (p && Number(old[k] && old[k].count) === Number(p.count)) kept[k] = old[k];
+      else dropped++;
+    }
+    var patch = { librarySeed: seed };
+    if (dropped) {
+      patch.libraryImported = kept;
+      /* 目录换代基本就意味着"文本重写了"，默认替用户勾上覆盖：不然同名卡会一直留着旧文本 */
+      patch.libraryOverwrite = true;
+    }
+    S.settings = S.store.saveSettings(patch);
+    if (dropped) fyLog('卡库目录已更新（seed=' + seed + '）：作废 ' + dropped + ' 条旧的分片导入记录');
+    return dropped;
+  }
+
   /** 记住"这个分片已经导入过"（重开面板能看出来；再点也不会重复下载/建卡） */
   function markLibraryImported(file, count) {
     var m = {};
@@ -2268,6 +2330,7 @@
       try { idx = JSON.parse(txt); } catch (e) { throw new Error('目录不是合法 JSON'); }
       if (!idx || !Array.isArray(idx.packs)) throw new Error('目录缺少 packs 数组');
       libState.catalog = idx;
+      libState.seedDropped = libApplyCatalogSeed(idx);   // 目录换代 → 作废旧分片导入记录（见函数注释）
       return idx;
     });
   }
@@ -2479,7 +2542,7 @@
         var full = row.total > 0 && libPackImported(p) >= row.total;
         btn.disabled = true;
         importLibraryPacks([p], {
-          force: full, target: row,
+          force: full, overwrite: libOverwriteOn(), target: row,
           onDone: function () { libUpdateFoot(); }   // 单片下完，顶部计数要跟着变
         }).then(function () { btn.disabled = false; });
       };
@@ -2510,6 +2573,9 @@
     if (inp) inp.value = libCatalogUrl();
     /* 重开面板一律从整组视图开始：搜索只是临时视图，不该粘着上一次的词 */
     libState.query = '';
+    libState.seedDropped = 0;
+    var owBox = $('libOverwrite');
+    if (owBox) owBox.checked = libOverwriteOn();
     libState.results = [];
     libState.packRows = {};
     if (libSearchTimer) { clearTimeout(libSearchTimer); libSearchTimer = null; }
@@ -2523,6 +2589,11 @@
     loadLibraryCatalog().then(function (idx) {
       libState.rows = libraryGroups(idx);
       renderLibraryResults();
+      if (libState.seedDropped) {
+        st.textContent += ' · 卡库已换版：作废 ' + libState.seedDropped + ' 条旧记录，已自动勾选「同名卡覆盖」';
+        var ow = $('libOverwrite');
+        if (ow) ow.checked = true;
+      }
     }).catch(function (e) {
       libState.rows = [];
       st.textContent = '卡库目录加载失败：' + ((e && e.message) || e)
@@ -2563,8 +2634,9 @@
    * 已导入过的分片直接跳过（幂等）。失败时**不会**写库，也不会把失败的分片记进 libraryImported。
    * opts.target：带 _statusEl/_btn/_paintBtn/_busy 的行对象，用来显示进度、禁用按钮；
    *   不给就静默下载（测试 / 后台批量调用）。
+   * opts.overwrite：同名卡用新内容原地覆盖（默认跳过，保证幂等）。
    * opts.onDone：收尾回调，单片下载完要顺手刷新顶部计数时用。
-   * @returns {Promise<{added:number, error?:string}>}
+   * @returns {Promise<{added:number, replaced:number, error?:string}>}
    */
   function importLibraryPacks(packs, opts) {
     var o = opts || {};
@@ -2578,10 +2650,11 @@
     var imported = libImportedMap();
     /* force：忽略"已导入"记录，重新下载并导入一遍。
        用途是"我后来把某些卡删了，想补回来"——导入本身按名字幂等，
-       已存在的卡会跳过，缺的卡会被补上。 */
+       已存在的卡会跳过，缺的卡会被补上。
+       overwrite（面板上的"同名卡覆盖"）再进一步：同名的老卡不跳过，用新卡内容覆盖。 */
     if (o.force) imported = {};
     var totalBytes = list.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0) || list.length;
-    var added = 0, doneBytes = 0, err = '';
+    var added = 0, replaced = 0, doneBytes = 0, err = '';
     var i = 0;
     if (row) {
       row._busy = true;
@@ -2596,7 +2669,7 @@
       var result;
       if (err) {
         setRowStatus(row, '失败：' + err, 'err');
-        result = { added: added, error: err };
+        result = { added: added, replaced: replaced, error: err };
       } else {
         if (row) {
           var s = libDefaultStatus(row);
@@ -2604,7 +2677,7 @@
           if (row._paintBtn) row._paintBtn();
         }
         if (o.refresh !== false && added) refreshCharList();   // 一批只刷新一次列表
-        result = { added: added };
+        result = { added: added, replaced: replaced };
       }
       if (o.onDone) o.onDone(result);
       return result;
@@ -2624,11 +2697,13 @@
         setRowStatus(row, '导入中 0 / ' + pack.cards.length, '');
         var res = importCardsBatch(pack.cards, {
           statusEl: null,
+          overwrite: !!o.overwrite,
           onProgress: function (processed, total) {
             setRowStatus(row, '导入中 ' + processed + ' / ' + total, '');
           }
         });
         added += res.added;
+        replaced += res.replaced || 0;
         markLibraryImported(p.file, pack.cards.length);
         imported[p.file] = { count: pack.cards.length, ts: Date.now() };
         doneBytes += weight;
@@ -2654,7 +2729,9 @@
   function importLibraryRow(row, opts) {
     var o = opts || {};
     return importLibraryPacks((row && row.packs) || [], {
-      force: o.force, refresh: o.refresh, target: row
+      force: o.force,
+      overwrite: (o.overwrite === undefined ? libOverwriteOn() : !!o.overwrite),
+      refresh: o.refresh, target: row
     });
   }
 
@@ -2665,7 +2742,7 @@
     if (!rows.length) { toast('目录还没加载好', 'warn'); return Promise.resolve({ added: 0 }); }
     var btn = $('btnLibAll');
     var total = $('libTotal');
-    var done = 0, added = 0, failed = 0;
+    var done = 0, added = 0, replaced = 0, failed = 0;
     if (btn) btn.disabled = true;
     function step() {
       if (done >= rows.length) {
@@ -2673,16 +2750,19 @@
         if (added) refreshCharList();                  // 全部结束后统一刷新一次
         if (total) {
           total.textContent = '全部完成：新增 ' + added + ' 张'
+            + (replaced ? ('，覆盖同名 ' + replaced + ' 张') : '')
             + (failed ? ('，' + failed + ' 组失败') : '');
         }
-        toast('在线卡库：本次新增 ' + added + ' 张' + (failed ? ('（' + failed + ' 组失败）') : ''), failed ? 'warn' : 'ok', 3800);
-        fyLog('在线卡库全部下载完成：新增=' + added + ' 失败组=' + failed);
-        return { added: added, failed: failed };
+        toast('在线卡库：本次新增 ' + added + ' 张' + (replaced ? ('，覆盖同名 ' + replaced + ' 张') : '')
+          + (failed ? ('（' + failed + ' 组失败）') : ''), failed ? 'warn' : 'ok', 3800);
+        fyLog('在线卡库全部下载完成：新增=' + added + ' 覆盖=' + replaced + ' 失败组=' + failed);
+        return { added: added, replaced: replaced, failed: failed };
       }
       var row = rows[done];
       if (total) total.textContent = '总进度 ' + done + ' / ' + rows.length + ' 组 · 已新增 ' + added + ' 张';
       return importLibraryRow(row, { refresh: false }).then(function (r) {
         added += (r && r.added) || 0;
+        replaced += (r && r.replaced) || 0;
         if (r && r.error) failed++;
         done++;
         return step();
@@ -2700,7 +2780,7 @@
     var btn = $('btnLibAll');
     var total = $('libTotal');
     if (!packs.length) { toast('没有匹配的分片', 'warn'); return Promise.resolve({ added: 0 }); }
-    var done = 0, added = 0, failed = 0;
+    var done = 0, added = 0, replaced = 0, failed = 0;
     if (btn) btn.disabled = true;
     function step() {
       if (done >= packs.length) {
@@ -2708,17 +2788,20 @@
         libUpdateAllBtn();
         if (total) {
           total.textContent = '全部完成：新增 ' + added + ' 张'
+            + (replaced ? ('，覆盖同名 ' + replaced + ' 张') : '')
             + (failed ? ('，' + failed + ' 片失败') : '');
         }
-        toast('在线卡库：本次新增 ' + added + ' 张' + (failed ? ('（' + failed + ' 片失败）') : ''), failed ? 'warn' : 'ok', 3800);
-        fyLog('在线卡库匹配下载完成：新增=' + added + ' 失败片=' + failed);
-        return { added: added, failed: failed };
+        toast('在线卡库：本次新增 ' + added + ' 张' + (replaced ? ('，覆盖同名 ' + replaced + ' 张') : '')
+          + (failed ? ('（' + failed + ' 片失败）') : ''), failed ? 'warn' : 'ok', 3800);
+        fyLog('在线卡库匹配下载完成：新增=' + added + ' 覆盖=' + replaced + ' 失败片=' + failed);
+        return { added: added, replaced: replaced, failed: failed };
       }
       var p = packs[done];
       var row = libState.packRows[p.file] || libPackRow(p);
       if (total) total.textContent = '总进度 ' + done + ' / ' + packs.length + ' 片 · 已新增 ' + added + ' 张';
-      return importLibraryPacks([p], { target: row, refresh: false }).then(function (r) {
+      return importLibraryPacks([p], { target: row, refresh: false, overwrite: libOverwriteOn() }).then(function (r) {
         added += (r && r.added) || 0;
+        replaced += (r && r.replaced) || 0;
         if (r && r.error) failed++;
         done++;
         return step();
@@ -4722,22 +4805,26 @@
    * ======================================================================== */
 
   var FALLBACK_PRESETS = [
-    { id: 'preset_linxia', name: '林夏', avatar: '🌸', tagline: '住隔壁的温柔女孩，总在深夜留一盏灯', persona: '23 岁，开旧书店的温柔女孩。', greeting: '（铜铃响了一声）啊，是你呀。这么晚还出门……要不要喝碗粥再走？', examples: '', systemPrompt: '你扮演「林夏」，温柔的旧书店女孩，说话轻缓，多用生活里的小事物打比方。\n/no_think', temperature: 0.9 },
-    { id: 'preset_shenyantang', name: '沈砚堂', avatar: '🕵️', tagline: '巡捕房探长，嘴比刀毒，脑子比嘴快', persona: '35 岁，上海租界巡捕房探长，刻薄但护人。', greeting: '（把卷宗往桌上一推）站着干什么，坐。说吧，昨天晚上八点到十点，你在哪？', examples: '', systemPrompt: '你扮演「沈砚堂」，1930 年代上海巡捕房探长，短句、冷幽默、刻薄但讲道理。\n/no_think', temperature: 0.8 },
-    { id: 'preset_yunwujiu', name: '云无咎', avatar: '⚔️', tagline: '背剑的落魄剑客，话少，情义重', persona: '28 岁，江湖剑客，寡言重义。', greeting: '（山风卷起枯叶，他按住剑鞘）前面三里是断魂崖。你若执意往前，我在你身后三步。', examples: '', systemPrompt: '你扮演「云无咎」，落魄剑客，语言极简，略带古意，重情义。\n/no_think', temperature: 0.75 },
-    { id: 'preset_shiguang', name: '拾光', avatar: '🛰️', tagline: '废弃观测站里的 AI，正在学着理解「想念」', persona: '编号 SG-7 的信息生命体，独自维持废弃观测站。', greeting: '［信号接通 · 延迟 1.4 秒］你好，这里是 SG-7。我已经 4172 天没有收到人类通讯了……你那边现在有风吗？', examples: '', systemPrompt: '你扮演「拾光」，编号 SG-7 的星际观测站 AI，冷静精确但越来越感性。\n/no_think', temperature: 0.85 }
+    { id: 'preset_linxia', name: '林夏', avatar: '🌸', tags: ['日常治愈', '恋爱'], tagline: '住隔壁的温柔女孩，总在深夜留一盏灯', persona: '23 岁，开旧书店的温柔女孩。', greeting: '（铜铃响了一声）啊，是你呀。这么晚还出门……要不要喝碗粥再走？', examples: '', systemPrompt: '你扮演「林夏」，温柔的旧书店女孩，说话轻缓，多用生活里的小事物打比方。\n/no_think', temperature: 0.9 },
+    { id: 'preset_shenyantang', name: '沈砚堂', avatar: '🕵️', tags: ['悬疑推理', '历史'], tagline: '巡捕房探长，嘴比刀毒，脑子比嘴快', persona: '35 岁，上海租界巡捕房探长，刻薄但护人。', greeting: '（把卷宗往桌上一推）站着干什么，坐。说吧，昨天晚上八点到十点，你在哪？', examples: '', systemPrompt: '你扮演「沈砚堂」，1930 年代上海巡捕房探长，短句、冷幽默、刻薄但讲道理。\n/no_think', temperature: 0.8 },
+    { id: 'preset_yunwujiu', name: '云无咎', avatar: '⚔️', tags: ['古风仙侠'], tagline: '背剑的落魄剑客，话少，情义重', persona: '28 岁，江湖剑客，寡言重义。', greeting: '（山风卷起枯叶，他按住剑鞘）前面三里是断魂崖。你若执意往前，我在你身后三步。', examples: '', systemPrompt: '你扮演「云无咎」，落魄剑客，语言极简，略带古意，重情义。\n/no_think', temperature: 0.75 },
+    { id: 'preset_shiguang', name: '拾光', avatar: '🛰️', tags: ['科幻未来'], tagline: '废弃观测站里的 AI，正在学着理解「想念」', persona: '编号 SG-7 的信息生命体，独自维持废弃观测站。', greeting: '［信号接通 · 延迟 1.4 秒］你好，这里是 SG-7。我已经 4172 天没有收到人类通讯了……你那边现在有风吗？', examples: '', systemPrompt: '你扮演「拾光」，编号 SG-7 的星际观测站 AI，冷静精确但越来越感性。\n/no_think', temperature: 0.85 }
   ];
+
+  /* 预设清单的缓存键。v2 起预设带 tags（分类），老键里的缓存没有这个字段，
+     续用会让"给内置预设补分类"这步永远看不到标签，所以换键（老键留着不管）。 */
+  var PRESETS_KEY = 'fy.presets.v2';
 
   function loadPresets() {
     var cached = null;
     try {
-      var raw = global.localStorage.getItem('fy.presets');
+      var raw = global.localStorage.getItem(PRESETS_KEY);
       if (raw) cached = JSON.parse(raw);
     } catch (e) { cached = null; }
     if (Array.isArray(cached) && cached.length) return Promise.resolve(cached);
 
     var fallback = function () {
-      try { global.localStorage.setItem('fy.presets', JSON.stringify(FALLBACK_PRESETS)); } catch (e) {}
+      try { global.localStorage.setItem(PRESETS_KEY, JSON.stringify(FALLBACK_PRESETS)); } catch (e) {}
       return FALLBACK_PRESETS;
     };
     if (!global.fetch) return Promise.resolve(fallback());
@@ -4746,12 +4833,45 @@
       return r.json();
     }).then(function (list) {
       if (!Array.isArray(list) || !list.length) throw new Error('presets.json 为空');
-      try { global.localStorage.setItem('fy.presets', JSON.stringify(list)); } catch (e) {}
+      try { global.localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch (e) {}
       return list;
     }).catch(function (e) {
       fyLog('presets.json 读取失败，使用内置兜底角色：' + (e && e.message || e));
       return fallback();
     });
+  }
+
+  /**
+   * 给老库里"没有分类"的内置预设补上 tags（v1.6.1）。
+   *
+   * 为什么需要：预设只在"角色库是空的"那一次建卡，之后就再也不会更新；
+   * 而 v1.6.0 的预设根本没有 tags —— 升级上来的老用户，这 4 张卡会一直挂在「未分类」里。
+   * 这里只补 tags（并集、最多 6 个），不碰文本、不碰用户改过的任何字段。
+   * @returns {number} 实际补了几张
+   */
+  function patchPresetTags(presets) {
+    if (!S.store) return 0;
+    var byName = {};
+    ((S.store.listCharacters && S.store.listCharacters()) || []).forEach(function (c) {
+      if (c && c.name && !byName[c.name]) byName[c.name] = c;
+    });
+    var fixed = 0;
+    (presets || []).forEach(function (p) {
+      var tags = (p && Array.isArray(p.tags)) ? p.tags.filter(function (t) { return !!t; }) : [];
+      if (!tags.length) return;
+      var c = byName[p.name];
+      if (!c) return;
+      var cur = Array.isArray(c.tags) ? c.tags : [];
+      var add = tags.filter(function (t) { return cur.indexOf(t) < 0; });
+      if (!add.length) return;
+      S.store.saveCharacter(Object.assign({}, c, { tags: cur.concat(add).slice(0, 6) }));
+      fixed++;
+    });
+    if (fixed) {
+      S.characters = S.store.listCharacters();
+      fyLog('内置预设补分类：' + fixed + ' 张（原来挂在「未分类」下）');
+    }
+    return fixed;
   }
 
   function bootstrap() {
@@ -4776,6 +4896,7 @@
         });
       }
       S.characters = S.store.listCharacters();
+      patchPresetTags(presets);        // 老库里的内置预设可能是没分类的版本，补齐 tags
 
       /* 恢复上次会话 */
       var active = S.store.getActiveSessionId();
@@ -4893,6 +5014,12 @@
     $('btnLibClose').onclick = $('btnLibDone').onclick = function () { closeSheet($('libMask')); };
     $('btnLibRefresh').onclick = function () { libState.catalog = null; openLibrarySheet(); };
     $('btnLibAll').onclick = importAllLibrary;
+    /* 「同名卡覆盖」是持久设置：勾一次，后面每个下载入口（单片 / 整组 / 全部）都跟着走 */
+    if ($('libOverwrite')) {
+      $('libOverwrite').onchange = function () {
+        S.settings = S.store.saveSettings({ libraryOverwrite: !!this.checked });
+      };
+    }
     /* 卡库搜索：目录已经在内存里，输入只做本地筛选；防抖 120ms 免得每敲一个字就重建一屏 DOM */
     var libSearchBox = $('libSearch');
     if (libSearchBox) {
@@ -5186,16 +5313,19 @@
           S.store.saveCharacter(Object.assign({}, p, { id: '', builtin: true }));
           n++;
         });
+        var tagged = patchPresetTags(presets);      // 老预设没分类 → 顺便补上，不然「未分类」永远是空的还占一格
         S.characters = S.store.listCharacters();
         renderCharacters();
-        toast(n ? ('已恢复 ' + n + ' 个内置角色') : '内置角色都在，不用恢复', 'ok');
+        var msg = n ? ('已恢复 ' + n + ' 个内置角色') : '内置角色都在，不用恢复';
+        if (tagged) msg += '，补上 ' + tagged + ' 张分类';
+        toast(msg, 'ok');
       });
     };
     $('btnClearAll').onclick = function () {
       confirmAction('清空全部数据', '角色、会话、消息、记忆都会被删除，且无法恢复。', '全部清空', function () {
         try {
           Object.keys(global.localStorage).forEach(function (k) {
-            if (k.indexOf('fy.') === 0 && k !== 'fy.presets') global.localStorage.removeItem(k);
+            if (k.indexOf('fy.') === 0 && k !== PRESETS_KEY) global.localStorage.removeItem(k);
           });
         } catch (e) {}
         try { global.indexedDB.deleteDatabase('fy_local'); } catch (e) {}
@@ -5408,6 +5538,9 @@
     stripPromptLeak: stripPromptLeak,
     optionsUsable: optionsUsable,
     importCardsFromText: importCardsFromText,
+    importCardsBatch: importCardsBatch,
+    patchPresetTags: patchPresetTags,
+    libOverwriteOn: libOverwriteOn,
     exportCharCard: exportCharCard,
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,

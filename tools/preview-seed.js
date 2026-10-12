@@ -224,7 +224,7 @@
         });
       });
       var catalog = {
-        spec: 'fy_library_v2', chunk: 250, total: 32000, baseUrl: 'https://example.invalid/library/',
+        spec: 'fy_library_v2', seed: '20261012', chunk: 250, total: 32000, baseUrl: 'https://example.invalid/library/',
         categories: cats.map(function (c) {
           var sample = (topics[c[0]] || [[''], ['']]);
           return {
@@ -249,6 +249,7 @@
       App.state.settings = App.state.store.saveSettings({
         libCatalogUrl: 'https://example.invalid/library/index.json',
         libraryImported: imported,
+        librarySeed: '20261012',        /* 跟假目录的 seed 一致：截图里不该触发"换版作废"提示 */
       });
       App.openLibrarySheet();
       if (view === 'library-search') {

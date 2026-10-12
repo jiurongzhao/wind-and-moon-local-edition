@@ -778,8 +778,11 @@ check('分类 chips 会生成（含「全部」与「未分类」）',
 S.charCat = '恋爱';
 window.FYApp.renderCharacters();
 let cards = Array.from(doc.querySelectorAll('#charGrid .char-card .char-name')).map((n) => n.textContent);
+/* 内置预设从 v1.6.1 起也带分类（林夏 = 日常治愈 + 恋爱），所以这里不能写死张数，
+   只断言"恋爱分类里出现乙/丙、且不带这个分类的甲/丁被排除" */
 check('按分类筛选只显示该分类的卡',
-  cards.length === 2 && cards.some((t) => t.includes('乙角色')) && cards.some((t) => t.includes('丙角色')),
+  cards.some((t) => t.includes('乙角色')) && cards.some((t) => t.includes('丙角色'))
+  && !cards.some((t) => t.includes('甲角色')) && !cards.some((t) => t.includes('丁角色')),
   cards.join(' | '));
 check('剧情卡带「剧情」标记',
   cards.some((t) => t.includes('剧情')), cards.join(' | '));
@@ -1753,7 +1756,7 @@ const libShard = (tag, n, count) => JSON.stringify({
   cards: Array.from({ length: n }, (_, i) => libCard(tag + '-' + (i + 1))),
 });
 const libCatalog = {
-  spec: 'fy_library_v1', total: 20, baseUrl: 'https://lib.example.invalid/fy-library/',
+  spec: 'fy_library_v1', total: 20, seed: 'test-seed-1', baseUrl: 'https://lib.example.invalid/fy-library/',
   categories: [
     { slug: 'mystery', tag: '悬疑推理', emoji: '🔍', character: 10, story: 0 },
     { slug: 'badcount', tag: '坏张数', emoji: '💥', character: 5, story: 0 },
@@ -1977,6 +1980,97 @@ check('清空搜索后 libResults 归零、主按钮回到「全部下载」',
   window.FYApp.libResults().length === 0
   && /全部下载/.test($('btnLibAll').textContent) && !/下载全部匹配/.test($('btnLibAll').textContent),
   '结果 ' + window.FYApp.libResults().length + ' / 按钮 ' + $('btnLibAll').textContent.trim());
+
+/* ---------- 34b-3. v1.6.1：目录换代（seed 变）→ 作废旧的分片导入记录 ---------- */
+S.settings = S.store.saveSettings({
+  libraryImported: {
+    'mystery-character-1.json': { count: 1000, ts: 1 },   // v1 时代：同名文件却是 1000 张的整组 → 张数对不上，要作废
+    'mystery-character-2.json': { count: 5, ts: 2 },      // 张数对得上 → 就是这一版的记录，得留着
+    'gone-character-1.json': { count: 5, ts: 3 },         // 目录里已经没有这个文件了 → 作废
+  },
+  librarySeed: 'old-seed',
+  libraryOverwrite: false,
+});
+window.FYApp.openLibrarySheet();
+const seedApplied = await until(() => S.settings.librarySeed === 'test-seed-1', 6000);
+check('目录 seed 变了：张数对不上的旧记录被作废，对得上的留着（不留 = 又让老用户看不到新卡）',
+  seedApplied
+  && !S.settings.libraryImported['mystery-character-1.json']
+  && !!S.settings.libraryImported['mystery-character-2.json']
+  && !S.settings.libraryImported['gone-character-1.json'],
+  JSON.stringify(S.settings.libraryImported));
+check('作废后自动勾上「同名卡覆盖」+ 面板明确提示（不然同名老卡一直留着旧文本）',
+  S.settings.libraryOverwrite === true && $('libOverwrite').checked === true
+  && /作废 2 条旧记录/.test($('libStatus').textContent),
+  'overwrite=' + S.settings.libraryOverwrite + ' / ' + $('libStatus').textContent.trim().slice(-70));
+/* 同一版本再开面板：seed 没变，必须是"一条都不动"（否则每次开面板都把记录清空） */
+S.settings = S.store.saveSettings({
+  libraryImported: { 'mystery-character-1.json': { count: 999, ts: 9 } },
+  libraryOverwrite: false,
+});
+window.FYApp.openLibrarySheet();
+const seedSame = await until(() => /匹配|共 \d+ 组|已导入/.test($('libStatus').textContent), 6000);
+check('seed 没变就一条记录都不动（作废只在换代时发生一次）',
+  seedSame && !!S.settings.libraryImported['mystery-character-1.json']
+  && S.settings.libraryOverwrite === false,
+  JSON.stringify(S.settings.libraryImported) + ' / overwrite=' + S.settings.libraryOverwrite);
+check('勾选框跟设置联动：勾上 → settings.libraryOverwrite 落盘',
+  (() => {
+    $('libOverwrite').checked = true;
+    $('libOverwrite').dispatchEvent(new window.Event('change', { bubbles: true }));
+    return S.settings.libraryOverwrite === true;
+  })(),
+  'overwrite=' + S.settings.libraryOverwrite);
+
+/* ---------- 34b-4. v1.6.1：勾了「同名卡覆盖」→ 同名卡原地换成新文本 ---------- */
+/* 先把 34b-2 那次导入留下的 5 张清掉，保证这一步只有"一张老卡 + 5 张新卡" */
+S.store.listCharacters().filter((c) => /^悬疑角色甲-/.test(c.name)).forEach((c) => S.store.deleteCharacter(c.id));
+S.settings = S.store.saveSettings({ libraryImported: {}, libraryOverwrite: true });
+const oldCard = S.store.saveCharacter({
+  name: '悬疑角色甲-1', persona: '旧文本（v1 的短人设）', greeting: '旧开场白', tags: ['在线卡库'], fav: true,
+});
+const oldSession = S.store.saveSession({ title: '跟老卡的旧聊天', characterIds: [oldCard.id] });
+S.store.addMessage({ sessionId: oldSession.id, role: 'assistant', characterId: oldCard.id, speakerName: oldCard.name, content: '旧的聊天记录' });
+const owPack = window.FYApp.libSearchPacks('解剖室')[0];
+const owRes = await window.FYApp.importLibraryPacks([owPack], { overwrite: true });
+const owCard = S.store.listCharacters().filter((c) => c.name === '悬疑角色甲-1')[0];
+check('同名卡覆盖：沿用原 id、保留收藏，文本换成新卡的（不是新插一张）',
+  owRes.replaced === 1 && owRes.added === 5 && !!owCard && owCard.id === oldCard.id && owCard.fav === true
+  && owCard.persona !== '旧文本（v1 的短人设）' && /在线卡库测试人设/.test(owCard.persona),
+  'replaced=' + owRes.replaced + ' added=' + owRes.added + ' id同名=' + (!!owCard && owCard.id === oldCard.id)
+  + ' fav=' + (!!owCard && owCard.fav) + ' persona=' + String(owCard && owCard.persona).slice(0, 20));
+check('同名卡覆盖：跟它的聊天记录一条不少（只是卡片内容换了）',
+  S.store.listMessages(oldSession.id).length === 1
+  && S.store.listMessages(oldSession.id)[0].content === '旧的聊天记录',
+  S.store.listMessages(oldSession.id).map((m) => m.content).join(' | '));
+check('同名卡覆盖：不重复入库（还是 5 张，不会变 10 张）',
+  S.store.listCharacters().filter((c) => /^悬疑角色甲-/.test(c.name)).length === 5,
+  String(S.store.listCharacters().filter((c) => /^悬疑角色甲-/.test(c.name)).length));
+/* 不勾覆盖（老行为）：同名一律跳过 —— 重复导入幂等这条不能因为新功能被破坏 */
+const owRes2 = await window.FYApp.importLibraryPacks([owPack], { force: true, overwrite: false });
+check('没勾覆盖时同名照旧跳过：added=0 / replaced=0（幂等老行为不变）',
+  owRes2.added === 0 && (owRes2.replaced || 0) === 0,
+  'added=' + owRes2.added + ' replaced=' + owRes2.replaced);
+
+/* ---------- 34b-5. v1.6.1：内置预设补分类（老库里没 tags 的那 4 张） ---------- */
+const presetNames = ['林夏', '沈砚堂', '云无咎', '拾光'];
+const allPresets = S.store.listCharacters().filter((c) => presetNames.indexOf(c.name) >= 0);
+check('4 张内置预设现在都带分类（不再落进「未分类」）',
+  allPresets.length === 4 && allPresets.every((c) => (c.tags || []).length > 0),
+  allPresets.map((c) => c.name + ':' + JSON.stringify(c.tags)).join(' | '));
+/* 模拟"升级上来的老库"：把林夏的 tags 清空，再跑一次迁移 */
+const linxiaOld = S.store.listCharacters().filter((c) => c.name === '林夏')[0];
+const linxiaPersona = linxiaOld.persona, linxiaGreeting = linxiaOld.greeting;
+S.store.saveCharacter(Object.assign({}, linxiaOld, { tags: [] }));
+const patched = window.FYApp.patchPresetTags([{ name: '林夏', tags: ['日常治愈', '恋爱'] }]);
+const linxiaNew = S.store.listCharacters().filter((c) => c.name === '林夏')[0];
+check('老库预设没分类 → 迁移补上（只动 tags，文本一个字都不改）',
+  patched === 1 && linxiaNew.tags.length === 2 && linxiaNew.tags.indexOf('日常治愈') >= 0
+  && linxiaNew.persona === linxiaPersona && linxiaNew.greeting === linxiaGreeting
+  && linxiaNew.id === linxiaOld.id,
+  'patched=' + patched + ' tags=' + JSON.stringify(linxiaNew.tags));
+check('已经有分类的卡不会被反复改（迁移幂等，返回 0）',
+  window.FYApp.patchPresetTags([{ name: '林夏', tags: ['日常治愈', '恋爱'] }]) === 0);
 
 S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;
