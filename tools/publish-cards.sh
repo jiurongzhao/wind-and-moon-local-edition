@@ -65,7 +65,14 @@ if [ "${SKIP_UPLOAD:-0}" != "1" ]; then
   [ -n "$TOKEN" ] || { echo "❌ 没有令牌（GITEE_TOKEN 或 ~/.gitee_token）" >&2; exit 1; }
 
   mkrelease() {   # mkrelease <tag> → 回显 release id（同名就复用）
-    local t="$1" notes="$ROOT/dist/卡库说明-$t.md" resp rid tmp=0
+    # 注意：`local t="$1" notes="…$t…"` 在 set -u 下会报 t: unbound variable
+    # （同一个 local 里后面的展开看不到前面的赋值），所以拆成两行。
+    local t="$1" resp rid tmp=0
+    local notes="$ROOT/dist/卡库说明-$t.md"
+    # 直接给 id：Gitee 被限流时连读接口都 403，这时只能靠外部把 id 传进来续传
+    if [ -n "${CARDS_RELEASE_ID:-}" ] && [ "$t" = "$TAG" ]; then
+      printf '%s' "$CARDS_RELEASE_ID"; return 0
+    fi
     if [ ! -f "$notes" ]; then
       notes="$(mktemp)"; tmp=1
       cat > "$notes" <<EOF
@@ -93,11 +100,16 @@ try: d=json.load(sys.stdin)
 except Exception: print(""); raise SystemExit
 print(d.get("id","") if isinstance(d,dict) else "")')"
     if [ -z "$rid" ]; then
-      echo "   同名发行版已存在，复用：$t" >&2
-      rid="$(curl -sS "$API/releases/tags/$t" | python3 -c 'import sys,json
+      echo "   同名发行版已存在（或建发行版被限流），尝试读回：$t" >&2
+      # 限流时读接口也会 403，退避重试几次
+      for _try in 1 2 3 4; do
+        rid="$(curl -sS "$API/releases/tags/$t" | python3 -c 'import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(""); raise SystemExit
 print(d.get("id","") if isinstance(d,dict) else "")')"
+        [ -n "$rid" ] && break
+        sleep $((_try * 15))
+      done
     fi
     [ -n "$rid" ] || return 1
     printf '%s' "$rid"
@@ -120,21 +132,92 @@ print(d.get("id","") if isinstance(d,dict) else "")')"
   done
 
   echo "── 2/3 上传 $COUNT 个分片（每个约 $(( $(du -sb "$LIB"|cut -f1) / COUNT / 1024 )) KB）"
-  ok=0; bad=0
-  while IFS=$'\t' read -r f gtag; do
-    grid="$(curl -sS "$API/releases/tags/$gtag" | python3 -c 'import sys,json
+  # 可续传：先读一遍各发行版已有的附件名，已经传上去的直接跳过。
+  # （128 个附件传到一半断了是常事，重跑一遍不能变成"再传一份重复的"。）
+  release_id() {
+    # 限流时连读接口都 403，此时允许外部把 id 直接传进来
+    if [ -n "${CARDS_RELEASE_ID:-}" ] && [ "$1" = "$TAG" ]; then
+      printf '%s' "$CARDS_RELEASE_ID"; return 0
+    fi
+    curl -sS --max-time 30 "$API/releases/tags/$1" | python3 -c 'import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(""); raise SystemExit
-print(d.get("id","") if isinstance(d,dict) else "")')"
-    OUT="$(curl -sS -X POST "$API/releases/$grid/attach_files" \
-      -F "access_token=$TOKEN" -F "file=@$LIB/$f" 2>&1 | head -c 200)"
-    case "$OUT" in
-      *'"id"'*|*'"browser_download_url"'*) ok=$((ok+1)); printf '   ✅ %s → %s\n' "$f" "$gtag" ;;
-      *) bad=$((bad+1)); printf '   ⚠️ %s → %s\n' "$f" "$(printf '%s' "$OUT" | head -c 120)" ;;
-    esac
+print(d.get("id","") if isinstance(d,dict) else "")'
+  }
+  # 回显附件名；读不到（限流/网络）返回非 0 —— 绝不把"读不到"当成"一个都没传"，
+  # 否则会整批重传一遍，发行版里就会出现重名附件。
+  fetch_names() {
+    local code out
+    out="$(mktemp)"
+    code="$(curl -sS --max-time 60 -o "$out" -w '%{http_code}' "$API/releases/$(release_id "$1")")"
+    if [ "$code" != "200" ]; then rm -f "$out"; return 1; fi
+    python3 - "$out" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding='utf-8'))
+except Exception:
+    raise SystemExit(1)
+for a in (d.get("assets") or []):
+    n = a.get("name") or ""
+    if n:
+        print(n)
+PY
+    local rc=$?
+    rm -f "$out"
+    return $rc
+  }
+  ok=0; bad=0; skip=0
+  declare -A NAMES_CACHE=()
+  declare -A RID_CACHE=()
+  # Gitee 的 attach_files 有明显限流：连着传几十个就返回 405，再传一阵子整个 API 会
+  # 403 Rate Limit Exceeded。所以默认每个之间隔 4 秒，撞上 405/429 指数退避重试；
+  # 读接口都读不到时直接停下来（本轮失败），交给外层循环过一阵子续传。
+  DELAY="${UPLOAD_DELAY:-4}"
+  while IFS=$'\t' read -r f gtag; do
+    if [ -z "${RID_CACHE[$gtag]+x}" ]; then RID_CACHE[$gtag]="$(release_id "$gtag")"; fi
+    grid="${RID_CACHE[$gtag]}"
+    if [ -z "${NAMES_CACHE[$gtag]+x}" ]; then
+      names="$(fetch_names "$gtag")" || {
+        echo "   ⚠️ 读不到 $gtag 的附件列表（多半是限流），本轮先停，稍后续传"
+        bad=$((bad+1)); break
+      }
+      NAMES_CACHE[$gtag]="$names"
+    fi
+    if printf '%s\n' "${NAMES_CACHE[$gtag]}" | grep -qxF "$f"; then
+      skip=$((skip+1)); printf '   ⏭  %s（已在上，跳过）\n' "$f"; continue
+    fi
+    attempt=0
+    while :; do
+      attempt=$((attempt+1))
+      OUT="$(curl -sS --max-time 600 -X POST "$API/releases/$grid/attach_files" \
+        -F "access_token=$TOKEN" -F "file=@$LIB/$f" 2>&1 | head -c 300)"
+      case "$OUT" in
+        *'"id"'*|*'"browser_download_url"'*)
+          ok=$((ok+1)); printf '   ✅ %s → %s\n' "$f" "$gtag"
+          NAMES_CACHE[$gtag]="${NAMES_CACHE[$gtag]}"$'\n'"$f"
+          break ;;
+        *)
+          if printf '%s' "$OUT" | grep -qE '405|429|Too Many|rate'; then
+            wait_s=$((attempt * 30))
+            if [ "$attempt" -ge 5 ]; then
+              bad=$((bad+1)); printf '   ⚠️ %s → 限流重试 %d 次仍失败\n' "$f" "$attempt"; break
+            fi
+            printf '   …限流（%s），等 %ds 重试 %s\n' "$(printf '%s' "$OUT" | head -c 40)" "$wait_s" "$f"
+            sleep "$wait_s"
+            continue
+          fi
+          bad=$((bad+1)); printf '   ⚠️ %s → %s\n' "$f" "$(printf '%s' "$OUT" | head -c 160)"
+          break ;;
+      esac
+    done
+    sleep "$DELAY"
   done < "$TMPMAP"
-  echo "   上传完成：成功 $ok / 失败 $bad"
-  [ "$bad" = "0" ] || echo "   （有失败分片：多半是附件数量上限，用 ATTACH_PER_RELEASE=64 重跑即可自动拆分）"
+  echo "   上传完成：新传 $ok / 跳过 $skip / 失败 $bad"
+  UPLOAD_BAD=$bad
+  if [ "$bad" != "0" ]; then
+    echo "   ⚠️ 有失败分片：直接重跑同一条命令即可续传（已传的会自动跳过，限流会自己退避）；"
+    echo "      若报的是单发行版附件数量上限，用 ATTACH_PER_RELEASE=64 重跑，会拆成多个发行版。"
+  fi
 else
   echo "── 1-2/3 跳过上传（SKIP_UPLOAD=1）"
 fi
@@ -174,3 +257,5 @@ echo
 echo "✅ 完成。发行版页面：https://gitee.com/$REPO/releases/tag/$TAG"
 echo "   把 apps 里的 LIB_CATALOG_URL 指到（已提交的）目录文件即可："
 echo "   https://gitee.com/$REPO/raw/main/cards/library-index.json"
+# 有分片没传上就以非 0 退出，外层重试循环据此决定要不要再跑一轮
+[ "${UPLOAD_BAD:-0}" = "0" ] || exit 1
