@@ -84,7 +84,9 @@ node bench-db.mjs 2000 3                                        # 数据库真�
 
 | 想改什么 | 去哪 |
 |---|---|
-| 界面样式 | `app/assets/ui/style.css` |
+| 界面样式（设计令牌 / 组件） | `app/assets/ui/style.css` |
+| 界面结构（视图与弹层的骨架） | `app/assets/ui/index.html` |
+| 界面图标（自绘 SVG sprite） | `index.html` 顶部的 `.sprite` 里加 `<symbol id="i-xxx">`，JS 里用 `iconEl('xxx')` |
 | 界面逻辑 / 提示词 / 流式解析 | `app/assets/ui/app.js` |
 | 数据模型与存储（四个后端） | `app/assets/ui/store.js` |
 | 角色卡格式（chara_card_v2） | `app/assets/ui/cards.js` |

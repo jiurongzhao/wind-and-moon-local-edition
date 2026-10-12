@@ -34,6 +34,42 @@
     return n;
   }
 
+  /* ---------- 图标：自绘 SVG sprite（见 index.html 的 #i-xxx） ----------
+     v1.4.0 起不再拿 emoji 当 UI 图标：各系统字体渲染差异大、粗细对不齐。
+     这里只做两件事 —— 造一个 <svg class="ico"><use href="#i-name"/></svg>，
+     以及把历史代码里散落的 emoji "别名" 折成图标名（认不出就原样留着，
+     因为角色头像、表情这类 emoji 是用户内容，不能动）。 */
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var ICON_ALIAS = {
+    '✅': 'check', '✔': 'check', '❌': 'ban', '⚠️': 'warn', '⚠': 'warn', '🚫': 'ban',
+    '📋': 'copy', '🔊': 'speaker', '🔄': 'refresh', '✏️': 'pen', '🗑️': 'trash', '🗑': 'trash',
+    '🎭': 'char', '💬': 'chat', '⚙️': 'gear', '⚙': 'gear', '🧪': 'flask', '📖': 'book',
+    '📦': 'box', '💡': 'bulb', '✨': 'sparkle', '🎲': 'dice', '🦴': 'template',
+    '🌡': 'thermo', '🔎': 'search', '↩️': 'back', '✍️': 'pen', '📤': 'export',
+    '☁️': 'cloud', '📱': 'phone', '🖥': 'monitor', '👥': 'users', '🤖': 'robot', '🧑': 'user',
+    '🔌': 'bolt', '⚡': 'bolt', '🚪': 'door', '🗣': 'quote', '⭐': 'star', '☆': 'star-o', '▶': 'next'
+  };
+
+  function iconEl(name, cls) {
+    var s = document.createElementNS(SVGNS, 'svg');
+    s.setAttribute('class', 'ico' + (cls ? ' ' + cls : ''));
+    s.setAttribute('aria-hidden', 'true');
+    s.setAttribute('focusable', 'false');
+    var u = document.createElementNS(SVGNS, 'use');
+    u.setAttribute('href', '#i-' + name);
+    try { u.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#i-' + name); } catch (e) { /* 老引擎 */ }
+    s.appendChild(u);
+    return s;
+  }
+
+  /** 图标名或 emoji → 可插入的节点（emoji 认得出就换成图标，认不出原样保留） */
+  function iconNode(ico, cls) {
+    var raw = String(ico === undefined || ico === null ? '' : ico).trim();
+    var name = ICON_ALIAS[raw] || (/^[a-z-]+$/.test(raw) ? raw : '');
+    if (name) return iconEl(name, cls);
+    return el('span', cls || '', raw || '•');
+  }
+
   function esc(s) {
     return String(s === undefined || s === null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -225,8 +261,10 @@
     actions.forEach(function (a) {
       if (!a) return;
       var b = el('button', 'act-btn' + (a.danger ? ' danger' : ''));
-      b.appendChild(el('span', 'act-ico', a.icon || '•'));
-      b.appendChild(el('span', '', a.label));
+      var tile = el('span', 'act-ico');
+      tile.appendChild(iconNode(a.icon, ''));
+      b.appendChild(tile);
+      b.appendChild(el('span', 'act-label', a.label));
       b.onclick = function () {
         closeSheet($('actionMask'));
         setTimeout(function () { try { a.run(); } catch (e) { toast('操作失败：' + e, 'err'); } }, 60);
@@ -389,8 +427,13 @@
     box.innerHTML = '';
     var cats = ['all'].concat(allCategories());
     cats.forEach(function (t) {
-      var b = el('button', 'chip' + ((S.charCat || 'all') === t ? ' on' : ''),
-        t === 'all' ? ('全部 ' + countByCat('all')) : (t + ' ' + countByCat(t)));
+      var b = el('button', 'chip' + ((S.charCat || 'all') === t ? ' on' : ''));
+      if (t === CAT_FAV) {
+        b.appendChild(iconEl('star'));
+        b.appendChild(el('span', '', '收藏 ' + countByCat(t)));
+      } else {
+        b.appendChild(el('span', '', t === 'all' ? ('全部 ' + countByCat('all')) : (t + ' ' + countByCat(t))));
+      }
       b.onclick = function () {
         S.charCat = t;
         renderCharCats();
@@ -424,7 +467,28 @@
     var sessions = S.store.listSessions();
     shown.forEach(function (c) {
       var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
-      card.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
+      var top = el('div', 'char-top');
+      top.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
+
+      var fav = el('button', 'char-fav' + (c.fav ? ' on' : ''));
+      fav.appendChild(iconEl(c.fav ? 'star' : 'star-o'));
+      fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
+      fav.onclick = function (ev) {
+        ev.stopPropagation();
+        S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
+        S.characters = S.store.listCharacters();
+        S.charCount = -1;
+        renderCharCats();
+        renderCharacters();
+      };
+      top.appendChild(fav);
+
+      var edit = el('button', 'char-edit');
+      edit.appendChild(iconEl('pen'));
+      edit.title = '编辑角色';
+      edit.onclick = function (ev) { ev.stopPropagation(); openCharSheet(c); };
+      top.appendChild(edit);
+      card.appendChild(top);
 
       var nameRow = el('div', 'char-name');
       nameRow.appendChild(el('span', '', c.name));
@@ -439,27 +503,12 @@
       }
       var meta = el('div', 'char-meta');
       if (sess) meta.appendChild(el('span', 'badge accent', fmtWhen(sess.updatedAt) + '聊过'));
-      var temp = el('span', 'badge', '🌡 ' + (c.temperature || 0).toFixed(2));
+      var temp = el('span', 'badge');
+      temp.appendChild(iconEl('thermo'));
+      temp.appendChild(el('span', '', (c.temperature || 0).toFixed(2)));
       temp.title = '采样温度：越高越天马行空，越低越稳定';
       meta.appendChild(temp);
       card.appendChild(meta);
-
-      var fav = el('button', 'char-fav', c.fav ? '⭐' : '☆');
-      fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
-      fav.onclick = function (ev) {
-        ev.stopPropagation();
-        S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
-        S.characters = S.store.listCharacters();
-        S.charCount = -1;
-        renderCharCats();
-        renderCharacters();
-      };
-      card.appendChild(fav);
-
-      var edit = el('button', 'char-edit', '✏️');
-      edit.title = '编辑角色';
-      edit.onclick = function (ev) { ev.stopPropagation(); openCharSheet(c); };
-      card.appendChild(edit);
 
       card.onclick = function () { openSoloChat(c.id, sess ? sess.id : ''); };
       grid.appendChild(card);
@@ -560,9 +609,11 @@
     var kinds = (b && b.kinds) || {};
     box.className = 'chips wrap';
     box.innerHTML = '';
-    [['character', '🎭 角色卡'], ['story', '📖 剧情卡']].forEach(function (pair) {
+    [['character', '角色卡', 'char'], ['story', '剧情卡', 'book']].forEach(function (pair) {
       var key = pair[0];
-      var chip = el('button', 'chip' + (S.charKind === key ? ' on' : ''), pair[1]);
+      var chip = el('button', 'chip' + (S.charKind === key ? ' on' : ''));
+      chip.appendChild(iconEl(pair[2]));
+      chip.appendChild(el('span', '', pair[1]));
       var meta = kinds[key];
       chip.title = meta ? (meta.hint || '') : '';
       chip.onclick = function () {
@@ -643,17 +694,26 @@
     }
 
     if (!r.issues.length) {
-      box.appendChild(el('div', 'lint-item ok', '✅ 没有发现问题：这张卡可以直接发了'));
+      var okAll = el('div', 'lint-item ok');
+      okAll.appendChild(iconEl('check'));
+      okAll.appendChild(el('span', '', '没有发现问题：这张卡可以直接发了'));
+      box.appendChild(okAll);
       return;
     }
     r.issues.forEach(function (it) {
       var row = el('div', 'lint-item ' + (it.level === 'error' ? 'err' : 'warn'));
-      row.appendChild(el('div', '', (it.level === 'error' ? '❌ ' : '⚠️ ') + it.msg));
+      var msg = el('div', 'lint-msg');
+      msg.appendChild(iconEl(it.level === 'error' ? 'ban' : 'warn'));
+      msg.appendChild(el('span', '', it.msg));
+      row.appendChild(msg);
       if (it.fix) row.appendChild(el('div', 'lint-fix', '→ ' + it.fix));
       box.appendChild(row);
     });
     if (r.passed.length) {
-      box.appendChild(el('div', 'lint-item ok', '✅ ' + r.passed.join('、')));
+      var passRow = el('div', 'lint-item ok');
+      passRow.appendChild(iconEl('check'));
+      passRow.appendChild(el('span', '', r.passed.join('、')));
+      box.appendChild(passRow);
     }
   }
 
@@ -850,7 +910,11 @@
     var steps = $('creatorSteps');
     steps.innerHTML = '';
     CREATOR_STEP_NAMES.forEach(function (n, i) {
-      steps.appendChild(el('div', 'step' + (S.creator.step === i + 1 ? ' on' : (S.creator.step > i + 1 ? ' done' : '')), (i + 1) + '. ' + n));
+      var state = S.creator.step === i + 1 ? ' on' : (S.creator.step > i + 1 ? ' done' : '');
+      var box = el('div', 'step' + state);
+      box.appendChild(el('span', 'step-num', String(i + 1)));
+      box.appendChild(el('span', 'step-label', n));
+      steps.appendChild(box);
     });
     var panel = $('creatorPanel');
     panel.innerHTML = '';
@@ -888,8 +952,10 @@
     if (cat) {
       panel.appendChild(el('div', 'divider'));
       var kinds = el('div', 'chips wrap');
-      [['character', '🎭 角色卡'], ['story', '📖 剧情卡']].forEach(function (pair) {
-        var chip = el('button', 'chip' + (S.creator.kind === pair[0] ? ' on' : ''), pair[1]);
+      [['character', '角色卡', 'char'], ['story', '剧情卡', 'book']].forEach(function (pair) {
+        var chip = el('button', 'chip' + (S.creator.kind === pair[0] ? ' on' : ''));
+        chip.appendChild(iconEl(pair[2]));
+        chip.appendChild(el('span', '', pair[1]));
         chip.onclick = function () { S.creator.kind = pair[0]; renderCreator(); };
         kinds.appendChild(chip);
       });
@@ -964,9 +1030,13 @@
     panel.appendChild(summary);
 
     var row = el('div', 'row gap wrap');
-    var btnDraft = el('button', 'btn btn-sm btn-primary', '生成草稿');
+    var btnDraft = el('button', 'btn btn-sm btn-primary');
+    btnDraft.appendChild(iconEl('template'));
+    btnDraft.appendChild(el('span', '', '生成草稿'));
     btnDraft.onclick = function () { makeDraft(false); };
-    var btnAi = el('button', 'btn btn-sm', '✨ 让 AI 直接写一版');
+    var btnAi = el('button', 'btn btn-sm');
+    btnAi.appendChild(iconEl('sparkle'));
+    btnAi.appendChild(el('span', '', '让 AI 直接写一版'));
     btnAi.onclick = function () { makeDraft(true); };
     row.appendChild(btnDraft);
     row.appendChild(btnAi);
@@ -1477,8 +1547,11 @@
 
     /* 本地引擎 */
     var rowL = el('div', 'model-row' + (!isRemote() ? ' on' : ''));
+    var icoL = el('span', 'row-ico');
+    icoL.appendChild(iconEl('phone'));
+    rowL.appendChild(icoL);
     var colL = el('div', 'grow');
-    colL.appendChild(el('div', 'model-name', '📱 内置引擎（本地 GGUF · 离线）'));
+    colL.appendChild(el('div', 'model-name', '内置引擎（本地 GGUF · 离线）'));
     colL.appendChild(el('div', 'model-size', S.models.length
       ? ('本机有 ' + S.models.length + ' 个模型，点右侧切换/启动')
       : '本机还没有模型；到设置里下载 0.5B 或导入任意 GGUF'));
@@ -1515,8 +1588,11 @@
 
     /* 外部服务 */
     var rowR = el('div', 'model-row' + (isRemote() ? ' on' : ''));
+    var icoR = el('span', 'row-ico');
+    icoR.appendChild(iconEl('cloud'));
+    rowR.appendChild(icoR);
     var colR = el('div', 'grow');
-    colR.appendChild(el('div', 'model-name', '☁️ 外部服务（DeepSeek / 豆包 / 局域网…）'));
+    colR.appendChild(el('div', 'model-name', '外部服务（DeepSeek / 豆包 / 局域网…）'));
     colR.appendChild(el('div', 'model-size', p.baseUrl
       ? ((p.model || '（未选模型）') + ' @ ' + p.baseUrl + (p.hasKey ? ' · 带 Key' : ''))
       : '还没配置：去设置里选个服务商，填地址（和 Key）即可'));
@@ -1749,10 +1825,11 @@
       o.value = id; dl.appendChild(o);
     });
     if (!list.length) {
-      st.textContent = '地址通了 ✅（' + (r.resolvedBase || base) + '）但上游没返回模型列表'
+      var st = $('providerStatus');
+      st.textContent = '地址通了（' + (r.resolvedBase || base) + '）但上游没返回模型列表'
         + ' —— 有些服务（如火山方舟）就不提供列表，直接手填模型名保存即可';
     } else {
-      st.textContent = '连通 ✅ ' + (r.resolvedBase || base) + ' · 发现 ' + list.length + ' 个模型（下面可选可填）';
+      st.textContent = '连通 · ' + (r.resolvedBase || base) + ' · 发现 ' + list.length + ' 个模型（下面可选可填）';
       if (list.length === 1 && !$('selRemoteModel').value) $('selRemoteModel').value = list[0];
     }
     fyLog('外部模型服务连通：' + (r.resolvedBase || base) + ' 模型数=' + list.length);
@@ -2223,7 +2300,9 @@
     if (m.thinking && S.settings.plotDefault !== 'never' && m.thinking.trim()) {
       var th = el('div', 'think');
       var head = el('div', 'think-head');
-      head.appendChild(el('span', 'arrow', '▶'));
+      var arrow = el('span', 'arrow');
+      arrow.appendChild(iconEl('next'));
+      head.appendChild(arrow);
       head.appendChild(el('span', '', '思考过程'));
       head.onclick = function () { th.classList.toggle('open'); };
       th.appendChild(head);
@@ -2237,17 +2316,20 @@
 
     var tools = el('div', 'msg-tools');
     if (m.role === 'assistant') {
-      var btnRead = el('button', '', '🔊');
+      var btnRead = el('button', '');
+      btnRead.appendChild(iconEl('speaker'));
       btnRead.title = '朗读';
       btnRead.onclick = function (ev) { ev.stopPropagation(); speakMessage(m.id, m.content); };
       if (S.speakingMsgId === m.id) btnRead.classList.add('reading');
       tools.appendChild(btnRead);
-      var btnRe = el('button', '', '🔄');
+      var btnRe = el('button', '');
+      btnRe.appendChild(iconEl('refresh'));
       btnRe.title = '重新生成';
       btnRe.onclick = function (ev) { ev.stopPropagation(); regenerateFrom(m.id); };
       tools.appendChild(btnRe);
     }
-    var btnMore = el('button', '', '⋯');
+    var btnMore = el('button', '');
+    btnMore.appendChild(iconEl('more'));
     btnMore.title = '更多';
     btnMore.onclick = function (ev) { ev.stopPropagation(); messageActions(m); };
     tools.appendChild(btnMore);
@@ -2951,7 +3033,7 @@
     if (!optionsUsable(ex.options)) ex.options = [];
     var content = ex.content;
     if (err && !aborted && !content) {
-      content = '⚠️ 生成失败：' + (err && err.message || err);
+      content = '生成失败：' + (err && err.message || err);
       toast('生成失败：' + (err && err.message || err), 'err', 3200);
       fyLog('生成失败 ' + (err && err.message || err));
     }
@@ -3324,7 +3406,8 @@
     S.listening = on;
     var b = $('btnMic');
     b.classList.toggle('on', on);
-    b.textContent = on ? '⏺' : '🎤';
+    while (b.firstChild) b.removeChild(b.firstChild);
+    b.appendChild(iconEl(on ? 'stop' : 'mic'));
     if (on) $('input').placeholder = '正在聆听…';
     else $('input').placeholder = '说点什么…（Shift+Enter 换行）';
   }

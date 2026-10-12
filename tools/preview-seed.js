@@ -5,7 +5,8 @@
  * 额外引入这个文件，用 ?view=xxx 指定要摆出哪个界面，然后交给无头 Chromium 截图。
  *
  * 支持的参数：
- *   ?view=characters|chat|chatlight|settings|packs|sheet|rec|search
+ *   ?view=characters|chat|chatlight|settings|packs|sheet|rec|search|onboard|backend|slash
+ *        |creator|creator2|editor|ref
  *   &theme=light|dark
  *   &n=8            角色数量（默认 12）
  */
@@ -29,6 +30,27 @@
     ['赵一鸣', '💼', '职场', '甲方改需求时先笑，然后逐条反驳', 'character'],
     ['蜃', '🐚', '神话志怪', '海边集市上卖梦的摊主，找零找记忆', 'character'],
   ];
+
+  /* 编辑面板截图用的一张「接近成品」的卡：人设/开场白/示例/系统提示词都够长，
+     这样七维评分条不是一排 0，截出来能看出评分面板真正长什么样。 */
+  var DRAFT = {
+    name: '沈砚', avatar: '📜',
+    tagline: '图书馆闭馆前，那本书还回来时夹着一张今天的照片',
+    persona: '沈砚，34 岁，市图书馆古籍部的管理员。她说话慢，习惯先把手里的东西放稳再开口。'
+      + '别人以为她冷淡，其实她记得每个常客借过什么书。缺点是不肯欠人情：别人帮了她一次，她要想办法还两次。'
+      + '最在意的是 1998 年那批没编完号的旧书——她父亲当年就是管这批书的。'
+      + '你和她的起点是：闭馆前十分钟，她把一本三十年前借出的书推到你面前。',
+    greeting: '（把那本书推到桌面中间，指腹压着书脊）闭馆前十分钟，我一般不说话。'
+      + '今天例外——这本书是三十年前借出去的，今天还回来了。'
+      + '（她翻开扉页，里面夹着一张照片）你看这个人，是不是有点像你？',
+    examples: '用户：这么晚还在图书馆？\n沈砚：（把台灯往你那边推了推）灯给你，我习惯暗一点。\n\n'
+      + '用户：你为什么一直留着这本书？\n沈砚：（停了两秒）……有些编号是要还的，人也是。',
+    systemPrompt: '你扮演「沈砚」，市图书馆古籍部管理员，34 岁，说话慢、句子短，动作神态放在圆括号里。\n'
+      + '要做到：先有动作再开口；记得每个常客的细节；拒绝时直接拒绝。\n'
+      + '你最在意的：1998 年那批没编完号的旧书。\n'
+      + '行为边界：不替用户做决定；不长篇说教；不自称 AI。\n/no_think',
+    temperature: 0.8, tags: ['悬疑推理'], kind: 'story', plot: true,
+  };
 
   function seed() {
     var App = window.FYApp, store = App && App.state && App.state.store;
@@ -75,6 +97,12 @@
   function go() {
     var App = window.FYApp;
     if (!App) return;
+    /* 启动遮罩必须立刻拿掉：无头 Chromium 的 virtual-time 会把 380ms 的淡出动画
+       冻在中途，截出来的整页像蒙了一层灰（设置页尤其明显）。 */
+    try {
+      var boot = document.getElementById('boot');
+      if (boot) { boot.classList.add('hide'); boot.style.display = 'none'; }
+    } catch (e) {}
     try { App.state.characters = App.state.store.listCharacters(); } catch (e) {}
     App.state.settings = App.state.store.saveSettings({ appearance: theme === 'light' ? 'light' : 'dark' });
     App.applyAppearance();
@@ -129,6 +157,31 @@
       var inp = document.getElementById('input');
       inp.value = '/';
       inp.dispatchEvent(new Event('input'));
+    } else if (view === 'creator' || view === 'creator2') {
+      App.switchView('characters');
+      App.openCreatorWizard();
+      if (view === 'creator2') {
+        /* 模板库是异步加载的；等它到位再跳到第二步，否则截出来是"正在加载" */
+        var t2t = 0;
+        var t2 = setInterval(function () {
+          t2t++;
+          if (window.FYCreator && window.FYCreator.bundle()) {
+            clearInterval(t2);
+            try {
+              App.state.creator.tag = '悬疑推理';
+              App.state.creator.kind = 'story';
+              App.creatorNext();
+            } catch (e) {}
+          } else if (t2t > 60) { clearInterval(t2); }
+        }, 100);
+      }
+    } else if (view === 'editor') {
+      App.switchView('characters');
+      App.openCharSheet(null, DRAFT);
+      try { App.refreshLint(); } catch (e) {}
+    } else if (view === 'ref') {
+      App.switchView('characters');
+      App.openRefSheet();
     } else if (view === 'sheet') {
       App.switchView('characters');
       var first = App.state.store.listCharacters()[0];

@@ -7,6 +7,7 @@
 #
 # 依赖： chromium（pkg install x11-repo && pkg install chromium）、python3
 # 用法： ./tools/shots.sh [输出目录，默认 docs/shots]
+# 环境变量： SHOT_WAIT=<ms> 覆盖等待预算（默认 9000；太短会截到"界面还没渲染完"的空页）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -73,7 +74,7 @@ shot() {   # shot <文件名> <查询串>
     --user-data-dir="$TMP/profile-$name" --hide-scrollbars \
     --force-device-scale-factor=2 \
     --window-size="$W,$H" \
-    --virtual-time-budget="${SHOT_WAIT:-6000}" \
+    --virtual-time-budget="${SHOT_WAIT:-9000}" \
     --screenshot="$OUT/$name.png" \
     "http://127.0.0.1:$PORT/index.html?$qs" >/dev/null 2>&1 || echo "     ⚠️ $name 失败"
 }
@@ -89,6 +90,10 @@ shot 07-settings     "view=settings"
 shot 08-onboard      "view=onboard"
 shot 09-backend      "view=backend"
 shot 10-slash        "view=slash"
+shot 11-creator-category "view=creator"
+shot 12-creator-skeleton "view=creator2"
+shot 13-editor-lint  "view=editor"
+shot 14-inspiration  "view=ref"
 
 echo
 echo "✅ 完成：$OUT"

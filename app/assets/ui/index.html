@@ -3,26 +3,88 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#0d0c12">
+<meta name="theme-color" content="#0c0b11">
 <meta name="format-detection" content="telephone=no">
 <title>风月·本地版</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<!-- =====================================================================
+     图标精灵（全部自绘，无外部字体/图片；stroke 走 currentColor）
+     用法： <svg class="ico" aria-hidden="true"><use href="#i-xxx"/></svg>
+     ===================================================================== -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.4 14.6A8.6 8.6 0 1 1 9.4 3.6a6.9 6.9 0 0 0 11 11z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-char" viewBox="0 0 24 24"><path d="M4.6 4.4h14.8v7.2a7.4 7.4 0 0 1-14.8 0z"/><path d="M9.2 8.6h.01M14.8 8.6h.01"/><path d="M9.4 11.8a3.6 3.6 0 0 0 5.2 0"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.4 11.6c0 4.4-3.8 7.6-8.4 7.6-1 0-2-.2-2.9-.5L4.2 20.4l1.4-4A7.4 7.4 0 0 1 3.6 11.6C3.6 7.2 7.4 4 12 4s8.4 3.2 8.4 7.6z"/><path d="M8.6 11.6h.01M12 11.6h.01M15.4 11.6h.01"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.6C10 4.9 7.4 4.6 4 4.6v12.8c3.4 0 6 .3 8 2 2-1.7 4.6-2 8-2V4.6c-3.4 0-6 .3-8 2z"/><path d="M12 6.6v12.8"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M19.6 13.1a7.7 7.7 0 0 0 0-2.2l2-1.5-2-3.5-2.3 1a7.7 7.7 0 0 0-1.9-1.1L15 3.3h-4l-.4 2.5c-.7.3-1.3.6-1.9 1.1l-2.3-1-2 3.5 2 1.5a7.7 7.7 0 0 0 0 2.2l-2 1.5 2 3.5 2.3-1c.6.5 1.2.8 1.9 1.1l.4 2.5h4l.4-2.5c.7-.3 1.3-.6 1.9-1.1l2.3 1 2-3.5z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9.2 3.6h5.6M10.4 3.6v5.6L6 17.6A2 2 0 0 0 7.8 20.6h8.4a2 2 0 0 0 1.8-3L13.6 9.2V3.6"/><path d="M8.2 14.4h7.6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M15.6 15.6 20.4 20.4"/></symbol>
+    <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4.2"/><circle cx="9.2" cy="9.2" r="1.25" fill="currentColor" stroke="none"/><circle cx="14.8" cy="14.8" r="1.25" fill="currentColor" stroke="none"/><circle cx="9.2" cy="14.8" r="1.25" fill="currentColor" stroke="none"/><circle cx="14.8" cy="9.2" r="1.25" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8.4 12 3.8l8 4.6v7.2L12 20.2l-8-4.6z"/><path d="M4 8.4 12 13l8-4.6M12 13v7.2"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.4 17.4h5.2M10.4 20.4h3.2"/><path d="M12 3.4a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2h5c0-.8.4-1.5 1-2A6 6 0 0 0 12 3.4z"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4.2 19.8l3.9-1 9.4-9.4a2.1 2.1 0 0 0-3-3L5.2 15.8z"/><path d="M14.5 5.9l3 3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.2v13.6M5.2 12h13.6"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.6 5.3 5.8.9-4.2 4.1 1 5.8L12 16.9l-5.2 2.8 1-5.8-4.2-4.1 5.8-.9z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-star-o" viewBox="0 0 24 24"><path d="M12 3.6l2.6 5.3 5.8.9-4.2 4.1 1 5.8L12 16.9l-5.2 2.8 1-5.8-4.2-4.1 5.8-.9z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.4 7h15.2M9.2 7V4.6h5.6V7M6.6 7l.9 13h9l.9-13"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.2 4.2v4.6h-4.6"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.4h3L11.4 6v12L7 14.6H4z"/><path d="M15 9.4a3.6 3.6 0 0 1 0 5.2M17.6 7a7 7 0 0 1 0 10"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="10.6" rx="3"/><path d="M5.6 11.6a6.4 6.4 0 0 0 12.8 0M12 18v3M9.2 21h5.6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M4.4 11.6 20.2 4.2l-7.3 15.6-2.3-6.1z"/><path d="M10.6 13.7 20.2 4.2"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.6 5.4 8 12l6.6 6.6"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M9.4 5.4 16 12l-6.6 6.6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5.6" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18.4" r="1.7" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.8 12.6 9.6 17.4 19.2 6.6"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.8 21 20H3z"/><path d="M12 9.6v4.6M12 17.1h.01"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M6.4 6.4 17.6 17.6"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10.4 3.2l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="currentColor" stroke="none"/><path d="M17.8 14.2l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="6" y="4.6" width="12" height="15.4" rx="2.6"/><path d="M9.6 4.6V3.4h4.8v1.2M9.4 10h5.2M9.4 14h5.2"/></symbol>
+    <symbol id="i-template" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.2"/><path d="M4 9.6h16M9.6 9.6V20"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.6 18.4h9a4 4 0 0 0 .5-8 5.6 5.6 0 0 0-10.6 1.3 3.8 3.8 0 0 0 1.1 6.7z"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.6"/><path d="M10.8 18h2.4"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3.4" y="4.8" width="17.2" height="11.4" rx="2.2"/><path d="M9 20.2h6M12 16.2v4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9.2" cy="8.4" r="3.3"/><path d="M3.4 19.6c0-3 2.6-4.9 5.8-4.9s5.8 1.9 5.8 4.9"/><path d="M16 5.4a3.3 3.3 0 0 1 0 6.4M17.2 15c2.2.5 3.6 2.1 3.6 4.6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.6" y="8.6" width="11.4" height="11.4" rx="2.6"/><path d="M15.4 5.4H6.6A2.2 2.2 0 0 0 4.4 7.6v8.8"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.6"/><path d="M5.2 20c0-3.4 3-5.6 6.8-5.6s6.8 2.2 6.8 5.6"/></symbol>
+    <symbol id="i-robot" viewBox="0 0 24 24"><rect x="4.4" y="8" width="15.2" height="11" rx="3.2"/><path d="M12 4.4V8M8.6 12.4v1.8M15.4 12.4v1.8"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.6 3 5.6 13.6H11l-.6 7.4 8-10.6H13z"/></symbol>
+    <symbol id="i-thermo" viewBox="0 0 24 24"><path d="M12 4.2a2.2 2.2 0 0 1 2.2 2.2v7.2a4 4 0 1 1-4.4 0V6.4A2.2 2.2 0 0 1 12 4.2z"/><path d="M12 9.6v7.6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10.2M7.6 10 12 14.4 16.4 10M5 19.4h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4.8M7.6 9.2 12 4.8l4.4 4.4M5 19.4h14"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="6.4" rx="7" ry="3"/><path d="M5 6.4v11.2c0 1.7 3.1 3 7 3s7-1.3 7-3V6.4M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.4 5 6v6c0 4.2 3 7.1 7 8.6 4-1.5 7-4.4 7-8.6V6z"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8.4" cy="15.6" r="3.6"/><path d="M11 13 19.6 4.4M16.6 7.4l2.4 2.4M14.6 9.4l2 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.4 13.6a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-1.4 1.4"/><path d="M13.6 10.4a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l1.4-1.4"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4.4 8.4h7.2M16 8.4h3.6M4.4 15.6h3.2M12 15.6h7.6"/><circle cx="13.8" cy="8.4" r="2.1"/><circle cx="9.8" cy="15.6" r="2.1"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.6a8.4 8.4 0 0 0 0 16.8c1.4 0 2.1-.9 2.1-1.8 0-1.5-1.4-1.7-1.4-3 0-1 .8-1.7 2-1.7h1.6a4.8 4.8 0 0 0 4.7-4.7C20.4 5.9 16.6 3.6 12 3.6z"/><circle cx="8.6" cy="10.4" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.8" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.4" cy="10.4" r="1.1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M6.4 17.2 11 12.6l3 3 2.4-2.4 1.8 1.8"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M6.4 20.2V5.6A1.6 1.6 0 0 1 8 4h8a1.6 1.6 0 0 1 1.6 1.6v14.6"/><path d="M4.2 20.2h15.6"/><circle cx="14.4" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-quote" viewBox="0 0 24 24"><path d="M9.4 6.4C6.6 7.6 5.2 9.8 5.2 12.8c0 2.6 1.5 4.4 3.6 4.4 1.8 0 3-1.2 3-2.9 0-1.6-1.1-2.7-2.6-2.7-.3 0-.6 0-.8.1.3-1.3 1.3-2.5 2.9-3.4z"/><path d="M18.6 6.4c-2.8 1.2-4.2 3.4-4.2 6.4 0 2.6 1.5 4.4 3.6 4.4 1.8 0 3-1.2 3-2.9 0-1.6-1.1-2.7-2.6-2.7-.3 0-.6 0-.8.1.3-1.3 1.3-2.5 2.9-3.4z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.4V12l3.2 2"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><rect x="6.6" y="6.6" width="10.8" height="10.8" rx="2.6"/><path d="M10 3.4v3.2M14 3.4v3.2M10 17.4v3.2M14 17.4v3.2M3.4 10h3.2M3.4 14h3.2M17.4 10h3.2M17.4 14h3.2"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15.4V4.6M8 8.6 12 4.6l4 4M4.6 14v4.6A1.8 1.8 0 0 0 6.4 20.4h11.2a1.8 1.8 0 0 0 1.8-1.8V14"/></symbol>
+  </defs>
+</svg>
+
 <!-- 应用根：高度由 JS 写入 --app-h（visualViewport 方案，躲开软键盘） -->
 <div id="app" class="app">
 
   <!-- ======================= 顶栏 ======================= -->
   <header class="topbar">
-    <button class="icon-btn" id="btnBack" hidden aria-label="返回">‹</button>
+    <button class="icon-btn" id="btnBack" hidden aria-label="返回"><svg class="ico" aria-hidden="true"><use href="#i-back"/></svg></button>
     <div class="topbar-main">
       <div class="topbar-title" id="topTitle">风月·本地版</div>
       <div class="topbar-sub" id="topSub">全离线 AI 角色扮演</div>
     </div>
     <div class="topbar-actions">
       <span class="pill" id="enginePill" title="引擎状态">引擎：未启动</span>
-      <button class="icon-btn" id="btnTopMenu" aria-label="更多">⋯</button>
+      <button class="icon-btn" id="btnTopMenu" aria-label="更多"><svg class="ico" aria-hidden="true"><use href="#i-more"/></svg></button>
     </div>
   </header>
 
@@ -32,21 +94,21 @@
     <!-- ---------- 视图 1：角色列表 ---------- -->
     <section class="view" id="view-characters" data-view="characters">
       <div class="pad">
-        <div class="row-between">
-          <div>
-            <h2 class="h2">角色</h2>
-            <p class="muted sm" id="charCount">共 0 位角色</p>
+        <div class="hero">
+          <div class="hero-glow" aria-hidden="true"></div>
+          <div class="hero-mark"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
+          <div class="hero-text">
+            <div class="hero-title">风月</div>
+            <div class="hero-sub">夜色已备，挑一个人开始</div>
           </div>
-          <div class="row gap">
-            <button class="btn btn-sm" id="btnImportCard" title="导入 SillyTavern 角色卡（.json / .png）">导入卡</button>
-            <button class="btn btn-sm" id="btnIdea" title="联网参考：看看公开社区里同类角色怎么写">💡 灵感</button>
-            <button class="btn btn-primary btn-sm" id="btnNewChar" title="创作者工具：分类模板 + 质量评分 + AI 辅助">✍️ 创作</button>
+          <div class="hero-foot">
+            <span class="stat" id="charCount">共 0 位角色</span>
           </div>
         </div>
 
         <!-- 首次使用引导 -->
         <div class="banner warn" id="setupBanner" hidden>
-          <div class="banner-icon">📦</div>
+          <div class="banner-icon"><svg class="ico" aria-hidden="true"><use href="#i-box"/></svg></div>
           <div class="banner-body">
             <div class="banner-title">还没有可用的模型</div>
             <div class="banner-text">推荐直接用 <b>DeepSeek</b>：填个 API Key 就能聊，不占手机内存、速度也快；
@@ -55,20 +117,34 @@
           <button class="btn btn-primary btn-sm" id="btnGoSetup">用 DeepSeek</button>
         </div>
 
-        <div class="row gap" style="margin-top:10px">
-          <input class="input grow" id="charSearch" placeholder="搜索角色或标签…" autocomplete="off">
-          <button class="btn btn-sm" id="btnSurprise" title="随机推荐">🎲 推荐</button>
-          <button class="btn btn-sm" id="btnPacks" title="内置卡包">📦 卡包</button>
+        <div class="toolbar">
+          <div class="search">
+            <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+            <input class="search-input" id="charSearch" placeholder="搜索角色或标签…" autocomplete="off">
+          </div>
+          <button class="btn btn-sm btn-primary" id="btnNewChar" title="创作者工具：分类模板 + 质量评分 + AI 辅助">
+            <svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>创作</button>
+        </div>
+        <div class="toolbar wrap">
+          <button class="btn btn-sm" id="btnSurprise" title="随机推荐">
+            <svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>推荐</button>
+          <button class="btn btn-sm" id="btnPacks" title="内置卡包">
+            <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>卡包</button>
+          <button class="btn btn-sm" id="btnImportCard" title="导入 SillyTavern 角色卡（.json / .png）">
+            <svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>导入卡</button>
+          <button class="btn btn-sm" id="btnIdea" title="联网参考：看看公开社区里同类角色怎么写">
+            <svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>灵感</button>
         </div>
         <div class="chips" id="charCats"></div>
 
         <div class="grid" id="charGrid"></div>
         <div class="empty" id="charEmpty" hidden>
-          <div class="empty-emoji">🌙</div>
+          <div class="empty-emoji"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
           <div class="empty-title">还没有角色</div>
           <div class="empty-text">点右上角「新建」，或一键导入内置的 160 张原创卡</div>
           <div class="row gap" style="margin-top:12px;justify-content:center">
-            <button class="btn btn-primary btn-sm" id="btnImportPacksEmpty">📦 导入内置卡包</button>
+            <button class="btn btn-primary btn-sm" id="btnImportPacksEmpty">
+              <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>导入内置卡包</button>
           </div>
         </div>
       </div>
@@ -91,7 +167,7 @@
         <div class="chat-head-actions">
           <button class="chip" id="btnPlotToggle" title="剧情模式">剧情</button>
           <button class="chip" id="btnGroupToggle" title="多角色群聊">群聊</button>
-          <button class="chip" id="btnChatMenu" title="会话菜单">⋯</button>
+          <button class="icon-btn sm" id="btnChatMenu" title="会话菜单"><svg class="ico" aria-hidden="true"><use href="#i-more"/></svg></button>
         </div>
       </div>
 
@@ -100,20 +176,20 @@
       <div class="options-bar" id="optionsBar" hidden></div>
 
       <div class="composer" id="composer">
-        <button class="icon-btn round" id="btnMic" aria-label="语音输入">🎤</button>
+        <button class="icon-btn round" id="btnMic" aria-label="语音输入"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
         <div class="slash-bar" id="slashBar" hidden></div>
-      <div class="composer-input-wrap">
+        <div class="composer-input-wrap">
           <textarea id="input" class="composer-input" rows="1" placeholder="说点什么…"></textarea>
         </div>
-        <button class="icon-btn round primary" id="btnSend" aria-label="发送">➤</button>
-        <button class="icon-btn round danger" id="btnStop" aria-label="停止生成" hidden>■</button>
+        <button class="icon-btn round primary" id="btnSend" aria-label="发送"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg></button>
+        <button class="icon-btn round danger" id="btnStop" aria-label="停止生成" hidden><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg></button>
       </div>
     </section>
 
     <!-- ---------- 视图 3：剧情 ---------- -->
     <section class="view" id="view-story" data-view="story">
       <div class="pad">
-        <div class="row-between">
+        <div class="page-head">
           <div>
             <h2 class="h2">剧情</h2>
             <p class="muted sm">选项式推进 · 由模型在正文后给出 3 个选择</p>
@@ -125,12 +201,12 @@
         </div>
 
         <div class="card" id="storyCard">
-          <div class="card-title">当前剧本</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg>当前剧本</div>
           <div class="card-body" id="storyBody">还没有进行中的剧情。</div>
         </div>
 
         <div class="card">
-          <div class="card-title">剧情模式怎么用</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg>剧情模式怎么用</div>
           <div class="card-body muted sm">
             1. 在聊天页顶部点「剧情」按钮，或打开上面的开关。<br>
             2. 每次回复后，模型会在正文末尾附上 3 个选项，聊天页会把它渲染成按钮。<br>
@@ -140,7 +216,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title">最近的选择</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg>最近的选择</div>
           <div class="card-body" id="storyChoices"><span class="muted sm">暂无记录</span></div>
         </div>
       </div>
@@ -152,7 +228,7 @@
 
         <!-- 引擎 -->
         <div class="card">
-          <div class="card-title">推理引擎</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>推理引擎</div>
           <div class="engine-status">
             <span class="dot" id="setEngineDot"></span>
             <span class="grow" id="setEngineState">未启动</span>
@@ -185,7 +261,7 @@
 
         <!-- 模型来源 -->
         <div class="card">
-          <div class="card-title">模型来源</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-cloud"/></svg>模型来源</div>
           <div class="field">
             <label class="label">用哪个后端跑模型</label>
             <select class="input" id="selProviderMode">
@@ -238,11 +314,13 @@
 
         <!-- 模型管理 -->
         <div class="card">
-          <div class="card-title">模型管理</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg>模型管理</div>
           <div class="model-list" id="modelList"></div>
           <div class="row gap wrap">
-            <button class="btn btn-sm" id="btnPickModel">从文件导入</button>
-            <button class="btn btn-sm" id="btnRefreshModels">刷新列表</button>
+            <button class="btn btn-sm" id="btnPickModel">
+              <svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>从文件导入</button>
+            <button class="btn btn-sm" id="btnRefreshModels">
+              <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>刷新列表</button>
           </div>
           <div class="divider"></div>
           <div class="card-subtitle">自定义下载源</div>
@@ -250,7 +328,8 @@
             <input class="input" id="customUrl" placeholder="粘贴 GGUF 直链（魔搭 / HF / 自建存储…）" autocomplete="off">
           </div>
           <div class="row gap wrap">
-            <button class="btn btn-sm" id="btnCustomDownload">下载这个模型</button>
+            <button class="btn btn-sm" id="btnCustomDownload">
+              <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>下载这个模型</button>
             <span class="muted xs" id="customHint">文件名自动从链接推导，支持断点续传</span>
           </div>
           <div class="divider"></div>
@@ -264,7 +343,7 @@
 
         <!-- 采样参数 -->
         <div class="card">
-          <div class="card-title">采样参数</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>采样参数</div>
           <div class="field">
             <label class="label">温度 temperature <b id="valTemp">0.85</b></label>
             <input class="range" id="setTemp" type="range" min="0" max="2" step="0.05">
@@ -289,7 +368,7 @@
 
         <!-- 语音 -->
         <div class="card">
-          <div class="card-title">语音</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-speaker"/></svg>语音</div>
           <div class="field">
             <label class="label">朗读语速 <b id="valTts">1.0</b></label>
             <input class="range" id="setTts" type="range" min="0.5" max="2" step="0.1">
@@ -306,7 +385,7 @@
 
         <!-- 偏好 -->
         <div class="card">
-          <div class="card-title">偏好</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg>偏好</div>
           <div class="field">
             <label class="label">外观</label>
             <select class="input" id="setAppearance">
@@ -366,12 +445,15 @@
           </div>
           <div class="muted xs" id="backendHint">IndexedDB 是默认后端；SQLite 为实验后端（需真机验证），切换时会自动迁移全部数据</div>
           <div class="row gap wrap">
-            <button class="btn btn-sm" id="btnBackupExport">导出全部数据</button>
-            <button class="btn btn-sm" id="btnBackupImport">从备份恢复</button>
+            <button class="btn btn-sm" id="btnBackupExport">
+              <svg class="ico" aria-hidden="true"><use href="#i-export"/></svg>导出全部数据</button>
+            <button class="btn btn-sm" id="btnBackupImport">
+              <svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>从备份恢复</button>
           </div>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnRestorePresets">恢复内置角色</button>
-            <button class="btn btn-sm danger" id="btnClearAll">清空全部数据</button>
+            <button class="btn btn-sm danger" id="btnClearAll">
+              <svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg>清空全部数据</button>
           </div>
         </div>
 
@@ -382,18 +464,22 @@
     <!-- ---------- 视图 5：调试 ---------- -->
     <section class="view" id="view-debug" data-view="debug">
       <div class="pad">
-        <div class="row-between">
-          <h2 class="h2">调试</h2>
-          <button class="btn btn-sm" id="btnPullMenu">命令面板</button>
+        <div class="page-head">
+          <div>
+            <h2 class="h2">调试</h2>
+            <p class="muted sm">引擎 · 存储 · 日志</p>
+          </div>
+          <button class="btn btn-sm" id="btnPullMenu">
+            <svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>命令面板</button>
         </div>
 
         <div class="card">
-          <div class="card-title">环境信息 appInfo()</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg>环境信息 appInfo()</div>
           <pre class="code" id="dbgApp">…</pre>
         </div>
 
         <div class="card">
-          <div class="card-title">引擎状态 engineStatus()</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>引擎状态 engineStatus()</div>
           <pre class="code" id="dbgEngine">…</pre>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnDbgStart">启动</button>
@@ -403,7 +489,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title">存储 / 数据</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg>存储 / 数据</div>
           <pre class="code" id="dbgStore">…</pre>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnDbgSelftest">运行自检</button>
@@ -430,11 +516,11 @@
 
   <!-- ======================= 底部导航 ======================= -->
   <nav class="tabbar" id="tabbar">
-    <button class="tab" data-tab="characters"><span class="tab-ico">🎭</span><span class="tab-txt">角色</span></button>
-    <button class="tab" data-tab="chat"><span class="tab-ico">💬</span><span class="tab-txt">聊天</span></button>
-    <button class="tab" data-tab="story"><span class="tab-ico">📖</span><span class="tab-txt">剧情</span></button>
-    <button class="tab" data-tab="settings"><span class="tab-ico">⚙️</span><span class="tab-txt">设置</span></button>
-    <button class="tab" data-tab="debug"><span class="tab-ico">🧪</span><span class="tab-txt">调试</span></button>
+    <button class="tab" data-tab="characters"><span class="tab-ico"><svg class="ico" aria-hidden="true"><use href="#i-char"/></svg></span><span class="tab-txt">角色</span></button>
+    <button class="tab" data-tab="chat"><span class="tab-ico"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="tab-txt">聊天</span></button>
+    <button class="tab" data-tab="story"><span class="tab-ico"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg></span><span class="tab-txt">剧情</span></button>
+    <button class="tab" data-tab="settings"><span class="tab-ico"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg></span><span class="tab-txt">设置</span></button>
+    <button class="tab" data-tab="debug"><span class="tab-ico"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg></span><span class="tab-txt">调试</span></button>
   </nav>
 
 </div><!-- /#app -->
@@ -445,7 +531,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title" id="charSheetTitle">新建角色</div>
-      <button class="icon-btn" id="btnCharSheetClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnCharSheetClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="row gap">
@@ -472,20 +558,22 @@
       <div class="field">
         <div class="row-between">
           <label class="label">人设 <span class="muted xs">本 App 的主字段：模型主要看这段</span></label>
-          <button class="btn btn-xs" id="btnCatGuide" title="这个分类的写作要点与常见崩坏写法">📋 分类要点</button>
+          <button class="btn btn-xs" id="btnCatGuide" title="这个分类的写作要点与常见崩坏写法">
+            <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg>分类要点</button>
         </div>
         <textarea class="input" id="fPersona" rows="5" placeholder="年龄、身份、性格、说话方式、一个缺点、最在意的事、你和 TA 的起点…"></textarea>
         <div class="row gap wrap" style="margin-top:6px">
-          <button class="btn btn-xs" id="btnAiPersona">✨ AI 扩写</button>
-          <button class="btn btn-xs" id="btnAiPolish">✨ 去 AI 腔</button>
-          <button class="btn btn-xs" id="btnSkeleton" title="从分类骨架里挑一个，一键填进人设">🦴 套骨架</button>
+          <button class="btn btn-xs" id="btnAiPersona"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>AI 扩写</button>
+          <button class="btn btn-xs" id="btnAiPolish"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>去 AI 腔</button>
+          <button class="btn btn-xs" id="btnSkeleton" title="从分类骨架里挑一个，一键填进人设">
+            <svg class="ico" aria-hidden="true"><use href="#i-template"/></svg>套骨架</button>
         </div>
       </div>
 
       <div class="field" id="fScenarioField" hidden>
         <div class="row-between">
           <label class="label">情境 <span class="muted xs">剧情卡必填：局面 / 要解决的事 / 失败代价</span></label>
-          <button class="btn btn-xs" id="btnAiScenario">✨ AI 起草</button>
+          <button class="btn btn-xs" id="btnAiScenario"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>AI 起草</button>
         </div>
         <textarea class="input" id="fScenario" rows="4" placeholder="现在是什么局面、要解决什么事、为什么不能失败"></textarea>
       </div>
@@ -493,7 +581,7 @@
       <div class="field">
         <div class="row-between">
           <label class="label">一句话简介</label>
-          <button class="btn btn-xs" id="btnAiTagline">✨ 起草</button>
+          <button class="btn btn-xs" id="btnAiTagline"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>起草</button>
         </div>
         <input class="input" id="fTagline" placeholder="出现在角色卡上的那句话">
       </div>
@@ -501,7 +589,7 @@
       <div class="field">
         <div class="row-between">
           <label class="label">开场白（首次进入自动插入）</label>
-          <button class="btn btn-xs" id="btnAiGreeting">✨ 起草</button>
+          <button class="btn btn-xs" id="btnAiGreeting"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>起草</button>
         </div>
         <textarea class="input" id="fGreeting" rows="3"></textarea>
       </div>
@@ -509,7 +597,7 @@
       <div class="field">
         <div class="row-between">
           <label class="label">示例对话（给模型的语气参考）</label>
-          <button class="btn btn-xs" id="btnAiExamples">✨ 起草</button>
+          <button class="btn btn-xs" id="btnAiExamples"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>起草</button>
         </div>
         <textarea class="input" id="fExamples" rows="4" placeholder="用户：…&#10;角色：…"></textarea>
       </div>
@@ -517,7 +605,7 @@
       <div class="field">
         <div class="row-between">
           <label class="label">系统提示词</label>
-          <button class="btn btn-xs" id="btnAiSystem">✨ 生成</button>
+          <button class="btn btn-xs" id="btnAiSystem"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>生成</button>
         </div>
         <textarea class="input" id="fSystem" rows="4"></textarea>
       </div>
@@ -530,7 +618,8 @@
       <div class="field">
         <div class="row-between">
           <label class="label">质量评分 <b id="lintScore">—</b></label>
-          <button class="btn btn-xs" id="btnLintRefresh">重新评分</button>
+          <button class="btn btn-xs" id="btnLintRefresh">
+            <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>重新评分</button>
         </div>
         <div class="lint-box" id="lintBox"><span class="muted xs">填一点内容就会自动评分。</span></div>
       </div>
@@ -555,10 +644,10 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title" id="creatorTitle">创作者工具</div>
-      <button class="icon-btn" id="btnCreatorClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnCreatorClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
-      <div class="steps" id="creatorSteps"></div>
+      <div class="wiz-rail" id="creatorSteps"></div>
       <div id="creatorPanel"></div>
     </div>
     <div class="sheet-foot">
@@ -575,8 +664,8 @@
   <div class="sheet" id="refSheet">
     <div class="sheet-grip"></div>
     <div class="sheet-head">
-      <div class="sheet-title">💡 灵感 · 公开参考</div>
-      <button class="icon-btn" id="btnRefClose" aria-label="关闭">✕</button>
+      <div class="sheet-title"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>灵感 · 公开参考</div>
+      <button class="icon-btn" id="btnRefClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <p class="muted xs" id="refNote">只借鉴模式，不复制正文。</p>
@@ -606,7 +695,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title">先选一种「模型来源」</div>
-      <button class="icon-btn" id="btnOnboardClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnOnboardClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="muted xs" style="margin-bottom:10px">
@@ -614,21 +703,24 @@
       </div>
       <div class="model-list">
         <div class="model-row" id="obCloud" style="cursor:pointer">
+          <span class="row-ico"><svg class="ico" aria-hidden="true"><use href="#i-cloud"/></svg></span>
           <div class="grow">
-            <div class="model-name">☁️ 用 DeepSeek（推荐）</div>
+            <div class="model-name">用 DeepSeek（推荐）</div>
             <div class="model-size">填个 API Key 就能聊：不占手机内存、速度快、比手机能跑的本地模型聪明。<br>地址和模型名我已预填好，你只要贴 Key。</div>
           </div>
           <span class="badge accent">推荐</span>
         </div>
         <div class="model-row" id="obLocal" style="cursor:pointer">
+          <span class="row-ico"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span>
           <div class="grow">
-            <div class="model-name">📱 下载本地模型（完全离线）</div>
+            <div class="model-name">下载本地模型（完全离线）</div>
             <div class="model-size">内置 0.5B（约 0.5GB）：不联网、不上传、秒回，智力一般。<br>适合不想花钱 / 不想联网的时候。</div>
           </div>
         </div>
         <div class="model-row" id="obLan" style="cursor:pointer">
+          <span class="row-ico"><svg class="ico" aria-hidden="true"><use href="#i-monitor"/></svg></span>
           <div class="grow">
-            <div class="model-name">🖥 连电脑或 VPS 上的服务</div>
+            <div class="model-name">连电脑或 VPS 上的服务</div>
             <div class="model-size">Ollama / LM Studio / llama.cpp server，OpenAI 兼容接口。<br>手机当一个"遥控器"，算力用大机器。</div>
           </div>
         </div>
@@ -644,7 +736,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title">切换模型来源</div>
-      <button class="icon-btn" id="btnBackendClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnBackendClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="muted xs" id="backendStatus">—</div>
@@ -661,8 +753,8 @@
   <div class="sheet" id="packSheet">
     <div class="sheet-grip"></div>
     <div class="sheet-head">
-      <div class="sheet-title">内置卡包</div>
-      <button class="icon-btn" id="btnPackClose" aria-label="关闭">✕</button>
+      <div class="sheet-title"><svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>内置卡包</div>
+      <button class="icon-btn" id="btnPackClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="muted xs" id="packStatus">正在加载卡包目录…</div>
@@ -682,7 +774,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title">给你推荐</div>
-      <button class="icon-btn" id="btnRecClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnRecClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="muted xs" id="recStatus">优先推荐你还没聊过的角色</div>
@@ -698,11 +790,14 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title">搜索聊天记录</div>
-      <button class="icon-btn" id="btnSearchClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnSearchClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <div class="field">
-        <input class="input" id="searchInput" placeholder="输入关键词，回车或停顿即搜" autocomplete="off">
+        <div class="search">
+          <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+          <input class="search-input" id="searchInput" placeholder="输入关键词，回车或停顿即搜" autocomplete="off">
+        </div>
       </div>
       <div class="muted xs" id="searchStatus">输入关键词开始搜索（搜索的是全部会话的聊天记录）</div>
       <div class="model-list" id="searchList"></div>
@@ -716,7 +811,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title" id="actionTitle">操作</div>
-      <button class="icon-btn" id="btnActionClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnActionClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body actions" id="actionList"></div>
   </div>
@@ -728,7 +823,7 @@
     <div class="sheet-grip"></div>
     <div class="sheet-head">
       <div class="sheet-title" id="memTitle">长期记忆</div>
-      <button class="icon-btn" id="btnMemClose" aria-label="关闭">✕</button>
+      <button class="icon-btn" id="btnMemClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="sheet-body">
       <p class="muted sm" id="memHint">记忆是更早对话的压缩摘要，会自动拼进系统提示词。</p>
@@ -752,8 +847,8 @@
 
 <!-- ======================= 首次启动遮罩 ======================= -->
 <div class="boot" id="boot">
-  <div class="boot-logo">🌙</div>
-  <div class="boot-title">风月·本地版</div>
+  <div class="boot-logo"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
+  <div class="boot-title">风月</div>
   <div class="boot-text" id="bootText">正在初始化…</div>
 </div>
 

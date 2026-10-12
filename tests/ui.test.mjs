@@ -1656,6 +1656,37 @@ check('评分面板渲染出七维评分条', (function () {
 })(), String($('lintBox').querySelectorAll('.dim-row').length));
 $('charSheetMask').hidden = true;
 
+console.log('\n【33】界面重做（v1.4.0）：自绘图标系统 + 新的列表结构');
+/* 这组用例钉住的是"看起来"的部分 —— 以前这些只能靠人眼看截图，
+   结果就是样式改动把导航图标退回 emoji 了也没人发现。 */
+const spriteSyms = doc.querySelectorAll('.sprite symbol').length;
+check('图标精灵里定义了足够多的自绘图标（≥25）', spriteSyms >= 25, spriteSyms + ' 个');
+const tabIcons = Array.from(doc.querySelectorAll('#tabbar .tab .tab-ico .ico use'))
+  .map((u) => u.getAttribute('href'));
+check('底部导航 5 个入口都用自绘 SVG 图标',
+  tabIcons.length === 5 && tabIcons.every((h) => /^#i-/.test(h || '')), tabIcons.join(' '));
+
+window.FYApp.switchView('characters');
+await sleep(150);
+const card0 = doc.querySelector('#charGrid .char-card');
+check('角色卡改为「头像 + 收藏 / 编辑」一行式结构（图标不再压住头像）',
+  !!(card0 && card0.querySelector('.char-top .char-avatar')
+    && card0.querySelector('.char-top .char-fav .ico')
+    && card0.querySelector('.char-top .char-edit .ico')));
+const toolbarBtns = Array.from(doc.querySelectorAll('#view-characters .toolbar .btn'));
+const toolbarText = toolbarBtns.map((b) => b.textContent).join('|');
+check('角色页工具栏是「图标 + 文字」按钮，且不再用 emoji 当图标',
+  toolbarBtns.length >= 5 && toolbarBtns.every((b) => b.querySelector('.ico'))
+  && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(toolbarText),
+  toolbarText.trim().slice(0, 60));
+
+window.FYApp.switchView('chat');
+await sleep(200);
+const readBtn2 = doc.querySelector('button[title="朗读"]');
+check('消息工具条换成自绘图标（朗读 / 重新生成）',
+  !!(readBtn2 && readBtn2.querySelector('.ico')));
+window.FYApp.switchView('characters');
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

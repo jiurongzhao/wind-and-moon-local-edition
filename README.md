@@ -55,18 +55,24 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 
 <table>
 <tr>
-<td width="33%"><img src="docs/shots/01-characters.png" alt="角色页：分类筛选与卡片"><br><sub>角色页 · 分类筛选 / 搜索 / 推荐 / 卡包</sub></td>
+<td width="33%"><img src="docs/shots/01-characters.png" alt="角色页：夜幕头图 + 分类筛选"><br><sub>角色页 · 头图 / 搜索 / 分类 / 卡包</sub></td>
 <td width="33%"><img src="docs/shots/02-chat.png" alt="聊天页：流式对话与剧情选项"><br><sub>聊天页 · 流式对话与剧情选项</sub></td>
+<td width="33%"><img src="docs/shots/11-creator-category.png" alt="创作者工具：选分类"><br><sub>创作者工具 · 16 分类模板（第一步）</sub></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/shots/12-creator-skeleton.png" alt="创作者工具：挑骨架"><br><sub>创作者工具 · 48 个人设骨架（第二步）</sub></td>
+<td width="33%"><img src="docs/shots/13-editor-lint.png" alt="角色编辑面板与七维评分"><br><sub>角色编辑 · 七维质量评分 + AI 辅助</sub></td>
+<td width="33%"><img src="docs/shots/14-inspiration.png" alt="灵感面板"><br><sub>灵感 · 公开参考（只借鉴模式）</sub></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/shots/07-settings.png" alt="设置页"><br><sub>设置 · 引擎 / 模型来源 / 存储后端</sub></td>
 <td width="33%"><img src="docs/shots/05-packs.png" alt="内置卡包"><br><sub>内置卡包 · 16 类 160 张一键导入</sub></td>
+<td width="33%"><img src="docs/shots/04-characters-light.png" alt="浅色主题"><br><sub>浅色主题（也可跟随系统）</sub></td>
 </tr>
 <tr>
 <td width="33%"><img src="docs/shots/08-onboard.png" alt="首次引导"><br><sub>首次启动三选一：云端 / 本地 / 局域网</sub></td>
 <td width="33%"><img src="docs/shots/09-backend.png" alt="切换模型来源"><br><sub>顶栏一键切换模型来源</sub></td>
-<td width="33%"><img src="docs/shots/04-characters-light.png" alt="浅色主题"><br><sub>浅色主题（也可跟随系统）</sub></td>
-</tr>
-<tr>
 <td width="33%"><img src="docs/shots/06-recommend.png" alt="智能推荐"><br><sub>智能推荐 · 还没聊过的优先</sub></td>
-<td width="33%"><img src="docs/shots/07-settings.png" alt="设置页"><br><sub>设置 · 引擎 / 模型来源 / 存储后端</sub></td>
 </tr>
 </table>
 
@@ -78,9 +84,9 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 项目 | 状态 |
 |---|---|
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
-| APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.0 MB**，含引擎，签名校验通过 |
+| APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.4 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **90 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/提示词回吐/弹层可隐藏/角色卡） |
+| 前端功能（jsdom 集成测试） | ✅ **337 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
@@ -88,7 +94,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 角色卡解析真跑（JVM） | ✅ **6 项通过**：`PngCardText` 解 PNG 的 `tEXt`/`zTXt`/`iTXt` 三种卡块（含截断文件不崩） |
 | 本地数据库 | ✅ **四个后端**（IndexedDB / SQLite / localStorage / 内存）+ 一键迁移 + 跨会话搜索；内存索引 + 增量落盘；修掉「设置表每次保存被清空」的持久化 bug |
 | 界面主题 | ✅ 深/浅/跟随系统 + 强调色对比度自适应，有 jsdom 回归测试（12 项） |
-| 前端 jsdom 覆盖 | ✅ **332 项**：含数据库持久化、备份恢复、token 自校正、多后端协议、搜索界面、分类/推荐/卡包导入、模型来源路由、创作者工具（模板/七维评分/AI 辅助/灵感面板） |
+| 前端 jsdom 覆盖 | ✅ **337 项**：含数据库持久化、备份恢复、token 自校正、多后端协议、搜索界面、分类/推荐/卡包导入、模型来源路由、创作者工具（模板/七维评分/AI 辅助/灵感面板）、界面图标系统与列表结构 |
 | 外部模型代理 | ✅ 15 项 JVM 实跑（假上游）：路由拼接、body 逐字节转发、key 注入、**SSE 实时透传**、502 快速失败 |
 | 内置卡包 | ✅ 16 个分类 / 160 张原创卡（CC0），随 APK 发布，有发布前真实性校验 |
 | 创作者工具 | ✅ 16 分类 × 3 个人设骨架 + 每类写作要点（全部原创 CC0）；七维质量评分（维度口径借鉴 CC-BY-4.0 的 SPB-2603，判定逻辑自研）；AI 辅助扩写走同一条流式通道；`tools/check-creator.py` 校验三份模板 JSON 的对齐关系 |
@@ -225,19 +231,27 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 
 ### 界面与主题
 
+- **v1.4.0 界面重做**：整体走「夜色 · 月白」这套语言 —— 角色页有夜幕头图，卡片改成"头像 + 收藏/编辑"
+  一行式结构，聊天页换了气泡与消息工具条，设置页按功能分组并给每组配了图标，
+  创作者工具则重做成**三步步骤条 + 卡片化模板选择 + 七维评分面板**；
+- **图标全部自绘**：`index.html` 里内联一份 SVG sprite（`#i-moon` / `#i-chat` / `#i-gear` …），
+  按钮、导航、动作面板统一 `<svg class="ico"><use href="#i-xxx"/></svg>`。
+  **不再拿 emoji 当 UI 图标**（各系统字体渲染差异大、粗细对不齐），但角色头像、分类图标这类
+  **用户内容仍然保留 emoji**；没有引入任何图标库、字体文件或位图，APK 体积不受影响；
 - **三档外观**：深色（默认，呼应"风月"的夜色）/ 浅色 / 跟随系统，设置页一键切换；
   深浅两套色值都走同一批语义令牌（`--surface-*` / `--text-*` / `--accent-*`），切换只改一个 `data-theme`；
-- **设计系统**：形状（8/12/16/20/28px 阶梯）、字阶、动效（120/220/380ms 三档 + 标准/强调缓动）、
-  阴影层级全部令牌化，改主题只动 `:root` 一处；
+- **设计系统**：形状（9/13/17/22/30px 阶梯）、字阶、动效（120/220/380ms 三档 + 标准/强调缓动）、
+  阴影层级全部令牌化，改主题只动 `:root` 一处；层级靠"表面阶梯 + 1px 发丝线 + 一道顶部高光"表达，
+  不堆大投影；
 - **背景图案**：深色为极淡星野、浅色为点阵纹理，纯 CSS/SVG 数据 URI 绘制（无外部素材、无网络请求），
   可在「外观」里关闭；配合顶部品牌色柔光营造层次；
 - **对比度是算过的**：正文/次级/说明文字分四级（`--text` / `--text-2` / `--text-3` / `--muted`），
   弱化文字从 4.4:1 提到 5:1 以上；**用户自选主题色会自动配黑/白文字**，不够 4.5:1 时微调底色
   （有回归测试把 8 个可选色全部扫一遍）；
-- **文案去行话**：卡片上的 `T 0.85` 改成 `🌡 0.85`，状态栏会区分「引擎」与「外部模型」，
+- **文案去行话**：卡片上的 `T 0.85` 改成带图标的 `0.85`，状态栏会区分「引擎」与「外部模型」，
   设置项改成"带入对话的历史条数""关闭思考模式（更快，直出正文）"这类说法；
 - **组件语言**参考公开设计规范（Material 3 的色角色 / 导航活动指示器 / 底部弹层，iOS 的聊天气泡节奏），
-  但**没有照搬任何具体 App 的界面或素材** —— 图标是系统 emoji，图形全是 CSS 画的，仓库里可商用零授权风险；
+  但**没有照搬任何具体 App 的界面或素材** —— 图标是自绘 SVG，图形全是 CSS 画的，仓库里可商用零授权风险；
 - 强调色会按主题自动调对比度（深色提亮、浅色压深），避免"浅色主题下按钮文字看不清"；
 - 尊重 `prefers-reduced-motion`，动效可被系统关掉。
 
@@ -245,11 +259,13 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 
 ```bash
 pkg install x11-repo && pkg install chromium   # 一次性
-./tools/shots.sh                               # 输出到 docs/shots/
+./tools/shots.sh                               # 输出到 docs/shots/（14 张）
 ```
 
-`tools/preview-seed.js` 会注入一份假数据并把界面摆到指定状态（角色页 / 聊天页 / 卡包页 / 推荐 / 设置···），
-所以每次改完样式都能重新出一套图，而不是靠肉眼猜。
+`tools/preview-seed.js` 会注入一份假数据并把界面摆到指定状态（角色页 / 聊天页 / 卡包 / 推荐 /
+设置 / 引导 / 切换来源 / 创作者工具三步 / 编辑面板评分 / 灵感面板），
+所以每次改完样式都能重新出一套图，而不是靠肉眼猜。截图等待预算默认 9s（`SHOT_WAIT=<ms>` 可调）——
+太短会截到"界面还没渲染完"的空页，这个坑踩过一次。
 
 ### 模型来源：本地引擎 / 局域网自建 / 云端 API
 
@@ -450,7 +466,8 @@ python3 tools/build-pack-index.py            # 生成目录 + 同步进 App 资�
   未修改代码；许可证全文见 [third_party/llama.cpp-LICENSE](third_party/llama.cpp-LICENSE)。
 - **构建期依赖**：`android.jar`（Android SDK，编译期用，不进 APK）。
 - **模型**：仓库不含任何模型，推荐型号与各自许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-- **图标与界面素材**：全部本项目原创（图标由 `tools/genicons.py` 代码绘制），无第三方素材授权问题。
+- **图标与界面素材**：全部本项目原创 —— 界面图标是 `index.html` 内联的 SVG sprite（自绘路径，
+  无图标库、无字体文件），启动图标由 `tools/genicons.py` 代码绘制；无第三方素材授权问题。
 
 完整清单：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
