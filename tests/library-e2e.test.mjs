@@ -6,15 +6,9 @@
  * 通过一个本地 http 镜像喂进去，走完整链路：
  *   拉目录 → 聚合成行 → 下载分片 → 校验张数 → 批量入库 → 窗口化渲染 → 幂等
  *
- * 前置：本地镜像要起着（把 cards/library/ 用 http 暴露出来，并生成写成本机地址的目录）：
- *   mkdir -p build/devlib && python3 - <<'PY'
- *   import json; d=json.load(open('cards/library-index.json'))
- *   d['baseUrl']='http://127.0.0.1:8765/'
- *   for p in d['packs']: p['url']=d['baseUrl']+p['file']
- *   json.dump(d, open('build/devlib/index.json','w'))
- *   PY
- *   ln -sf cards/library/*.json build/devlib/   # 分片软链进去
- *   (cd build/devlib && python3 -m http.server 8765 --bind 127.0.0.1 &)
+ * 前置：本地镜像要起着（一条命令，镜像目录放在仓库外，build.sh 不会清掉它）：
+ *   ./tools/dev-mirror.sh            # 默认 8765，停：./tools/dev-mirror.sh --stop
+ * 想换端口： MIRROR=http://127.0.0.1:9000/ node library-e2e.test.mjs（脚本端口也要一起改）
  *
  * 跑法： cd ~/2/fy/tests && node library-e2e.test.mjs
  * 镜像没起 / cards/library 不存在 → 跳过（exit 0），不阻塞 CI。
