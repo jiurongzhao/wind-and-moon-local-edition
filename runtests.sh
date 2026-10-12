@@ -42,9 +42,20 @@ step "1.6/5 卡库素材库校验（16 类的字段形状与条数）"
 python3 "$ROOT/tools/check-banks.py" 2>&1 | tail -6
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 
-# ---------------------------------------------------------------- 1.7 大卡库解析
+# ---------------------------------------------------------------- 1.7 大卡库
 # cards/library/ 是发布附件、不入库；没生成就跳过，不阻塞
-step "1.7/5 大卡库分片用 App 解析器自检（没有 cards/library/ 就跳过）"
+step "1.7/5 大卡库发布闸门（严格：字段 + 文本翻倍线 + topic）"
+if ls "$ROOT"/cards/library/*.json >/dev/null 2>&1; then
+  python3 "$ROOT/tools/check-cards.py" --strict "$ROOT"/cards/library/*.json 2>&1 | tail -5
+  [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+  step "1.75/5 卡库目录 ↔ 分片逐字节对齐（count/bytes/sha256/主题不跨片）"
+  python3 "$ROOT/tools/check-library.py" 2>&1 | tail -8
+  [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+else
+  echo "  跳过：cards/library/ 还没生成（先跑 python3 tools/gen-cards.py）"
+fi
+
+step "1.8/5 大卡库分片用 App 解析器自检（没有 cards/library/ 就跳过）"
 (cd "$ROOT/tests" && timeout 600 node library-pack.test.mjs 2>&1 | tail -5)
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 

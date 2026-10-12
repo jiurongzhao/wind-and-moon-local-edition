@@ -28,6 +28,10 @@ CATEGORIES = [
 
 KINDS = ['character', 'story']
 MIN_PERSONA, MIN_GREETING, MIN_EXAMPLES = 60, 20, 40
+# --strict：大卡库（cards/library/）用。v2 的目标是"每张卡文本翻倍"，
+# 所以这里的线按内置 160 张的中位数 × 约 1.4 来定，比生成目标留一点余量。
+STRICT_PERSONA, STRICT_GREETING, STRICT_EXAMPLES = 300, 170, 240
+STRICT = False
 MAX_NAME = 12
 
 
@@ -86,18 +90,30 @@ def check_card(c, where, errors):
         fail('%s[%s]: temperature 非法：%r' % (where, name, temp), errors)
     if not (ext.get('tagline') or '').strip():
         fail('%s[%s]: 缺一句话简介' % (where, name), errors)
+    # 严格模式（大卡库）：每张卡都要有主题标签，索引里的关键词才有依据
+    if STRICT and not (ext.get('topic') or '').strip():
+        fail('%s[%s]: extensions.fy.topic 为空（v2 卡库必须带主题）' % (where, name), errors)
     # 剧情卡必须有 scenario
     if ext.get('kind') == 'story' and len((d.get('scenario') or '').strip()) < 30:
         fail('%s[%s]: 剧情卡必须有 scenario' % (where, name), errors)
 
 
 def main():
+    global MIN_PERSONA, MIN_GREETING, MIN_EXAMPLES, STRICT
     args = sys.argv[1:]
     stats_only = '--stats' in args
+    STRICT = '--strict' in args
+    if STRICT:
+        MIN_PERSONA, MIN_GREETING, MIN_EXAMPLES = STRICT_PERSONA, STRICT_GREETING, STRICT_EXAMPLES
+        print('严格模式（大卡库）：人设 ≥%d / 开场白 ≥%d / 示例 ≥%d，并要求 topic'
+              % (MIN_PERSONA, MIN_GREETING, MIN_EXAMPLES))
     if '--all' in args or not args:
         files = sorted(glob.glob(os.path.join(CARDS_DIR, 'pack-*.json')))
     else:
         files = [a for a in args if not a.startswith('--')]
+    # 传目录通配符时会连目录/审计文件一起带进来：它们不是卡包，直接跳过
+    # （以前会在发布闸门里报「index.json: spec 必须是 fy_pack_v1」这种噪音）
+    files = [f for f in files if os.path.basename(f) not in ('index.json', 'audit.json', 'sample.json')]
     if not files:
         print('没有找到卡包文件（%s）' % CARDS_DIR)
         return 1

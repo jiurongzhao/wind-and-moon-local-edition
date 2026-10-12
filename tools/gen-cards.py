@@ -10,9 +10,10 @@
     cards/pack-*.json         已发布的 160 张内置卡（用来避开重名）
 
 输出（默认写到 cards/library/，这个目录不进仓库，只作为发布附件）：
-    <slug>-<kind>-<part>.json   卡包分片（默认每片 200 张）
-    index.json                  在线卡库目录（含每个分片的 sha256 / 字节数 / 下载路径）
-    audit.json                  多样性审计报告
+    <slug>-<kind>-<part>.json   卡包分片（按主题打包，默认每片约 250 张）
+    index.json                  在线卡库目录（fy_library_v2：每片的 sha256 / 字节数 /
+                                主题 topics / 关键词 keywords / 下载路径）
+    audit.json                  多样性审计报告（长度分布、卡内重复、句长、与内置卡对照…）
 
 用法：
     python3 tools/gen-cards.py --per-kind 20 --out /tmp/sample     # 先出小样
@@ -220,7 +221,7 @@ class Bank:
         self.plot_models = data.get('plot_models') or []
         self.deck = {}
         for f in self.REQUIRED + ['public_domain_sources', 'trope_references', 'do_not',
-                                  'actions', 'places', 'things']:
+                                  'actions', 'places', 'things', 'habits', 'reputation']:
             self.deck[f] = Deck([strip_label(f, x) if isinstance(x, str) else x
                                  for x in (data.get(f) or []) if x], rng)
         # roles 在素材库里是 {title, note}，牌堆里只放 title（note 走 role_notes 查）
@@ -341,6 +342,8 @@ DETAIL_TPL_CLAUSE = ['{d}。', '还有一件事：{d}。', '（{d}）']
 DETAIL_TPL_PHRASE = ['{name}随身带着{d}。', '{d}，一直没换。', '{name}身上常年有{d}。']
 # 追加第二处细节时只用这两个，避免「还有一件事：…。还有一件事：…。」
 DETAIL_TPL_EXTRA = ['{d}。', '（{d}）']
+# 文本翻倍后一处细节不够，再补时会用到这几句（同样避免同句重复）
+DETAIL_TPL_MORE = ['{d}。', '（{d}）', '还有一点：{d}。', '再细看：{d}。']
 
 # 素材库没给 actions 时的通用舞台指示（能放进圆括号、任何分类都不违和）
 GENERIC_ACTIONS = (
@@ -367,6 +370,11 @@ SYSTEM_TPL = [
     '你扮演「{name}」，{role}，{tag}背景。{voice}',
     '你是「{name}」——{role}。{voice}',
 ]
+# 给扮演方的创作空间：人设与示例只是"起手式"，不是剧本。
+# 用户明确要求"即便完全脱离文本也没关系"，所以这句要写死在每张卡的系统提示里。
+CREATIVE_FREEDOM = ('创作自由：大胆发挥——加人物、加事件、改走向、另起一条线都可以，'
+                    '哪怕完全离开人设与示例里写到的具体情节也没关系；'
+                    '只要人物的底色、说话方式与题材气质不跑偏就行。')
 
 FOLLOW_UP = ('那你自己呢？', '为什么？', '你确定？', '然后呢。', '这话你信吗？',
              '你打算怎么办？', '就这么算了？', '还有谁？')
@@ -380,6 +388,67 @@ SHORT_LINES = ('先坐下。', '不解释。', '你猜。', '规矩就是规矩�
 SHORT_LINES2 = ('你要是不急，我这儿有热水。', '这事没完，但不是今天。',
                 '记住，出了这门我什么都没说。', '别问我为什么，问了也是这个答案。',
                 '以后少来，来了我也不会赶你。')
+
+# ---- 示例对话的加长语料 ----
+# v1 每段只有 55% 概率带一次追问，示例对话中位数 171 字，比内置卡（195 字）短一截；
+# v2 把每段钉成两个来回、三分之二的卡再加一轮，并把回答句写长，目标中位 350 字（约翻倍）。
+EXAMPLE_REPLIES = (
+    '不用急，你先把话说完。', '我给不了你保证，但能给你一句实话。',
+    '这事我认，别的免谈。', '你要是不信，可以自己去问一遍。',
+    '先别下结论，把刚才那句再说一次。', '我做这行这么久，头一回听人这么问。',
+    '话说到这儿就够了，剩下的我不接。', '你要真想弄明白，就得听点不好听的。',
+    '别人的说法我不管，我只说我看见的。', '把东西放下，我们一条一条来。',
+    '你问得很准，这一点我不如你。', '我记得那天有风，别的记不清了。',
+    '不是我不说，是说了你也未必信。', '你要是急着走，这句就当我没说。',
+    '行，就按你说的办，回头别怪我。', '我先把丑话说在前面，省得回头难看。',
+    '你别看我，看东西。', '差一点就来不及了——你知道差在哪儿吗。',
+    '我没什么可解释的；你要听，我陪你坐着说。',
+    # 加长句：一段对话里总得有一句能"站住"的话，短句堆一起读着像吵架
+    '这世上能让我半夜爬起来开门的人不多，你今天算一个，但别把这件事想得太好。',
+    '我见过太多把话说满的人，最后都栽在自己那句话上，所以我说话一向留三分。',
+    '你要的答案我现在给不了；不过我可以把我看到的那一部分，一句不落地讲给你听。',
+    '别急着替别人下结论。你连自己昨天为什么犹豫都没想明白，怎么去断别人的事。',
+    '我这一行有个规矩：不问来路，只问去处。你先把你要去哪儿说清楚，我们再谈别的。',
+    '如果这事真有你说的那么简单，前前后后就不会死这么多人了——你自己想想这句话。',
+    '你要真想帮他，就别在这儿跟我耗着；他现在最缺的不是你说服我，是有人替他跑一趟。',
+    '我记性不好，可有些事我记一辈子：谁在什么时候伸过手，谁在什么时候把手缩回去。',
+    '我没打算跟你讲道理。道理这东西谁都会讲，能把事情办成的，一个屋子里找不出第二个。',
+    '回去吧。这事今天到此为止，明天你要是还这么想，就带着证据再来敲这扇门。',
+    '你问我怕不怕？怕。可怕也得站着，坐下去就再也起不来了。',
+    '这些话我只说一遍：你要么现在跟我走，要么从此别再打听这件事。',
+)
+FOLLOW_UP2 = ('那我换个问法。', '你确定要听后半段？', '这话你敢当着人说吗？',
+              '最后一个问题，问完我就走。', '你刚才犹豫了。', '要不要把时间对一遍？',
+              '你手上还有别的东西没拿出来。', '你打算瞒到什么时候？')
+USER_LINES2 = ('我听说你那天不在。', '有人托我来问一件事。', '你先别急着撇清。',
+               '我是替别人来的。', '你看起来不太意外。', '这事跟你脱不了干系吧。',
+               '我把话放这儿了。', '你手上那个，是从哪儿来的？')
+GREETING_LINES = (
+    '屋里没开大灯，只有桌上一盏。', '外面还在下雨，声音一直没停。',
+    '这地方这个点本该没人。', '门在你身后合上，风被挡在外面。',
+    '桌上的东西摊了一半，像是刚翻过。', '水壶在响，没人去管它。',
+    '窗玻璃上有手印，擦了一半。', '走廊的灯忽明忽暗，脚步声只有你一个。',
+    '墙上的钟慢了两分钟，谁也没去调。', '烟灰缸满了，屋里没有别人。',
+    '这屋里的味道，你一进门就闻到了。', '有人在你来之前刚走，椅子还是热的。',
+    '窗外的天刚亮一半，屋里还留着夜里的凉。', '远处有车过去，声音在这里停了一下。',
+    '桌上的茶凉了，杯口没有水痕——没人喝过。', '灯绳垂在门边，够得着，但没人去拉。',
+    '地扫得很干净，只有门口那一小块是脏的。', '收音机开着，音量小到只能听见电流声。',
+    '墙上贴的纸是对折过的，折痕压得很实。', '门缝底下塞着一张名片，边角被踩过。',
+    '你进来的时候，说话声正好停了一拍。', '有人把手里的东西往身后挪了半寸。',
+    '一屋子人，没有一个人的手是闲着的。', '椅子腿磨出的痕迹朝着同一个方向。',
+    '该来的人还没来，不该来的已经坐下了。', '有人把自己那杯水推到你能够到的位置。',
+    '钥匙放在桌上，谁也没伸手去拿。', '窗子开了一条缝，进来的风比外面暖。',
+)
+# 文本翻倍的目标：v1 实测中位 人设 220 / 开场白 119 / 示例 171（内置卡 222/117/195）
+PERSONA_MIN = 450           # 约 2× 内置卡人设中位
+GREETING_MIN = 250          # 约 2× 内置卡开场白中位
+EXAMPLES_MIN = 350          # 约 2× 内置卡示例中位
+# 人设后半段：习惯 + 旁人口碑 + 追加细节（新字段 habits / reputation 由素材库提供）
+HABIT_TPL = ['{h}。', '日子过得有规律：{h}。', '习惯是{h}——很多年没变过。',
+             '{h}，这一点连他自己都没察觉。']
+REPUTE_TPL = ['别人眼里的{name}：{r}。', '关于{name}，外头传的是：{r}。',
+              '{r}——这是旁人给的评语。', '认识{name}的人都说：{r}。',
+              '要说{name}在外面的名声，一句话：{r}。']
 
 SCENARIO_TPL = [
     '【局面】{scene}\n【要解决的事】{task}\n【为什么不能失败】{stake}\n【已经在发生的变化】{beat}\n你可以在任何一刻插话：可以谈，可以拖，也可以直接把事情推到无法回头的那一步。接下来怎么走，由你说的每一句话决定。',
@@ -430,7 +499,7 @@ def build_persona(bank, rng, name, role, picks, age):
     hook_c = _c(rng.choice(HOOK_TPL).format(
         h=str(picks['hook']).strip().rstrip('。'), name=name))
     detail_c = render_detail(bank, rng, name)
-    if rng.random() < 0.5:               # 再补一处细节，人设长度往内置卡的中位数（约 220 字）靠
+    if rng.random() < 0.5:               # 再补一处细节，人设长度往内置卡的中位数（约 222 字）靠
         d2 = str(bank.take('details')).strip().rstrip('。')
         extra = rng.choice(DETAIL_TPL_EXTRA).format(d=d2) if d2 else ''
         # 别把同一句话写两遍（28k 张里抓到过 1 例重复句子）
@@ -441,14 +510,44 @@ def build_persona(bank, rng, name, role, picks, age):
         name=name, age=age, role=role, role_note=role_note,
         tenure=tenure, axis_c=axis_c, voice_c=voice_c, flaw_c=flaw_c,
         care_c=care_c, hook_c=hook_c, detail_c=detail_c)
-    return re.sub(r'[ \t]+', '', out)
+    out = re.sub(r'[ \t]+', '', out)
+    return enrich_persona(bank, rng, out, name)
+
+
+def enrich_persona(bank, rng, out, name, with_traits=True):
+    """v2：人设后半段补「习惯 + 旁人口碑 + 追加细节」。
+
+    文本翻倍（目标 PERSONA_MIN ≈ 内置卡人设中位的两倍）靠的就是这里；
+    角色卡与剧情卡共用，剧情卡原本只有 250 字左右的模板正文。
+    剧情卡的人设写的是"一个局面"而不是"一个人"，所以不挂习惯与口碑，只补细节。
+    """
+    if with_traits:
+        for field, tpl in (('habits', HABIT_TPL), ('reputation', REPUTE_TPL)):
+            if bank.has(field):
+                v = str(bank.take(field)).strip().rstrip('。')
+                if v and v not in out:
+                    out += rng.choice(tpl).format(h=v, r=v, name=name)
+    # 长度兜底：数"真正补进去几处"，而不是数循环了几次 ——
+    # 抽到重复细节时 continue 会白烧一次配额，人设就停在 300 字上不去。
+    added = 0
+    guard = 0
+    while len(out) < PERSONA_MIN and added < 8 and guard < 60:
+        guard += 1
+        d3 = str(bank.take('details')).strip().rstrip('。')
+        if not d3 or d3 in out:
+            continue
+        out += rng.choice(DETAIL_TPL_MORE).format(d=d3)
+        added += 1
+    return out
 
 
 def _greeting_bits(bank, rng):
-    """叙述 + 一句带动作的话 + 一个舞台指示（+ 需要时再补一条）。
-    硬上限 4 条：早期版本靠"长度不够就再来一个圆括号动作"凑字数，
-    结果开场白变成一串（动作）（动作）（动作），像舞台提示单。"""
+    """叙述 + 一句带动作的话 + 一个舞台指示（+ 需要时再补）。
+    硬上限 8 条，但补进来的都必须是**不带括号**的叙述句：早期版本靠"长度不够就再来一个
+    圆括号动作"凑字数，结果开场白变成一串（动作）（动作）（动作），像舞台提示单。"""
     used_actions = []
+    used_lines = []
+
     def _act():
         for _ in range(8):
             a = pick_action(bank, rng)
@@ -456,27 +555,32 @@ def _greeting_bits(bank, rng):
                 used_actions.append(a)
                 return a
         return pick_action(bank, rng)
+
+    def _line(pool):
+        for _ in range(24):
+            v = rng.choice(pool)
+            if v not in used_lines:
+                used_lines.append(v)
+                return v
+        return rng.choice(pool)
+
     bits = [_c(str(bank.take('scenes')).strip().rstrip('。')),
             str(bank.take('openings')).strip(),
             '（%s）' % _act()]
     if rng.random() < 0.5:
         bits.append(rng.choice(GREETING_TAIL))
     guard = 0
-    while len('\n'.join(bits)) < 115 and guard < 2:
+    while len('\n'.join(bits)) < GREETING_MIN and guard < 24:
         guard += 1
         d = str(bank.take('details')).strip().rstrip('。')
-        if d and looks_clausal(d):
-            bits.insert(1, _c(d))
-    if len('\n'.join(bits)) < 115:
-        tails = rng.sample(GREETING_TAIL, 2)
-        pick = tails[0]
-        i = 0
-        while pick in bits and i < len(tails):
-            pick = tails[i]
-            i += 1
-        bits.append(pick)
-    if len(bits) > 6:                    # 上限 6 段，不然会堆成一串舞台提示
-        bits = bits[:6]
+        if d and looks_clausal(d) and d not in '\n'.join(bits):
+            # 插在「动作」之后：插在第 2 位会把（动作）一路挤到第 12 段之外，
+            # 被上限截掉后开场白就没有圆括号动作了（QA 里抓到过 14%）。
+            bits.insert(3 if len(bits) > 3 else len(bits), _c(d))
+            continue
+        bits.append(_line(GREETING_LINES))
+    if len(bits) > 14:                   # 上限 14 段：补进来的都是叙述句，不会堆成舞台提示
+        bits = bits[:14]
     return '\n'.join(b for b in bits if b)
 
 
@@ -484,34 +588,61 @@ def build_greeting(bank, rng):
     return _greeting_bits(bank, rng)
 
 
-def build_examples(bank, rng, name):
-    """三段对话：动作来自 actions，短句来自通用语料，口癖偶尔单独成句。
-    同一张卡里动作和短句都**不重复**（以前用 rng.choice，出现过「你手怎么了」问两遍、
-    同一个动作连着出现三次）。"""
-    users = rng.sample(USER_LINES, 3)
-    pool_a = bank.deck['actions'].items if bank.has('actions') else GENERIC_ACTIONS
-    acts = rng.sample(list(pool_a), k=min(6, len(pool_a)))
-    shorts = rng.sample(SHORT_LINES, 3)
-    shorts2 = rng.sample(SHORT_LINES2, 2)
+def _dialog_examples(bank, rng, speaker, with_tics=True):
+    """三段对话，每段至少两个来回（追问 + 完整回答），三分之一再加一轮。
+
+    上一版每段只有 55% 概率带追问，示例对话中位数 171 字，比内置卡（195 字）短一截；
+    这一版把"来回感"钉死，同一张卡里的短句/动作/追问/回答都不重复。"""
+    used = set()
+
+    def pick(pool):
+        """从"还没用过的"里挑一个：这样同一张卡内不会出现重复句子。
+        上一版用 rng.choice + 重试，pool 只有 5 条却要挑第 6 次时会退化成重复，
+        审计里就出现了 12% 的「卡内重复句」。"""
+        cands = [v for v in pool if v not in used]
+        v = rng.choice(cands if cands else list(pool))
+        used.add(v)
+        return v
+
+    def act():
+        return str(pick(bank.deck['actions'].items if bank.has('actions') else GENERIC_ACTIONS)) \
+            .strip('（）()。')
+
+    users = [pick(USER_LINES), pick(USER_LINES), pick(USER_LINES + USER_LINES2)]
     blocks = []
-    for i, u in enumerate(users):
-        a1, a2 = acts[(i * 2) % len(acts)], acts[(i * 2 + 1) % len(acts)]
-        short = shorts[i]
-        if rng.random() < 0.3:
-            tic = str(bank.take('voice_tics')).strip()
-            short = tic if tic.endswith(('。', '！', '？', '」')) else tic + '。'
-        shape = rng.choice(['（{a1}）{short}', '（{a1}）{short}（{a2}）',
-                            '{short}', '（{a1}）{short}\n{short2}'])
-        reply = shape.format(a1=str(a1).strip('（）()。'), a2=str(a2).strip('（）()。'),
-                             short=short, short2=shorts2[i % len(shorts2)])
-        turn = '用户：%s\n%s：%s' % (u, name, reply)
-        if rng.random() < 0.55:          # 追一句，让示例对话够长也够活
+    for u in users:
+        short = pick(SHORT_LINES)
+        if with_tics and rng.random() < 0.3:
+            short = tic_line(bank, rng)
+        shape = rng.choice(['（{a}）{s}', '（{a}）{s}（{a2}）', '{s}', '（{a}）{s}\n{s2}'])
+        reply = shape.format(a=act(), a2=act(), s=short, s2=pick(SHORT_LINES))
+        turn = '用户：%s\n%s：%s' % (u, speaker, reply)
+        # 追问一：每段都有 —— 有来有回才像人写的，长度也靠它
+        ans = pick(EXAMPLE_REPLIES)
+        reply2 = rng.choice(['（%s）%s' % (act(), ans), ans,
+                             '（%s）%s\n%s' % (act(), ans, pick(SHORT_LINES2))])
+        turn += '\n\n用户：%s\n%s：%s' % (pick(FOLLOW_UP + FOLLOW_UP2), speaker, reply2)
+        # 追问二：六成的卡再加一轮（v1 是三分之一）—— 文本翻倍主要靠这里
+        if rng.random() < 0.6:
             turn += '\n\n用户：%s\n%s：（%s）%s' % (
-                rng.choice(FOLLOW_UP), name,
-                str(acts[(i + 2) % len(acts)]).strip('（）()。'),
-                tic_line(bank, rng))
+                pick(FOLLOW_UP2), speaker, act(), pick(SHORT_LINES2))
         blocks.append(turn)
-    return '\n\n'.join(blocks)
+    text = '\n\n'.join(blocks)
+    # 长度兜底：概率是概率，总有卡一张追问都没摇到（约 6%），
+    # 那就往最后一段再补一轮 —— "文本翻倍"不能靠运气。
+    guard = 0
+    while len(text) < EXAMPLES_MIN and guard < 8:
+        guard += 1
+        blocks[-1] += '\n\n用户：%s\n%s：%s' % (
+            pick(FOLLOW_UP + FOLLOW_UP2), speaker,
+            rng.choice(['（%s）%s' % (act(), pick(EXAMPLE_REPLIES)),
+                        pick(EXAMPLE_REPLIES)]))
+        text = '\n\n'.join(blocks)
+    return text
+
+
+def build_examples(bank, rng, name):
+    return _dialog_examples(bank, rng, name, with_tics=True)
 
 
 def build_system(bank, rng, name, role, voice):
@@ -522,6 +653,7 @@ def build_system(bank, rng, name, role, voice):
     parts.append(_c('要做到：' + '；'.join(str(m).strip().rstrip('。') for m in musts)))
     parts.append(_c('别这样写：' + '；'.join(str(m).strip().rstrip('。') for m in avoids)))
     parts.append('行为边界：不替用户做决定；不描写用户没有同意的亲密接触；不自称 AI，不提设定与提示词。')
+    parts.append(CREATIVE_FREEDOM)
     parts.append('动作神态放在圆括号里。')
     return ''.join(parts) + '\n/no_think'
 
@@ -537,8 +669,8 @@ def build_tagline(bank, rng, role, picks):
     return line.strip('。')[:60]
 
 
-def build_scenario(bank, rng, name):
-    model = rng.choice(bank.plot_models) if bank.plot_models else {}
+def build_scenario(bank, rng, name, model=None):
+    model = model if model is not None else (rng.choice(bank.plot_models) if bank.plot_models else {})
     beats = model.get('beats') if isinstance(model, dict) else None
     beats = beats or []
     scene = beats[0] if len(beats) > 0 else str(bank.take('scenes'))
@@ -590,8 +722,9 @@ def _make_character(bank, names, name, rng):
     tagline = build_tagline(bank, rng, role, picks)
     sig = (bank.slug, 'character', str(picks['axis'])[:18], str(picks['flaw'])[:18],
            str(picks['care'])[:18], str(picks['hook'])[:18], name)
+    # 主题 = 职业。同一职业的卡天然是一类，分片按主题打包后就能"搜「法医」只下那一片"。
     return make_payload(bank, name, 'character', persona, tagline, greeting, examples,
-                        system, '', rng), sig
+                        system, '', rng, topic=str(role).strip()), sig
 
 
 def _make_story(bank, name, rng):
@@ -607,8 +740,13 @@ def _make_story(bank, name, rng):
         axis=_c(picks['axis']), hook=_c(picks['hook']),
         flaw=_c(picks['flaw']), care=_c(picks['care']),
         detail=_c(str(bank.take('details')).strip().rstrip('。')).rstrip('。'))
-    scenario = build_scenario(bank, rng, name)
-    beats = _story_beats(bank, rng)
+    # 剧情卡的人设也要"翻倍"：只补细节（局面没有"习惯"和"口碑"）
+    persona = enrich_persona(bank, rng, persona, '', with_traits=False)
+    # 局面模型只摇一次，scenario / 节拍 / 主题标签都用它，避免三处对不上
+    model = rng.choice(bank.plot_models) if bank.plot_models else {}
+    topic = str((model or {}).get('name') or '').strip() or str(picks['scene']).strip()[:10]
+    scenario = build_scenario(bank, rng, name, model)
+    beats = _story_beats(bank, rng, model)
     tagline = build_tagline_story(bank, rng, picks, beats)
     greeting = build_story_greeting(bank, rng, name)
     examples = build_story_examples(bank, rng, roles[0])
@@ -616,11 +754,11 @@ def _make_story(bank, name, rng):
     sig = (bank.slug, 'story', str(picks['axis'])[:18], str(picks['flaw'])[:18],
            str(picks['care'])[:18], str(picks['hook'])[:18], name)
     return make_payload(bank, name, 'story', persona, tagline, greeting, examples,
-                        system, scenario, rng), sig
+                        system, scenario, rng, topic=topic), sig
 
 
-def _story_beats(bank, rng):
-    model = rng.choice(bank.plot_models) if bank.plot_models else {}
+def _story_beats(bank, rng, model=None):
+    model = model if model is not None else (rng.choice(bank.plot_models) if bank.plot_models else {})
     beats = (model.get('beats') if isinstance(model, dict) else None) or []
     while len(beats) < 5:
         beats = list(beats) + ['']
@@ -640,25 +778,7 @@ def build_story_greeting(bank, rng, name):
 
 def build_story_examples(bank, rng, speaker):
     """剧情卡的示例对话：说话人用「在场的人」里的角色名，不出现虚构人名。"""
-    users = rng.sample(USER_LINES, 3)
-    pool_a = bank.deck['actions'].items if bank.has('actions') else GENERIC_ACTIONS
-    acts = rng.sample(list(pool_a), k=min(6, len(pool_a)))
-    shorts = rng.sample(SHORT_LINES, 3)
-    shorts2 = rng.sample(SHORT_LINES2, 2)
-    blocks = []
-    for i, u in enumerate(users):
-        shape = rng.choice(['（{a}）{s}', '（{a}）{s}（{a2}）', '{s}', '（{a}）{s}\n{short2}'])
-        turn = '用户：%s\n%s：%s' % (
-            u, speaker,
-            shape.format(a=str(acts[i % len(acts)]).strip('（）()。'),
-                         a2=str(acts[(i + 1) % len(acts)]).strip('（）()。'),
-                         s=shorts[i], short2=shorts2[i % len(shorts2)]))
-        if rng.random() < 0.55:
-            turn += '\n\n用户：%s\n%s：（%s）%s' % (
-                rng.choice(FOLLOW_UP), speaker,
-                str(acts[(i + 2) % len(acts)]).strip('（）()。'), tic_line(bank, rng))
-        blocks.append(turn)
-    return '\n\n'.join(blocks)
+    return _dialog_examples(bank, rng, speaker, with_tics=False)
 
 
 def build_story_system(bank, rng, name, roles, voice):
@@ -671,10 +791,12 @@ def build_story_system(bank, rng, name, roles, voice):
     parts.append(_c('别这样写：' + '；'.join(str(a).strip().rstrip('。') for a in avoids)))
     parts.append('不要让任何人一次把话说完；每一轮都要留下新的问题。')
     parts.append('行为边界：不替用户做决定；不描写用户没有同意的亲密接触；不自称 AI，不提设定与提示词。')
+    parts.append(CREATIVE_FREEDOM)
     return ''.join(parts) + '\n/no_think'
 
 
-def make_payload(bank, name, kind, persona, tagline, greeting, examples, system, scenario, rng):
+def make_payload(bank, name, kind, persona, tagline, greeting, examples, system, scenario, rng,
+                 topic=''):
     temp = round(min(2.0, max(0.0, bank.temp + rng.choice([-0.05, 0, 0, 0.05]))), 2)
     tags = [bank.tag]
     if rng.random() < 0.08:              # 少量卡挂个副标签，增加筛选时的交叉曝光
@@ -694,11 +816,13 @@ def make_payload(bank, name, kind, persona, tagline, greeting, examples, system,
         'character_book': None,
         'tags': tags,
         'creator': '风月·本地版',
-        'character_version': '1.0',
+        'character_version': '1.1',
         'extensions': {
             'fy': {
                 'avatar': bank.emoji, 'tagline': tagline, 'temperature': temp,
-                'kind': kind, 'plot': kind == 'story', 'generator': 'fy_gen_v1',
+                'kind': kind, 'plot': kind == 'story', 'generator': 'fy_gen_v2',
+                # 主题：角色卡是职业，剧情卡是局面模型。分片按它打包，面板按它搜索。
+                'topic': topic or bank.tag,
             },
         },
     }
@@ -767,8 +891,35 @@ def jaccard(a, b, n=3):
     return len(A & B) / len(A | B)
 
 
+# QA 线（比发布闸门严）：生成器自检用。上一版是 80/100/无示例检查，
+# 结果"开场白 60~79 字"这类偏短的卡有 90 张也能过 —— 这一版把线抬到接近内置卡的下沿。
+QA_MIN_GREETING = 180        # 内置卡开场白 median 117 → 翻倍约 234，留余量
+QA_MIN_PERSONA = 320         # 内置卡人设 median 222 → 翻倍约 444，留余量
+QA_MIN_EXAMPLES = 240        # 内置卡示例 median 195 → 翻倍约 390，留余量
+QA_MIN_TURNS = 3             # 示例对话里「用户：」至少出现 3 次（三段各一来回）
+# 提示词泄漏只在正文三字段里查：system_prompt 本来就要写「不自称 AI、不提提示词」，
+# 拿它当禁词会把自己的行为边界判成违规。
+PROMPT_LEAK = ('作为AI', '作为 AI', '人工智能', '语言模型', '提示词', 'system_prompt', '{{', '}}')
+
+
+def _sentences(t):
+    """切句：只保留长度 ≥ 8 的片段，太短的（「嗯」）不该参与重复判断。"""
+    return [s.strip() for s in re.split(r'[。！？…\n]+', t or '') if len(s.strip()) >= 8]
+
+
+def _self_repeat(t):
+    """同一字段里同一句话出现两次 —— 一眼就能看出来的凑字数。"""
+    seen = set()
+    for s in _sentences(t):
+        if s in seen:
+            return True
+        seen.add(s)
+    return False
+
+
 def qa_card(card):
-    """机器能查出来的"读着别扭"：双标点、半句话黏连、开场白太短、缺动作/问句。"""
+    """机器能查出来的"读着别扭"：双标点、半句黏连、模板残留、卡内重复、
+    动作堆叠、内容太薄、示例来回太少。比发布闸门严，允不允许发布看闸门。"""
     d = card['data']
     issues = []
     for f in ('description', 'first_mes', 'mes_example', 'system_prompt'):
@@ -777,30 +928,86 @@ def qa_card(card):
             issues.append(f + ':双标点')
         if re.search(r'[\u4e00-\u9fa5]最在意的是[\u4e00-\u9fa5]{0,4}$', t):
             issues.append(f + ':句子黏连')
+        if re.search(r'[（(][）)]', t):
+            issues.append(f + ':动作堆叠')
+        if _self_repeat(t):
+            issues.append(f + ':卡内重复句')
+        if f != 'system_prompt':
+            if re.search(r'[{｛][A-Za-z_]{2,}[}｝]', t):
+                issues.append(f + ':模板占位符残留')
+            for w in PROMPT_LEAK:
+                if w in t:
+                    issues.append(f + ':提到设定或AI')
+                    break
     fm = (d.get('first_mes') or '').strip()
-    if len(fm) < 80:
+    if len(fm) < QA_MIN_GREETING:
         issues.append('开场白偏短')
     if not re.search(r'[（(]', fm):
         issues.append('开场白缺动作')
     desc = (d.get('description') or '').strip()
     if not desc.endswith(('。', '）')):
         issues.append('人设结尾异常')
-    if len(desc) < 100:
+    if len(desc) < QA_MIN_PERSONA:
         issues.append('人设偏薄')
+    ex = (d.get('mes_example') or '').strip()
+    if len(ex) < QA_MIN_EXAMPLES:
+        issues.append('示例对话偏短')
+    if ex.count('用户：') < QA_MIN_TURNS:
+        issues.append('示例对话来回太少')
+    if not re.search(r'[（(]', ex):
+        issues.append('示例对话缺动作')
     return issues
 
 
+def _quantiles(vals):
+    """min / p25 / median / p75 / max —— 审计里到处要用，抽出来省得每处写一遍。"""
+    vals = sorted(vals)
+    if not vals:
+        return {}
+    return {'min': vals[0], 'p25': vals[len(vals) // 4], 'median': vals[len(vals) // 2],
+            'p75': vals[len(vals) * 3 // 4], 'max': vals[-1]}
+
+
+def builtin_baseline():
+    """内置 160 张卡的字段长度中位数 —— 生成器唯一有意义的对照物（人写的）。"""
+    vals = {'persona': [], 'greeting': [], 'examples': []}
+    for f in glob.glob(BUILTIN_GLOB):
+        try:
+            with open(f, encoding='utf-8') as fh:
+                for c in json.load(fh).get('cards', []):
+                    d = c.get('data') or {}
+                    vals['persona'].append(len(d.get('description') or ''))
+                    vals['greeting'].append(len(d.get('first_mes') or ''))
+                    vals['examples'].append(len(d.get('mes_example') or ''))
+        except Exception:
+            pass
+    out = {}
+    for k, v in vals.items():
+        if v:
+            v.sort()
+            out[k] = v[len(v) // 2]
+    return out
+
+
 def audit(cards, rng, sample_pairs=3000):
-    """多样性审计：模板味重不重，看这几个数字。"""
+    """多样性审计：模板味重不重、文本够不够厚、像不像人写，看这几个数字。"""
     rep = {}
     rep['total'] = len(cards)
     rep['unique_names'] = len({(c['data']['name'] or '').strip() for c in cards})
     qa = Counter()
+    qa_kind = {'character': [0, 0], 'story': [0, 0]}      # [干净, 总数]
     for c in cards:
-        for i in qa_card(c):
+        issues = qa_card(c)
+        for i in issues:
             qa[i] += 1
+        k = c['data']['extensions']['fy'].get('kind', 'character')
+        slot = qa_kind.setdefault(k, [0, 0])
+        slot[1] += 1
+        if not issues:
+            slot[0] += 1
     rep['qa_issues'] = dict(qa)
     rep['qa_clean_rate'] = round(1 - sum(1 for c in cards if qa_card(c)) / max(1, len(cards)), 4)
+    rep['qa_clean_rate_by_kind'] = {k: round(v[0] / max(1, v[1]), 4) for k, v in qa_kind.items()}
     by_slug = Counter()
     by_kind = Counter()
     for c in cards:
@@ -809,6 +1016,8 @@ def audit(cards, rng, sample_pairs=3000):
         by_slug[c['data']['tags'][0]] += 1
     rep['by_kind'] = dict(by_kind)
     rep['by_tag'] = dict(by_slug)
+    rep['topics'] = len({str(c['data']['extensions']['fy'].get('topic') or '').strip()
+                         for c in cards})
 
     # 字段长度分布
     def lens(field, ext=False):
@@ -816,13 +1025,34 @@ def audit(cards, rng, sample_pairs=3000):
         for c in cards:
             v = c['data']['extensions']['fy'].get(field) if ext else c['data'].get(field)
             vals.append(len(v or ''))
-        vals.sort()
-        if not vals:
-            return {}
-        return {'min': vals[0], 'p25': vals[len(vals) // 4], 'median': vals[len(vals) // 2],
-                'p75': vals[len(vals) * 3 // 4], 'max': vals[-1]}
+        return _quantiles(vals)
     rep['chars'] = {'persona': lens('description'), 'greeting': lens('first_mes'),
                     'examples': lens('mes_example'), 'system': lens('system_prompt')}
+
+    # —— "像不像人写"这一层 ——
+    turns, sent_lens, puncts, self_rep = [], [], [], 0
+    ex_line_lens = []
+    for c in cards:
+        ex = c['data'].get('mes_example') or ''
+        turns.append(ex.count('用户：'))
+        for line in ex.split('\n'):
+            line = line.strip()
+            if line and not line.startswith('用户：'):
+                ex_line_lens.append(len(line))
+        for f in ('description', 'first_mes', 'mes_example'):
+            t = c['data'].get(f) or ''
+            sent_lens.extend(len(s) for s in _sentences(t))
+            if _self_repeat(t):
+                self_rep += 1
+                break
+        puncts.append(len({ch for ch in (c['data'].get('mes_example') or '')
+                           if ch in '。！？…，、—：；「」（）'}))
+    rep['examples_turns'] = _quantiles(turns)
+    rep['examples_reply_len'] = _quantiles(ex_line_lens)
+    rep['sentence_len'] = _quantiles(sent_lens)
+    rep['punct_kinds'] = _quantiles(puncts)
+    rep['self_repeat_cards'] = self_rep
+    rep['self_repeat_rate'] = round(self_rep / max(1, len(cards)), 4)
 
     # 12-gram 覆盖率：一句话如果出现在超过 5% 的卡里，就是"模板味"来源
     grams = Counter()
@@ -842,10 +1072,44 @@ def audit(cards, rng, sample_pairs=3000):
     if sims:
         rep['pair_sim'] = {'mean': round(sum(sims) / len(sims), 4),
                            'p95': round(sims[int(len(sims) * .95)], 4), 'max': round(sims[-1], 4)}
+
+    # 与内置 160 张（人写的）对照：中位数差为正才算"不输给人写的"
+    base = builtin_baseline()
+    if base:
+        rep['builtin_baseline'] = base
+        rep['gap_vs_builtin'] = {
+            k: (rep['chars'][k]['median'] - base[k])
+            for k in base if rep['chars'].get(k, {}).get('median') is not None
+        }
+    # 与 v1 卡库（2026-10 发布版）对照：这一栏就是"文本翻倍"的验收数字
+    v1 = {'persona': 220, 'greeting': 119, 'examples': 171}
+    rep['v1_median_baseline'] = v1
+    rep['doubling_vs_v1'] = {
+        k: round(rep['chars'][k]['median'] / v1[k], 2)
+        for k in v1 if rep['chars'].get(k, {}).get('median')
+    }
     return rep
 
 
-def write_packs(cards, out_dir, chunk):
+def _card_text(c):
+    """一张卡用于关键词统计的全部正文（不含系统提示词，那里面全是模板话）。"""
+    d = c['data']
+    return ' '.join((d.get('description') or '', d.get('first_mes') or '',
+                     d.get('mes_example') or '', d.get('scenario') or ''))
+
+
+def topic_key(c):
+    ext = c['data']['extensions']['fy']
+    return str(ext.get('topic') or '').strip() or str(c['data']['tags'][0])
+
+
+def write_packs(cards, out_dir, chunk, banks=None):
+    """按主题打包 + 给每片算关键词（v2）。
+
+    为什么要按主题：v1 是"1000 张一刀切"，想只要悬疑里的法医题材也得下整类。
+    现在同一个主题的卡不拆到两片里，每片约 chunk 张，索引里记下这片覆盖的主题
+    与场景词 —— 面板就能"搜「法医」只下那一片"。
+    """
     os.makedirs(out_dir, exist_ok=True)
     catalog = []
     groups = {}
@@ -853,25 +1117,72 @@ def write_packs(cards, out_dir, chunk):
         ext = c['data']['extensions']['fy']
         slug = SLUG_BY_TAG.get(c['data']['tags'][0], 'misc')
         groups.setdefault((slug, ext['kind']), []).append(c)
+
     for (slug, kind), group in sorted(groups.items()):
-        parts = [group[i:i + chunk] for i in range(0, len(group), chunk)]
-        for idx, part in enumerate(parts, 1):
+        bank = (banks or {}).get(slug)
+        # 关键词候选：素材库里的职业 / 地点 / 物件（短词，用户会这么搜）
+        terms = []
+        if bank is not None:
+            for f in ('roles', 'places', 'things'):
+                for t in ((bank.deck[f].items if bank.has(f) else []) or []):
+                    t = str(t).strip()
+                    if 2 <= len(t) <= 8 and t not in terms:
+                        terms.append(t)
+        totals = {t: sum(1 for c in group if t in _card_text(c)) for t in terms}
+
+        # 主题整块进片：累加到接近 chunk 就收一片（允许超 20%，换主题不被拆散）
+        by_topic = {}
+        for c in group:
+            by_topic.setdefault(topic_key(c), []).append(c)
+        parts, cur, cur_topics = [], [], []
+        for topic, items in by_topic.items():
+            if cur and len(cur) + len(items) > chunk * 1.2:
+                parts.append((list(cur_topics), cur))
+                cur, cur_topics = [], []
+            cur.extend(items)
+            if topic not in cur_topics:
+                cur_topics.append(topic)
+        if cur:
+            parts.append((list(cur_topics), cur))
+
+        for idx, (topics, part) in enumerate(parts, 1):
+            texts = [_card_text(c) for c in part]
+            kw = list(topics)
+            ranked = []
+            for t in terms:
+                if t in kw:
+                    continue
+                local = sum(1 for s in texts if t in s)
+                if local >= 3:
+                    ranked.append((local / max(1, totals.get(t, 0)), local, t))
+            # 场景/物件词只留"在这片里特别集中"的：泛泛都有的词搜出来等于整类
+            ranked.sort(key=lambda x: (-x[0], -x[1], x[2]))
+            for ratio, _local, t in ranked[:6]:
+                if ratio >= 0.3:
+                    kw.append(t)
+            kw = kw[:24]
+            label = '、'.join(topics[:2])
+            if len(topics) > 2:
+                label += ' 等 %d 个主题' % len(topics)
             fname = '%s-%s-%d.json' % (slug, kind, idx)
-            path = os.path.join(out_dir, fname)
             pack = {
                 'spec': 'fy_pack_v1',
-                'name': '%s · %s %d/%d' % (TAG_BY_SLUG.get(slug, slug), KIND_LABEL[kind], idx, len(parts)),
+                'name': '%s · %s %d/%d（%s）' % (
+                    TAG_BY_SLUG.get(slug, slug), KIND_LABEL[kind], idx, len(parts), label),
                 'slug': slug, 'kind': kind, 'part': idx, 'parts': len(parts),
-                'license': 'CC0-1.0', 'count': len(part), 'cards': part,
+                'license': 'CC0-1.0', 'count': len(part),
+                'topics': topics, 'keywords': kw, 'topic_label': label,
+                'cards': part,
             }
             blob = json.dumps(pack, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-            with open(path, 'wb') as f:
+            with open(os.path.join(out_dir, fname), 'wb') as f:
                 f.write(blob)
             catalog.append({
                 'file': fname, 'slug': slug, 'tag': TAG_BY_SLUG.get(slug, slug),
                 'emoji': EMOJI_BY_SLUG.get(slug, '🎭'), 'kind': kind,
                 'part': idx, 'parts': len(parts), 'count': len(part),
                 'bytes': len(blob), 'sha256': hashlib.sha256(blob).hexdigest(),
+                'topic': label, 'topics': topics, 'keywords': kw,
             })
     return catalog
 
@@ -879,7 +1190,8 @@ def write_packs(cards, out_dir, chunk):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--per-kind', type=int, default=1000)
-    ap.add_argument('--chunk', type=int, default=200)
+    # 250 张一片：按主题打包后，一片 ≈ 5~7 个主题；搜到一个主题 = 只下 1/4 个分类
+    ap.add_argument('--chunk', type=int, default=250)
     ap.add_argument('--seed', type=int, default=20261012)
     ap.add_argument('--out', default=LIB_DIR)
     ap.add_argument('--only', default='', help='逗号分隔的 slug')
@@ -936,10 +1248,18 @@ def main():
     rep = audit(cards, rng)
     print('── 审计：')
     print('   名字唯一：%d/%d' % (rep['unique_names'], rep['total']))
-    print('   QA 干净率：%s（问题分布 %s）' % (rep['qa_clean_rate'], rep['qa_issues']))
+    print('   QA 干净率：%s（按类型 %s；问题分布 %s）' % (
+        rep['qa_clean_rate'], rep['qa_clean_rate_by_kind'], rep['qa_issues']))
     print('   字数中位：人设 %s / 开场白 %s / 示例 %s / 系统 %s' % (
         rep['chars']['persona'].get('median'), rep['chars']['greeting'].get('median'),
         rep['chars']['examples'].get('median'), rep['chars']['system'].get('median')))
+    if rep.get('gap_vs_builtin'):
+        print('   对比内置卡（人写）中位差：%s（正数=比内置卡长）' % rep['gap_vs_builtin'])
+    if rep.get('doubling_vs_v1'):
+        print('   对比 v1 卡库的倍数：%s（1.0 = 持平，2.0 = 翻倍）' % rep['doubling_vs_v1'])
+    print('   示例对话：来回 %s 次 / 回答行长 %s / 卡内重复率 %s' % (
+        rep['examples_turns'].get('median'), rep['examples_reply_len'].get('median'),
+        rep['self_repeat_rate']))
     print('   抽样相似度：均值 %s / p95 %s / 最大 %s' % (
         rep['pair_sim'].get('mean'), rep['pair_sim'].get('p95'), rep['pair_sim'].get('max')))
     print('   最高频 12-gram 覆盖率：%s' % ', '.join(
@@ -947,16 +1267,24 @@ def main():
 
     if args.no_write:
         return 0
-    catalog = write_packs(cards, args.out, args.chunk)
+    catalog = write_packs(cards, args.out, args.chunk, banks)
     total_bytes = sum(c['bytes'] for c in catalog)
+    # 每个分类可搜到的主题（面板提示用）
+    topics_by_slug = {}
+    for p in catalog:
+        bucket = topics_by_slug.setdefault(p['slug'], [])
+        if p.get('topic'):
+            bucket.append(p['topic'])
     index = {
-        'spec': 'fy_library_v1',
-        'note': '可下载卡库：每分类各 %d 张角色卡 + %d 张剧情卡，全部原创（AI 组合生成），CC0-1.0' % (args.per_kind, args.per_kind),
+        'spec': 'fy_library_v2',
+        'note': '可下载卡库：每分类各 %d 张角色卡 + %d 张剧情卡，全部原创（AI 组合生成），CC0-1.0；'
+                '按主题分片，可按关键词只下载其中一片' % (args.per_kind, args.per_kind),
         'seed': args.seed, 'per_kind': args.per_kind, 'chunk': args.chunk,
         'total': len(cards), 'bytes': total_bytes,
         'baseUrl': '',                 # 发布时填（Gitee 附件地址前缀）
         'categories': [
-            {'slug': s, 'tag': t, 'emoji': e, 'character': args.per_kind, 'story': args.per_kind}
+            {'slug': s, 'tag': t, 'emoji': e, 'character': args.per_kind, 'story': args.per_kind,
+             'topics': topics_by_slug.get(s, [])}
             for s, t, e in CATEGORIES if s in banks
         ],
         'packs': catalog,
