@@ -805,7 +805,9 @@
         var row = el('div', 'model-row');
         var col = el('div', 'grow');
         col.appendChild(el('div', 'model-name', (p.emoji || '📦') + ' ' + p.name + ' · ' + p.count + ' 张'));
-        col.appendChild(el('div', 'model-size', (p.tags || []).join(' / ')));
+        var tg = p.tags || [];
+        col.appendChild(el('div', 'model-size',
+          tg.slice(0, 3).join(' / ') + (tg.length > 3 ? (' 等 ' + tg.length + ' 类') : '')));
         col.appendChild(el('div', 'model-size', (p.desc || '').slice(0, 46)));
         row.appendChild(col);
         var btn = el('button', 'btn btn-xs', '导入');
@@ -3251,6 +3253,7 @@
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
     renderCharacters: renderCharacters,
+    renderOptionsBar: renderOptionsBar,
     applyAppearance: applyAppearance,
     isLightAppearance: isLightAppearance,
     mixHex: mixHex,

@@ -93,6 +93,10 @@
 }
 
 /* ---- 浅色主题 ---- */
+/* 浅底上卡片角上的品牌柔光要更淡，否则像一块脏印子 */
+:root[data-theme="light"] .char-card::after { opacity: .06; }
+:root[data-theme="light"] .char-card.on::after { opacity: .10; }
+
 :root[data-theme="light"] {
   color-scheme: light;
 
@@ -303,6 +307,8 @@ b { font-weight: 600; }
   border-radius: var(--r-full);
   font-size: 14px;
   font-weight: 500;
+  white-space: nowrap;          /* 按钮文字不换行（emoji+文案曾被挤成两行） */
+  flex: 0 0 auto;
   overflow: hidden;
   transition: transform var(--dur-1) var(--ease-std),
               background var(--dur-2) var(--ease-std),

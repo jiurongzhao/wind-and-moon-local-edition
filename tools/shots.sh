@@ -12,10 +12,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/docs/shots}"
 UI="$ROOT/app/assets/ui"
-PORT="${SHOT_PORT:-8899}"
+PORT="${SHOT_PORT:-}"        # 不指定就随机挑一个空闲端口（避免上一轮残留占用）
 W=412; H=915            # 近似 Pixel/小米 的逻辑分辨率
 
-command -v chromium >/dev/null 2>&1 || {
+# Termux 里包名装出来的是 chromium-browser（chromium 只是习惯叫法）；
+# 实测 headless_shell 在这个内核上不出图，chromium-browser --headless=new 才稳。
+CHROME=""
+for c in chromium chromium-browser headless_shell; do
+  if command -v "$c" >/dev/null 2>&1; then CHROME="$c"; break; fi
+done
+[ -n "$CHROME" ] || {
   echo "❌ 没有 chromium。安装：pkg install x11-repo && pkg install chromium" >&2
   exit 1
 }
@@ -24,7 +30,11 @@ command -v chromium >/dev/null 2>&1 || {
 python3 "$ROOT/tools/build-pack-index.py" >/dev/null 2>&1 || true
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"; [ -n "${SRV_PID:-}" ] && kill "$SRV_PID" 2>/dev/null || true' EXIT
+cleanup() {
+  if [ -n "${SRV_PID:-}" ]; then kill "$SRV_PID" 2>/dev/null || true; fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
 
 cp -r "$UI" "$TMP/ui"
 cp "$ROOT/tools/preview-seed.js" "$TMP/ui/preview-seed.js"
@@ -38,15 +48,29 @@ open(p, 'w', encoding='utf-8').write(s)
 PY
 
 mkdir -p "$OUT"
+
+# 选端口 + 起服务：用 exec 让 $! 就是 python 自己的 PID（否则 kill 的是子 shell，
+# python 变孤儿继续占着端口，下一轮就会截到 404 页面 —— 这个坑踩过一次）
+if [ -z "$PORT" ]; then
+  PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+fi
 echo "── 启动临时 http 服务 :$PORT"
-( cd "$TMP/ui" && python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 ) &
+( cd "$TMP/ui" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 ) &
 SRV_PID=$!
-sleep 2
+
+# 起完必须确认真能拿到页面，否则后面全是 404 截图（而且看不太出来）
+ok=0
+for i in $(seq 1 20); do
+  if curl -sf -m 5 "http://127.0.0.1:$PORT/index.html" -o /dev/null 2>/dev/null; then ok=1; break; fi
+  sleep 0.5
+done
+[ "$ok" = "1" ] || { echo "❌ 本地服务没起来（端口 $PORT），中止" >&2; exit 1; }
 
 shot() {   # shot <文件名> <查询串>
   local name="$1" qs="$2"
   echo "   截图 $name …"
-  chromium --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+  "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run \
+    --user-data-dir="$TMP/profile-$name" --hide-scrollbars \
     --force-device-scale-factor=2 \
     --window-size="$W,$H" \
     --virtual-time-budget="${SHOT_WAIT:-6000}" \

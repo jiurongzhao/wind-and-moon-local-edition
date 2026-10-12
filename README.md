@@ -41,6 +41,24 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 内存 | 建议 6GB+；0.5B 模型约需 1GB 空闲，3B 约需 3.5GB（内存不够会疯狂换页，实测能慢到十分钟吐不出一个字） |
 | 存储 | 模型 0.5～2.5GB + App 本体 13MB |
 
+## 界面预览
+
+<table>
+<tr>
+<td width="33%"><img src="docs/shots/01-characters.png" alt="角色页：分类筛选与卡片"><br><sub>角色页 · 分类筛选 / 搜索 / 推荐 / 卡包</sub></td>
+<td width="33%"><img src="docs/shots/02-chat.png" alt="聊天页：流式对话与剧情选项"><br><sub>聊天页 · 流式对话与剧情选项</sub></td>
+<td width="33%"><img src="docs/shots/05-packs.png" alt="内置卡包"><br><sub>内置卡包 · 16 类 160 张一键导入</sub></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/shots/04-characters-light.png" alt="浅色主题"><br><sub>浅色主题（也可跟随系统）</sub></td>
+<td width="33%"><img src="docs/shots/06-recommend.png" alt="智能推荐"><br><sub>智能推荐 · 还没聊过的优先</sub></td>
+<td width="33%"><img src="docs/shots/07-settings.png" alt="设置页"><br><sub>设置 · 引擎 / 模型来源 / 存储后端</sub></td>
+</tr>
+</table>
+
+> 这些图是 `./tools/shots.sh` 用无头 Chromium 自动生成的（`tools/preview-seed.js` 注入假数据），
+> 改完界面重新跑一次即可，不需要真机也不需要 Android Studio。
+
 ## 现状
 
 | 项目 | 状态 |
