@@ -133,11 +133,13 @@ def main(path):
             print('  ℹ️  清单 debuggable=true（调试构建；发布构建必须为 false）')
         else:
             good('清单没有 debuggable（发布形态）')
-        # 明文流量：要么整包放开，要么用 networkSecurityConfig 精确放行（推荐后者）
+        # 明文流量策略由 res/xml/network_security_config.xml 决定：
+        # 本地回环必须放行；为了让"局域网自建 OpenAI 兼容服务"可用，也整体放开了明文
+        # （Android 不支持按 IP 段放行，只能整体开 —— 取舍写在 README 里）
         cc = [l for l in out.splitlines() if 'usesCleartextTraffic' in l]
         nsc = [l for l in out.splitlines() if 'networkSecurityConfig' in l]
         if nsc:
-            good('清单用 networkSecurityConfig 控制明文流量（只放行回环）')
+            good('清单用 networkSecurityConfig 控制明文流量（含回环与局域网自建服务）')
         elif cc and 'true' in cc[0]:
             good('清单 usesCleartextTraffic=true')
         else:

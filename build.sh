@@ -28,8 +28,11 @@ NATIVE="$ROOT/native"
 PKG="com.fy.local"
 MIN_SDK=24
 TARGET_SDK=35
-VER_CODE=1
-VER_NAME="1.0.0"
+# ⚠️ 注意：aapt2 的 --version-code/--version-name 只在 AndroidManifest.xml
+# **没有**声明版本号时才生效（官方文档原话 "if none is present"）。
+# 所以版本号以 app/AndroidManifest.xml 为准，这里的值只用于构建后比对自检。
+VER_CODE=2
+VER_NAME="1.1.0"
 
 MODE="release"
 [ "${1:-}" = "--debug" ] && MODE="debug"
@@ -148,6 +151,35 @@ apksigner sign "${SIGN_ARGS[@]}" --out "$OUT" "$BUILD/apk/aligned.apk" >/dev/nul
 
 echo "[6.5/6] 签名后再次校验（apksigner 会重写中央目录）"
 python3 "$ROOT/tools/checkapk.py" "$OUT" || exit 1
+
+# 版本一致性自检：防"tag 是 v1.1.0、APK 却自称 1.0.0"这种装上去才发现的事故。
+# 注意 aapt2 的 --version-code/--version-name 只在 manifest 未声明版本号时生效，
+# 所以真相来源是 app/AndroidManifest.xml。
+if command -v aapt2 >/dev/null 2>&1; then
+  BADGE="$(aapt2 dump badging "$OUT" 2>/dev/null | head -1)"
+  GOT_NAME="$(echo "$BADGE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+  GOT_CODE="$(echo "$BADGE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+  if [ "$GOT_NAME" != "$VER_NAME" ] || [ "$GOT_CODE" != "$VER_CODE" ]; then
+    echo "❌ 版本号不一致：APK 里是 $GOT_NAME(code $GOT_CODE)，脚本期望 $VER_NAME(code $VER_CODE)"
+    echo "   请改 app/AndroidManifest.xml 的 android:versionCode / android:versionName"
+    exit 1
+  fi
+  echo "  ✅ 版本号一致：$GOT_NAME (code $GOT_CODE)"
+fi
+
+
+# 版本一致性自检：防"tag 是 v1.1.0、APK 却自称 1.0.0"这种只有装上去才发现的事故
+if command -v aapt2 >/dev/null 2>&1; then
+  BADGE="$(aapt2 dump badging "$OUT" 2>/dev/null | head -1)"
+  GOT_NAME="$(echo "$BADGE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+  GOT_CODE="$(echo "$BADGE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+  if [ "$GOT_NAME" != "$VER_NAME" ] || [ "$GOT_CODE" != "$VER_CODE" ]; then
+    echo "❌ 版本号不一致：manifest 里是 $GOT_NAME($GOT_CODE)，脚本期望 $VER_NAME($VER_CODE)"
+    echo "   修 app/AndroidManifest.xml 的 android:versionCode / android:versionName"
+    exit 1
+  fi
+  echo "  ✅ 版本号一致：$GOT_NAME (code $GOT_CODE)"
+fi
 
 echo "── 签名信息 ──"
 apksigner verify --print-certs "$OUT" 2>/dev/null | head -4
