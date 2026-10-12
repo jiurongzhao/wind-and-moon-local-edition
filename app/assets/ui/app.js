@@ -567,6 +567,13 @@
     return seg.slice(0, 96);
   }
 
+  function applyPreset(key) {
+    var ps = PROVIDER_PRESETS[key];
+    if (!ps) return;
+    $('setRemoteBase').value = ps.url;
+    $('providerStatus').textContent = ps.name + '：' + ps.hint;
+  }
+
   function renderProviderUI() {
     var sel = $('selProviderMode');
     if (!sel) return;
@@ -574,18 +581,9 @@
     sel.value = p.mode === 'remote' ? 'remote' : 'local';
     $('remoteBox').hidden = p.mode !== 'remote';
     if (p.baseUrl && !$('setRemoteBase').value) $('setRemoteBase').value = p.baseUrl;
-    var msel = $('selRemoteModel');
-    msel.innerHTML = '';
-    if (p.model) {
-      var o = document.createElement('option');
-      o.value = p.model; o.textContent = p.model;
-      msel.appendChild(o);
-      msel.value = p.model;
-    } else {
-      var ph = document.createElement('option');
-      ph.value = ''; ph.textContent = '（先测试连接拉取列表）';
-      msel.appendChild(ph);
-    }
+    /* 模型名：可手填的输入框 + datalist 候选（拉不到列表也能用） */
+    if (p.model) $('selRemoteModel').value = p.model;
+    $('remoteModelList').innerHTML = '';
     if (p.mode === 'remote' && p.ready) {
       $('providerStatus').textContent = '已启用外部服务：' + p.baseUrl + ' · 模型 ' + p.model
         + (p.hasKey ? ' · 带 API Key' : ' · 无 Key');
@@ -601,20 +599,19 @@
     if (!r.ok && !r.message) { st.textContent = '测试失败：没有拿到响应（原生桥可用吗？）'; return; }
     if (!r.ok) { st.textContent = '连不上：' + (r.message || '未知错误'); return; }
     var list = r.models || [];
-    st.textContent = '连通 ✅ ' + (r.resolvedBase || base) + ' · 发现 ' + list.length + ' 个模型';
-    var msel = $('selRemoteModel');
-    msel.innerHTML = '';
-    if (!list.length) {
-      var o = document.createElement('option');
-      o.value = ''; o.textContent = '（上游没返回模型列表，可手动填）';
-      msel.appendChild(o);
-    }
+    var dl = $('remoteModelList');
+    dl.innerHTML = '';
     list.forEach(function (id) {
       var o = document.createElement('option');
-      o.value = id; o.textContent = id;
-      msel.appendChild(o);
+      o.value = id; dl.appendChild(o);
     });
-    if (list.length === 1) msel.value = list[0];
+    if (!list.length) {
+      st.textContent = '地址通了 ✅（' + (r.resolvedBase || base) + '）但上游没返回模型列表'
+        + ' —— 有些服务（如火山方舟）就不提供列表，直接手填模型名保存即可';
+    } else {
+      st.textContent = '连通 ✅ ' + (r.resolvedBase || base) + ' · 发现 ' + list.length + ' 个模型（下面可选可填）';
+      if (list.length === 1 && !$('selRemoteModel').value) $('selRemoteModel').value = list[0];
+    }
     fyLog('外部模型服务连通：' + (r.resolvedBase || base) + ' 模型数=' + list.length);
   }
 
@@ -624,10 +621,10 @@
       mode: mode,
       baseUrl: (mode === 'remote') ? $('setRemoteBase').value.trim() : '',
       apiKey: (mode === 'remote') ? $('setRemoteKey').value.trim() : '',
-      model: (mode === 'remote') ? ($('selRemoteModel').value || '') : ''
+      model: (mode === 'remote') ? ($('selRemoteModel').value || '').trim() : ''
     };
     if (mode === 'remote' && (!payload.baseUrl || !payload.model)) {
-      toast('外部服务要先填地址并选一个模型（可点「测试连接」拉取）', 'warn', 3600);
+      toast('外部服务要先填地址和模型名（拉不到列表就直接手填）', 'warn', 3600);
       return;
     }
     var back = asObj(fyCall('setProvider', [JSON.stringify(payload)]));
@@ -1222,6 +1219,26 @@
     }
     return (typeof raw === 'object') ? raw : null;
   }
+
+  /* 常见 OpenAI 兼容服务商预设：一键把 base url 填好。
+     豆包（火山方舟）的模型名要填「接入点 ID（ep-…）」或模型名，且方舟不提供 /models 列表，
+     所以模型名必须允许手填 —— 见下面的 datalist 输入框。 */
+  var PROVIDER_PRESETS = {
+    ark:       { name: '火山方舟 · 豆包', url: 'https://ark.cn-beijing.volces.com/api/v3',
+                 hint: '到火山方舟控制台创建推理接入点，模型名填 ep-… 或 doubao-…；该服务不返回模型列表，手填即可' },
+    deepseek:  { name: 'DeepSeek', url: 'https://api.deepseek.com/v1',
+                 hint: '模型名填 deepseek-chat 或 deepseek-reasoner' },
+    dashscope: { name: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                 hint: '模型名填 qwen-plus / qwen-max / qwen-turbo 等' },
+    zhipu:     { name: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4',
+                 hint: '模型名填 glm-4-flash / glm-4-plus 等' },
+    moonshot:  { name: '月之暗面 Kimi', url: 'https://api.moonshot.cn/v1',
+                 hint: '模型名填 kimi-k2-0905-preview 等' },
+    openai:    { name: 'OpenAI', url: 'https://api.openai.com/v1',
+                 hint: '模型名填 gpt-4o-mini 等；注意访问可能需要网络代理' },
+    ollama:    { name: 'Ollama（局域网）', url: 'http://192.168.1.5:11434/v1',
+                 hint: '把 IP 换成你电脑的；Ollama 要设 OLLAMA_HOST=0.0.0.0 才能被手机访问' }
+  };
 
   function provider() { return S.provider || { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }; }
   function isRemote() { return provider().mode === 'remote'; }
@@ -2969,6 +2986,7 @@
       $('remoteBox').hidden = this.value !== 'remote';
       if (this.value === 'local') saveProvider();
     };
+    $('selPreset').onchange = function () { if (this.value) applyPreset(this.value); };
     $('btnTestProvider').onclick = testProviderRemote;
     $('btnSaveProvider').onclick = saveProvider;
     $('btnCustomDownload').onclick = customDownload;
@@ -3262,6 +3280,8 @@
     providerReady: providerReady,
     isRemote: isRemote,
     renderProviderUI: renderProviderUI,
+    applyPreset: applyPreset,
+    PROVIDER_PRESETS: PROVIDER_PRESETS,
     renderCharCats: renderCharCats,
     openSoloChat: openSoloChat,
     recommendPicks: recommendPicks,

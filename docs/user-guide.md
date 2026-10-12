@@ -127,9 +127,22 @@ App 启动后如果没模型，设置页会引导你二选一：
 - Ollama 默认只监听本机，必须设 `OLLAMA_HOST=0.0.0.0` 才能被手机访问；
 - 自建服务一般**不需要**填 API Key。
 
-**③ 用云端 OpenAI 兼容 API**
-同上，地址填服务商给的（一般以 `/v1` 结尾），填上 API Key。
-注意：这种模式下对话内容会离开你的手机，不再是"完全离线"。
+**③ 用云端 OpenAI 兼容 API（含豆包）**
+设置 → 模型来源 → 外部服务 → **服务商预设**里直接选：
+
+| 预设 | 地址 | 模型名怎么填 |
+|---|---|---|
+| 火山方舟 · **豆包** | `https://ark.cn-beijing.volces.com/api/v3` | 在方舟控制台创建"推理接入点"，填 `ep-…`；也可填 `doubao-…` 模型名 |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` / `deepseek-reasoner` |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` / `qwen-max` |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` / `glm-4-plus` |
+| 月之暗面 Kimi | `https://api.moonshot.cn/v1` | `kimi-k2-0905-preview` 等 |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` 等 |
+
+选好预设 → 填 API Key → **模型名可以直接手填**（有些服务如火山方舟不提供 `/models` 列表，
+这种情况「测试连接」会提示拉不到，手填后保存即可）→ 点「保存并启用」。
+
+> 这种模式下对话内容会离开手机，不再是"完全离线"；Key 只存在本机原生侧（网页层拿不到）。
 
 > 小提示：外部服务模式下，模型跑在电脑/云端，手机只负责显示，所以**生成期间可以随便切后台**，
 > 也不会被系统限核（内置引擎在后台会掉到 1/10 速度）。

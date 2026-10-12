@@ -960,9 +960,7 @@ calls.length = 0;
 S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.9:1234/v1', model: '', hasKey: true, ready: false };
 $('selProviderMode').value = 'remote';
 $('setRemoteBase').value = 'http://192.168.1.9:1234/v1';
-$('selRemoteModel').innerHTML = '';
-const ph = doc.createElement('option'); ph.value = ''; ph.textContent = '（先测试连接）';
-$('selRemoteModel').appendChild(ph);
+$('selRemoteModel').value = '';      // 这个字段现在是可手填的 <input>（原来是只读 select）
 $('btnSaveProvider').click();
 await sleep(60);
 check('没选模型时拒绝保存（避免切过去才发现不能用）', calls.length === 0, '调用次数=' + calls.length);
@@ -1066,6 +1064,62 @@ window.fetch = realFetch2;
 
 /* 收尾：回到本地模式，别影响后面的用例 */
 S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+
+console.log('\n【25】服务商预设（豆包/方舟等）+ 模型名可手填');
+const P = window.FYApp.PROVIDER_PRESETS;
+check('预设里包含豆包（火山方舟）', !!(P && P.ark && /volces\.com/.test(P.ark.url)), P && P.ark && P.ark.url);
+check('预设地址都是 https（除局域网 Ollama 外）',
+  Object.keys(P).every((k) => k === 'ollama' ? /^http:\/\//.test(P[k].url) : /^https:\/\//.test(P[k].url)),
+  Object.keys(P).map((k) => k + '=' + P[k].url).join(' | ').slice(0, 120));
+
+S.provider = { mode: 'remote', baseUrl: '', model: '', hasKey: false, ready: false };
+window.FYApp.renderProviderUI();
+$('selPreset').value = 'ark';
+window.FYApp.applyPreset('ark');
+check('选豆包预设会填好方舟地址',
+  $('setRemoteBase').value === 'https://ark.cn-beijing.volces.com/api/v3', $('setRemoteBase').value);
+check('状态区给出方舟的说明（要填接入点/模型名）',
+  /接入点|ep-/.test($('providerStatus').textContent), $('providerStatus').textContent.slice(0, 60));
+
+/* 方舟不返回 /models：模拟"地址通但拉不到列表" */
+const realFetch3 = window.FY.fetchProvider;
+window.FY.testProvider = () => JSON.stringify({ ok: true, message: '连通，发现 0 个模型',
+  resolvedBase: 'https://ark.cn-beijing.volces.com/api/v3', models: [], count: 0 });
+window.FYApp.renderProviderUI();
+$('setRemoteBase').value = 'https://ark.cn-beijing.volces.com/api/v3';
+$('btnTestProvider').click();
+await sleep(60);
+check('拉不到模型列表时提示可以手填（不再卡死）',
+  /手填/.test($('providerStatus').textContent), $('providerStatus').textContent.slice(0, 70));
+
+/* 手填模型名 → 能保存 */
+const calls2 = [];
+window.FY.setProvider = (json) => {
+  calls2.push(JSON.parse(json));
+  return JSON.stringify({ mode: 'remote', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: JSON.parse(json).model, hasKey: !!JSON.parse(json).apiKey, ready: true });
+};
+$('selProviderMode').value = 'remote';
+$('setRemoteKey').value = 'ark-key-demo';
+$('selRemoteModel').value = 'ep-20251012-abcdef';
+$('btnSaveProvider').click();
+await sleep(80);
+check('手填的模型名被正确保存（豆包接入点 ID）',
+  calls2.length === 1 && calls2[0].model === 'ep-20251012-abcdef' && calls2[0].baseUrl.indexOf('volces') > 0,
+  JSON.stringify(calls2[0] || {}));
+check('保存后判定为就绪', window.FYApp.providerReady() === true, JSON.stringify(S.provider));
+check('Key 不在前端留存', $('setRemoteKey').value === '' && S.provider.apiKey === undefined);
+
+/* 手填为空时仍然拒绝保存 */
+calls2.length = 0;
+$('selRemoteModel').value = '';
+$('btnSaveProvider').click();
+await sleep(60);
+check('模型名为空时拒绝保存', calls2.length === 0, '调用 ' + calls2.length + ' 次');
+window.FY.testProvider = realFetch3;
+
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+window.FYApp.renderProviderUI();
 
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);

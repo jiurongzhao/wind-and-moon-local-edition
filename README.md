@@ -235,7 +235,10 @@ pkg install x11-repo && pkg install chromium   # 一次性
 | 模式 | 说明 | 典型填法 |
 |---|---|---|
 | **内置引擎** | 默认。模型跑在手机本地（llama.cpp + GGUF），完全离线 | 从内置源下载，或「自定义下载源」粘任意直链 |
-| **外部服务** | OpenAI 兼容接口。既覆盖**局域网自建**（不要 key），也覆盖**云端 API**（要 key） | Ollama `http://电脑IP:11434/v1` · LM Studio `http://电脑IP:1234/v1` · llama.cpp server `http://电脑IP:8080/v1` |
+| **外部服务** | OpenAI 兼容接口。既覆盖**局域网自建**（不要 key），也覆盖**云端 API**（要 key） | 预设一键填：**豆包（火山方舟）** · DeepSeek · 通义千问 · 智谱 GLM · Kimi · OpenAI · Ollama / LM Studio / llama.cpp server |
+
+> 模型名支持**手填**（不是只读下拉）—— 因为像火山方舟这类服务不提供 `/models` 列表，
+> 需要自己填接入点 ID（`ep-…`）或模型名。
 
 实现要点（这部分有 15 项 JVM 测试真跑）：
 - 请求统一走本机 `AssetServer` 的 **`/api/` 反向代理**转发到上游。原因是 WebView 直连会撞 CORS
