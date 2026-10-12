@@ -180,6 +180,42 @@
           </div>
         </div>
 
+        <!-- 模型来源 -->
+        <div class="card">
+          <div class="card-title">模型来源</div>
+          <div class="field">
+            <label class="label">用哪个后端跑模型</label>
+            <select class="input" id="selProviderMode">
+              <option value="local">内置引擎（本地 GGUF · 完全离线）</option>
+              <option value="remote">外部服务（OpenAI 兼容 · 局域网自建或云端 API）</option>
+            </select>
+          </div>
+          <div id="remoteBox" hidden>
+            <div class="field">
+              <label class="label">服务地址 Base URL</label>
+              <input class="input" id="setRemoteBase" placeholder="http://192.168.1.5:11434/v1" autocomplete="off">
+            </div>
+            <div class="field">
+              <label class="label">API Key（自建服务一般不用填）</label>
+              <input class="input" id="setRemoteKey" type="password" placeholder="留空表示不需要" autocomplete="off">
+            </div>
+            <div class="row gap wrap">
+              <button class="btn btn-sm" id="btnTestProvider">测试连接并列出模型</button>
+              <button class="btn btn-sm btn-primary" id="btnSaveProvider">保存并启用</button>
+            </div>
+            <div class="muted xs" id="providerStatus">填好后点「测试连接」：能拉到模型列表就说明通了</div>
+            <div class="field">
+              <label class="label">使用哪个模型</label>
+              <select class="input" id="selRemoteModel"></select>
+            </div>
+            <div class="muted xs">
+              常见填法：Ollama <code>http://电脑IP:11434/v1</code> · LM Studio <code>http://电脑IP:1234/v1</code> ·
+              llama.cpp server <code>http://电脑IP:8080/v1</code> · 云端填服务商给的地址。<br>
+              要点：手机和电脑同一个局域网；服务要监听 <code>0.0.0.0</code>（Ollama 默认只听本机，需设 <code>OLLAMA_HOST=0.0.0.0</code>）。
+            </div>
+          </div>
+        </div>
+
         <!-- 模型管理 -->
         <div class="card">
           <div class="card-title">模型管理</div>
@@ -187,6 +223,15 @@
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnPickModel">从文件导入</button>
             <button class="btn btn-sm" id="btnRefreshModels">刷新列表</button>
+          </div>
+          <div class="divider"></div>
+          <div class="card-subtitle">自定义下载源</div>
+          <div class="field">
+            <input class="input" id="customUrl" placeholder="粘贴 GGUF 直链（魔搭 / HF / 自建存储…）" autocomplete="off">
+          </div>
+          <div class="row gap wrap">
+            <button class="btn btn-sm" id="btnCustomDownload">下载这个模型</button>
+            <span class="muted xs" id="customHint">文件名自动从链接推导，支持断点续传</span>
           </div>
           <div class="divider"></div>
           <div class="card-subtitle">内置下载源</div>

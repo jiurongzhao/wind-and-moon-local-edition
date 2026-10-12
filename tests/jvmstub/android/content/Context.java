@@ -12,6 +12,7 @@ import java.io.File;
 public class Context {
 
     public static final String POWER_SERVICE = "power";
+    public static final int MODE_PRIVATE = 0;
 
     private final File filesDir;
     private final File cacheDir;
@@ -48,5 +49,16 @@ public class Context {
 
     public String getPackageName() {
         return appInfo.packageName;
+    }
+
+    private final java.util.Map<String, SharedPreferences> prefs = new java.util.HashMap<>();
+
+    public SharedPreferences getSharedPreferences(String name, int mode) {
+        SharedPreferences p = prefs.get(name);
+        if (p == null) {
+            p = new SharedPreferences();
+            prefs.put(name, p);
+        }
+        return p;
     }
 }

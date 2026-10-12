@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
         setContentView(web);
 
         try {
-            server = new AssetServer(getAssets());
+            server = new AssetServer(getAssets(), getApplicationContext());
             int port = server.start();
             web.loadUrl("http://127.0.0.1:" + port + "/index.html");
             Log.i(TAG, "已加载前端 http://127.0.0.1:" + port + "/index.html");

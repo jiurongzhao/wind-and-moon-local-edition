@@ -892,6 +892,85 @@ check('清理后角色数回到导入前', S.store.listCharacters().length === O
   S.store.listCharacters().length + ' vs ' + Object.keys(beforeNames).length);
 }
 
+console.log('\n【22】模型来源：内置引擎 / 外部 OpenAI 兼容服务（含局域网自建）');
+/* ---- 文件名推导：粘贴任意直链都要能起个像样的名字 ---- */
+const mnu = window.FYApp.modelNameFromUrl;
+check('直链推导文件名',
+  mnu('https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf') === 'Qwen3-4B-Q4_K_M.gguf',
+  mnu('https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf'));
+check('带查询串/锚点的链接能剥掉',
+  mnu('https://hf-mirror.com/a/b/resolve/main/model-q4.gguf?download=true#x') === 'model-q4.gguf',
+  mnu('https://hf-mirror.com/a/b/resolve/main/model-q4.gguf?download=true#x'));
+check('中文名保留（不变成下划线）',
+  mnu('https://x.com/盘古-7B.gguf') === '盘古-7B.gguf', mnu('https://x.com/盘古-7B.gguf'));
+check('没有扩展名时补 .gguf',
+  mnu('https://x.com/models/my-model') === 'my-model.gguf', mnu('https://x.com/models/my-model'));
+check('空链接也不崩',
+  mnu('') === 'custom-model.gguf', mnu(''));
+
+/* ---- 路由：本地模式走 127.0.0.1 引擎端口 ---- */
+const realProvider = S.provider;
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+S.engineState = Object.assign({}, S.engineState, { state: 'ready', port: 5555 });
+check('本地模式 → 直连 llama-server 端口',
+  window.FYApp.apiTarget() === 'http://127.0.0.1:5555/v1', window.FYApp.apiTarget());
+check('本地模式就绪判定看引擎状态', window.FYApp.providerReady() === true);
+
+/* ---- 路由：远程模式走同源代理（绕开 CORS，key 不下发前端）---- */
+S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.5:11434/v1', model: 'qwen2.5:7b', hasKey: true, ready: true };
+check('远程模式 → 同源 /api（由原生代理转发）',
+  window.FYApp.apiTarget() === '/api', window.FYApp.apiTarget());
+check('远程模式就绪判定看配置而非引擎', window.FYApp.providerReady() === true
+  && window.FYApp.isRemote() === true);
+S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.5:11434/v1', model: '', hasKey: false, ready: false };
+check('远程没选模型时判定为未就绪', window.FYApp.providerReady() === false);
+
+/* ---- 保存配置：key 只上传、不回读 ---- */
+const calls = [];
+const origCall = window.FY.getProvider;
+window.FY.getProvider = function () { return JSON.stringify({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); };
+window.FY.setProvider = function (json) {
+  calls.push(JSON.parse(json));
+  const o = JSON.parse(json);
+  return JSON.stringify({ mode: o.mode, baseUrl: o.baseUrl, model: o.model, hasKey: !!o.apiKey, ready: !!(o.baseUrl && o.model) });
+};
+S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.9:1234/v1', model: '', hasKey: false, ready: false };
+window.FYApp.renderProviderUI();          // 先渲染（它会重建模型下拉），再往下拉里填模型
+$('selProviderMode').value = 'remote';
+$('setRemoteBase').value = 'http://192.168.1.9:1234/v1';
+$('setRemoteKey').value = 'sk-test-123';
+const opt = doc.createElement('option'); opt.value = 'lmstudio-community/Qwen3-4B'; opt.textContent = opt.value;
+$('selRemoteModel').appendChild(opt); $('selRemoteModel').value = opt.value;
+$('btnSaveProvider').click();
+await sleep(80);
+check('保存后发给原生侧的载荷正确（含 key 与模型名）',
+  calls.length === 1 && calls[0].mode === 'remote' && calls[0].apiKey === 'sk-test-123'
+  && calls[0].model === 'lmstudio-community/Qwen3-4B' && calls[0].baseUrl === 'http://192.168.1.9:1234/v1',
+  JSON.stringify(calls[0] || {}));
+check('保存后前端状态里没有 key，只有 hasKey',
+  S.provider && S.provider.hasKey === true && S.provider.apiKey === undefined,
+  JSON.stringify(S.provider));
+check('保存后判定为就绪（地址+模型齐全）', window.FYApp.providerReady() === true,
+  JSON.stringify(S.provider));
+check('保存后输入框里的 key 被清空（不在页面上留存）',
+  $('setRemoteKey').value === '', '[' + $('setRemoteKey').value + ']');
+
+/* ---- 远程缺模型名时拒绝保存 ---- */
+calls.length = 0;
+S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.9:1234/v1', model: '', hasKey: true, ready: false };
+$('selProviderMode').value = 'remote';
+$('setRemoteBase').value = 'http://192.168.1.9:1234/v1';
+$('selRemoteModel').innerHTML = '';
+const ph = doc.createElement('option'); ph.value = ''; ph.textContent = '（先测试连接）';
+$('selRemoteModel').appendChild(ph);
+$('btnSaveProvider').click();
+await sleep(60);
+check('没选模型时拒绝保存（避免切过去才发现不能用）', calls.length === 0, '调用次数=' + calls.length);
+
+window.FY.getProvider = origCall;
+S.provider = realProvider;
+window.FYApp.renderProviderUI();
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

@@ -24,7 +24,7 @@ ok()   { echo "  → 通过"; pass=$((pass+1)); }
 bad()  { echo "  → 失败（退出码 $1）"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------- 1. 前端
-step "1/4 前端 jsdom 集成测试"
+step "1/5 前端 jsdom 集成测试"
 if [ -d tests/node_modules ]; then
   (cd tests && timeout 600 node ui.test.mjs 2>&1 | tail -6)
   [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
@@ -33,7 +33,7 @@ else
 fi
 
 # ---------------------------------------------------------------- 2 & 3. Java
-step "2/4 编译 JVM 测试桩"
+step "2/5 编译 JVM 测试桩"
 rm -rf build/jvmtest && mkdir -p build/jvmtest
 javac -nowarn -encoding UTF-8 -d build/jvmtest \
   tests/jvmstub/android/util/Log.java \
@@ -41,29 +41,39 @@ javac -nowarn -encoding UTF-8 -d build/jvmtest \
   tests/jvmstub/android/content/pm/ApplicationInfo.java \
   tests/jvmstub/android/os/PowerManager.java \
   tests/jvmstub/android/content/Context.java \
+  tests/jvmstub/android/content/SharedPreferences.java \
   tests/jvmstub/android/content/res/AssetManager.java \
   app/java/com/fy/local/Engine.java \
   app/java/com/fy/local/AssetServer.java \
   app/java/com/fy/local/PngCardText.java \
+  app/java/com/fy/local/Providers.java \
   tests/EngineJvmTest.java \
   tests/CardIOJvmTest.java \
-  tests/AssetServerJvmTest.java 2>&1 | grep -v deprecat | head -10
+  tests/AssetServerJvmTest.java \
+  tests/ProxyJvmTest.java 2>&1 | grep -v deprecat | head -10
 if [ -f build/jvmtest/EngineJvmTest.class ]; then ok; else bad 1; fi
 
-step "3/4 AssetServer JVM 实跑（资源服务器）"
+step "3/5 AssetServer JVM 实跑（资源服务器）"
 timeout 180 java -cp build/jvmtest AssetServerJvmTest 2>&1 | tail -5
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 
-step "3.5/4 CardIO JVM 实跑（PNG 角色卡解析）"
+step "3.5/5 CardIO JVM 实跑（PNG 角色卡解析）"
 timeout 120 java -cp build/jvmtest CardIOJvmTest 2>&1 | tail -10
+if [ "${PIPESTATUS[0]}" = "0" ]; then ok; else bad ${PIPESTATUS[0]}; fi
+
+step "4/5 外部模型代理 JVM 实跑（假上游 + SSE 透传）"
+timeout 180 java -cp build/jvmtest ProxyJvmTest > build/proxy-test.log 2>&1
+rc=$?
+tail -16 build/proxy-test.log
+if [ "$rc" = "0" ]; then ok; else bad $rc; fi
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 
 if [ "$QUICK" = "0" ]; then
-  step "4/4 Engine JVM 实跑（会真起 llama-server 加载小模型）"
+  step "5/5 Engine JVM 实跑（会真起 llama-server 加载小模型）"
   timeout 400 java -cp build/jvmtest EngineJvmTest qwen2.5-0.5b-instruct-q4_k_m.gguf 2>&1 | tail -5
   [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 else
-  step "4/4 Engine JVM 实跑（--quick 已跳过）"
+  step "5/5 Engine JVM 实跑（--quick 已跳过）"
 fi
 
 echo

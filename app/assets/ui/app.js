@@ -119,6 +119,7 @@
     'pickCharacterCard', 'saveCharacterCard',
     'pickBackupFile', 'saveBackup',
     'dbLoadAll', 'dbApply', 'dbSearch', 'dbStats', 'dbWipe',
+    'getProvider', 'setProvider', 'testProvider',
     'speak', 'stopSpeak', 'startListening', 'stopListening',
     'keepAwake', 'log', 'exportDiagnostics'
   ];
@@ -435,7 +436,7 @@
     });
 
     var st = S.store.stats();
-    $('setupBanner').hidden = !(S.models.length === 0 && !engineReady());
+    $('setupBanner').hidden = !(S.models.length === 0 && !providerReady());
     fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色（筛出 ' + shown.length + '），消息 ' + st.messages + ' 条');
   }
 
@@ -549,6 +550,104 @@
     renderChatHeader();
     renderMessages();
     return true;
+  }
+
+  /* ---------- 模型来源 / 自定义下载 ---------- */
+
+  /** 从下载链接推导文件名（魔搭/HF 的直链都带文件名；没有就兜底） */
+  function modelNameFromUrl(url) {
+    var u = String(url || '').trim().split('#')[0].split('?')[0];
+    var seg = u.substring(u.lastIndexOf('/') + 1);
+    try { seg = decodeURIComponent(seg); } catch (e) {}
+    seg = seg.replace(/[^\w.\-\u4e00-\u9fa5]+/g, '_');
+    if (!/\.gguf$/i.test(seg)) {
+      if (!seg) seg = 'custom-model';
+      seg = seg + '.gguf';
+    }
+    return seg.slice(0, 96);
+  }
+
+  function renderProviderUI() {
+    var sel = $('selProviderMode');
+    if (!sel) return;
+    var p = provider();
+    sel.value = p.mode === 'remote' ? 'remote' : 'local';
+    $('remoteBox').hidden = p.mode !== 'remote';
+    if (p.baseUrl && !$('setRemoteBase').value) $('setRemoteBase').value = p.baseUrl;
+    var msel = $('selRemoteModel');
+    msel.innerHTML = '';
+    if (p.model) {
+      var o = document.createElement('option');
+      o.value = p.model; o.textContent = p.model;
+      msel.appendChild(o);
+      msel.value = p.model;
+    } else {
+      var ph = document.createElement('option');
+      ph.value = ''; ph.textContent = '（先测试连接拉取列表）';
+      msel.appendChild(ph);
+    }
+    if (p.mode === 'remote' && p.ready) {
+      $('providerStatus').textContent = '已启用外部服务：' + p.baseUrl + ' · 模型 ' + p.model
+        + (p.hasKey ? ' · 带 API Key' : ' · 无 Key');
+    }
+  }
+
+  function testProviderRemote() {
+    var base = $('setRemoteBase').value.trim();
+    var key = $('setRemoteKey').value.trim();
+    var st = $('providerStatus');
+    st.textContent = '正在连接 ' + base + ' …';
+    var r = asObj(fyCall('testProvider', [JSON.stringify({ baseUrl: base, apiKey: key })])) || {};
+    if (!r.ok && !r.message) { st.textContent = '测试失败：没有拿到响应（原生桥可用吗？）'; return; }
+    if (!r.ok) { st.textContent = '连不上：' + (r.message || '未知错误'); return; }
+    var list = r.models || [];
+    st.textContent = '连通 ✅ ' + (r.resolvedBase || base) + ' · 发现 ' + list.length + ' 个模型';
+    var msel = $('selRemoteModel');
+    msel.innerHTML = '';
+    if (!list.length) {
+      var o = document.createElement('option');
+      o.value = ''; o.textContent = '（上游没返回模型列表，可手动填）';
+      msel.appendChild(o);
+    }
+    list.forEach(function (id) {
+      var o = document.createElement('option');
+      o.value = id; o.textContent = id;
+      msel.appendChild(o);
+    });
+    if (list.length === 1) msel.value = list[0];
+    fyLog('外部模型服务连通：' + (r.resolvedBase || base) + ' 模型数=' + list.length);
+  }
+
+  function saveProvider() {
+    var mode = $('selProviderMode').value;
+    var payload = {
+      mode: mode,
+      baseUrl: (mode === 'remote') ? $('setRemoteBase').value.trim() : '',
+      apiKey: (mode === 'remote') ? $('setRemoteKey').value.trim() : '',
+      model: (mode === 'remote') ? ($('selRemoteModel').value || '') : ''
+    };
+    if (mode === 'remote' && (!payload.baseUrl || !payload.model)) {
+      toast('外部服务要先填地址并选一个模型（可点「测试连接」拉取）', 'warn', 3600);
+      return;
+    }
+    var back = asObj(fyCall('setProvider', [JSON.stringify(payload)]));
+    S.provider = back || S.provider;
+    if (!back) refreshProvider();
+    $('setRemoteKey').value = '';
+    renderProviderUI();
+    renderSettings();
+    toast(mode === 'remote' ? ('已切换到外部模型：' + payload.model) : '已切回内置引擎', 'ok', 3200);
+    fyLog('模型来源切换：' + mode + ' ' + payload.baseUrl + ' ' + payload.model);
+  }
+
+  function customDownload() {
+    var url = $('customUrl').value.trim();
+    if (!/^https?:\/\//i.test(url)) { toast('请填 http(s) 开头的直链', 'warn'); return; }
+    var name = modelNameFromUrl(url);
+    var hint = $('customHint');
+    if (hint) hint.textContent = '开始下载 ' + name + ' …（可切后台，进度显示在下面）';
+    var r = fyCall('downloadModel', [url, name]);
+    toast((r && r.message) || '已开始下载', r && r.ok ? 'ok' : 'err', 3200);
   }
 
   /* ---------- 推荐：还没聊过的优先，其次最久没聊的 ---------- */
@@ -1108,6 +1207,44 @@
 
   function engineReady() { return S.engineState && S.engineState.state === 'ready'; }
 
+  /* ---------- 模型来源（内置引擎 / 外部 OpenAI 兼容服务） ----------
+     外部服务包括：局域网自建的 Ollama / LM Studio / llama.cpp server / vLLM（不要 key），
+     以及云端 OpenAI 兼容 API（要 key）。两者协议一样，所以只存一份配置。
+     请求都发到同源的 /api，由原生侧代理转发 —— 绕开 CORS，且 key 不进 WebView。 */
+
+  /** fyCall 会把原生返回的 JSON 字符串解析成对象，但也可能返回字符串或 null —— 统一收口 */
+  function asObj(raw) {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch (e) { return null; }
+    }
+    return (typeof raw === 'object') ? raw : null;
+  }
+
+  function provider() { return S.provider || { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }; }
+  function isRemote() { return provider().mode === 'remote'; }
+  function providerReady() { return isRemote() ? !!provider().ready : engineReady(); }
+
+  /** 聊天请求的落点：远程走同源代理，本地走 llama-server */
+  function apiTarget() {
+    if (isRemote()) return '/api';
+    var port = S.engineState && S.engineState.port;
+    if (!port) throw new Error('未拿到引擎端口');
+    return 'http://127.0.0.1:' + port + '/v1';
+  }
+
+  /** 远程模式下把上游需要的模型名塞进请求体 */
+  function applyRemoteModel(body) {
+    if (isRemote() && provider().model) body.model = provider().model;
+    return body;
+  }
+
+  function refreshProvider() {
+    if (!bridgeAlive()) return;
+    var o = asObj(fyCall('getProvider'));
+    if (o && o.mode) S.provider = o;
+  }
+
   function engineStateText() {
     var st = S.engineState ? S.engineState.state : 'stopped';
     return ({ stopped: '引擎未启动', starting: '引擎启动中', loading: '模型加载中', ready: '引擎就绪', error: '引擎出错' })[st] || st;
@@ -1408,9 +1545,10 @@
    * @param {AbortSignal} signal
    */
   function streamChat(body, onDelta, signal) {
-    var port = S.engineState && S.engineState.port;
-    if (!port) return Promise.reject(new Error('未拿到引擎端口'));
-    var url = 'http://127.0.0.1:' + port + '/v1/chat/completions';
+    var base;
+    try { base = apiTarget(); } catch (e) { return Promise.reject(e); }
+    applyRemoteModel(body);
+    var url = base + '/chat/completions';
     return fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1893,15 +2031,16 @@
 
   /** 非流式 POST（记忆压缩 / 连通性测试用） */
   function postJson(body) {
-    var port = S.engineState && S.engineState.port;
-    if (!port) return Promise.reject(new Error('未拿到引擎端口'));
+    var base;
+    try { base = apiTarget(); } catch (e) { return Promise.reject(e); }
+    applyRemoteModel(body);
     /* 摘要/测试这类"工具调用"一律关掉思考模式。
        实测（tests/probe-prompts.mjs）：同样一段摘要，开思考要 88 秒（还要多吐 355 字思考），
        关掉只要 2.6 秒，而且摘要更干净。 */
     if (!body.chat_template_kwargs) {
       body.chat_template_kwargs = { enable_thinking: false };
     }
-    return fetch('http://127.0.0.1:' + port + '/v1/chat/completions', {
+    return fetch(base + '/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -2026,6 +2165,7 @@
     $('setMlock').checked = st.mlock !== false;
     $('setKeepScreen').value = st.keepScreen || 'auto';
     renderKeepScreenHint();
+    renderProviderUI();
     renderStorageInfo();
 
     /* 主题色 */
@@ -2157,7 +2297,7 @@
       S.models = list;
       if (!quiet) toast('模型列表已刷新（' + list.length + '）', 'ok');
       renderModelList();
-      $('setupBanner').hidden = !(S.models.length === 0 && !engineReady());
+      $('setupBanner').hidden = !(S.models.length === 0 && !providerReady());
     }
     return list;
   }
@@ -2517,6 +2657,7 @@
   }
 
   function bootstrap() {
+    refreshProvider();          // 模型来源配置（内置引擎 / 外部 OpenAI 兼容服务）
     $('bootText').textContent = '正在打开本地数据库…';
     return FYStore.init().then(function (res) {
       S.store = res.store;
@@ -2758,6 +2899,13 @@
     $('setGpu').onchange = saveNumSetting('gpuLayers');
 
     /* 设置页：模型 */
+    $('selProviderMode').onchange = function () {
+      $('remoteBox').hidden = this.value !== 'remote';
+      if (this.value === 'local') saveProvider();
+    };
+    $('btnTestProvider').onclick = testProviderRemote;
+    $('btnSaveProvider').onclick = saveProvider;
+    $('btnCustomDownload').onclick = customDownload;
     $('btnPickModel').onclick = function () {
       var r = fyCall('pickModelFile', []);
       if (!r) { toast('当前环境不支持文件选择', 'warn'); return; }
@@ -3039,6 +3187,11 @@
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
     renderCharacters: renderCharacters,
+    modelNameFromUrl: modelNameFromUrl,
+    apiTarget: apiTarget,
+    providerReady: providerReady,
+    isRemote: isRemote,
+    renderProviderUI: renderProviderUI,
     renderCharCats: renderCharCats,
     openSoloChat: openSoloChat,
     recommendPicks: recommendPicks,

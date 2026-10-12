@@ -1,3 +1,4 @@
+import android.content.Context;
 import android.content.res.AssetManager;
 import com.fy.local.AssetServer;
 
@@ -44,7 +45,11 @@ public class AssetServerJvmTest {
         System.out.println("=== AssetServer JVM 实跑测试 ===");
         System.out.println("assets 目录 = " + uiDir);
 
-        AssetServer server = new AssetServer(new AssetManager(uiDir));
+        // 代理需要 SharedPreferences（外部模型服务配置），所以构造时要给 Context
+        String tmp = System.getProperty("user.home") + "/tmpwork/assettest";
+        Context ctx = new Context(System.getProperty("user.home") + "/2/fy/native",
+                tmp + "/files", tmp + "/cache");
+        AssetServer server = new AssetServer(new AssetManager(uiDir), ctx);
         int port = server.start();
         System.out.println("监听端口 = " + port);
 

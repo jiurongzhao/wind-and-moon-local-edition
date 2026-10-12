@@ -144,6 +144,61 @@ public class Bridge {
         return new JSONArray(host.engine().tailLog(200)).toString();
     }
 
+    // ---------- 模型来源（内置引擎 / 外部 OpenAI 兼容服务） ----------
+
+    /** 当前配置（**不含 key**，只告诉前端有没有配） */
+    @JavascriptInterface
+    public String getProvider() {
+        Providers.Config c = Providers.load(host);
+        JSONObject o = new JSONObject();
+        try {
+            o.put("mode", c.mode);
+            o.put("baseUrl", c.baseUrl);
+            o.put("model", c.model);
+            o.put("hasKey", c.apiKey != null && !c.apiKey.isEmpty());
+            o.put("ready", Providers.isReady(c));
+        } catch (Exception ignored) {
+        }
+        return o.toString();
+    }
+
+    /** 保存配置：{mode, baseUrl, apiKey, model}。key 只留在原生侧。 */
+    @JavascriptInterface
+    public String setProvider(String json) {
+        try {
+            JSONObject o = new JSONObject(json == null ? "{}" : json);
+            Providers.save(host, o.optString("mode", Providers.MODE_LOCAL),
+                    o.optString("baseUrl", ""), o.optString("apiKey", ""), o.optString("model", ""));
+            return getProvider();
+        } catch (Exception e) {
+            return "{\"ok\":false,\"message\":" + JSONObject.quote(String.valueOf(e)) + "}";
+        }
+    }
+
+    /** 测试连通性并列出上游模型（GET {base}/models） */
+    @JavascriptInterface
+    public String testProvider(String json) {
+        JSONObject out = new JSONObject();
+        try {
+            JSONObject o = new JSONObject(json == null ? "{}" : json);
+            Providers.ModelsResult r = Providers.listModels(o.optString("baseUrl", ""), o.optString("apiKey", ""));
+            out.put("ok", r.ok);
+            out.put("message", r.message);
+            out.put("resolvedBase", r.resolvedBase);
+            JSONArray arr = new JSONArray();
+            for (String m : r.models) arr.put(m);
+            out.put("models", arr);
+            out.put("count", r.models.size());
+        } catch (Exception e) {
+            try {
+                out.put("ok", false);
+                out.put("message", String.valueOf(e));
+            } catch (Exception ignored) {
+            }
+        }
+        return out.toString();
+    }
+
     // ---------- 存储后端（SQLite，实验性） ----------
 
     /** 一次性读出 SQLite 全库，返回 {ok, characters:[...], settings:{...}, ...} */

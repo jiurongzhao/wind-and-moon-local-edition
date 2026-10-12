@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  明文流量只放行本地回环：
-  * App 的前端由内置资源服务器提供（http://127.0.0.1:<port>），前端也直连本机推理端口；
-  * 其余一律禁止明文（模型下载走 https）。
-  以前是整包 usesCleartextTraffic="true"，发布审核会挑这个。
+  明文流量策略（含取舍说明）：
+
+  * 本地回环必须放行：前端由内置资源服务器提供（http://127.0.0.1:<port>），也直连本机推理端口；
+  * **局域网也要放行**：App 支持把「外部 OpenAI 兼容服务」指向你自己在电脑/路由器上起的
+    Ollama / LM Studio / llama.cpp server，这些服务默认都是 http://192.168.x.x:端口，
+    而 Android 的网络安全配置**不支持按 IP 段放行**（只能逐个域名/IP 列举），
+    所以这里只能整体放行明文。
+
+  风险与约束：明文仅在你主动配置外部服务时才会用到；连接公网服务时请填 https:// 地址。
+  这是"支持自建局域网模型"这个功能无法回避的代价，已记录在 README。
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

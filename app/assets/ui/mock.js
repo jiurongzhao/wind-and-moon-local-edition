@@ -192,6 +192,11 @@
       log('mock: 打开角色卡选择器（浏览器模式没有真文件选择器）');
       return j({ ok: true, message: '模拟环境' });
     },
+    /* 模型来源（浏览器预览：只有本地模拟，外部服务走不通） */
+    getProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },
+    setProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },
+    testProvider: function () { return j({ ok: false, message: '浏览器预览模式无法连接外部服务' }); },
+
     /* 浏览器预览模式没有原生 SQLite：如实报告不可用，让存储层自动跳过这个后端 */
     dbLoadAll: function () { return j({ ok: false, message: '浏览器模式没有 SQLite' }); },
     dbApply: function () { return j({ ok: false, message: '浏览器模式没有 SQLite' }); },
