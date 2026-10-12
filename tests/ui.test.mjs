@@ -1772,7 +1772,10 @@ window.fetch = async (input) => {
   const at = url.indexOf('/fetch?url=');
   if (at >= 0) {
     const target = decodeURIComponent(url.slice(at + '/fetch?url='.length));
-    if (/fy-library\/index\.json$/.test(target)) return jsonResp(JSON.stringify(libCatalog));
+    /* 目录地址不要依赖 app.js 里的默认值（那个会随发布改）：这里显式设成测试地址，
+       匹配规则也放宽到"任意 index.json" */
+    if (/nowhere|example\.invalid\/missing/.test(target)) return new globalThis.Response('missing', { status: 404 });
+    if (/index\.json$/.test(target)) return jsonResp(JSON.stringify(libCatalog));
     if (/mystery-character-1\.json$/.test(target)) return jsonResp(libShard('悬疑角色甲', 5));
     if (/mystery-character-2\.json$/.test(target)) return jsonResp(libShard('悬疑角色乙', 5));
     if (/badcount-character-1\.json$/.test(target)) return jsonResp(libShard('坏张数卡', 5, 99));
@@ -1783,6 +1786,7 @@ window.fetch = async (input) => {
 };
 
 const libBefore = S.store.listCharacters().length;
+S.settings = S.store.saveSettings({ libCatalogUrl: 'https://lib.example.invalid/fy-library/index.json' });
 window.FYApp.openLibrarySheet();
 check('在线卡库面板能打开', $('libMask').hidden === false);
 const rowsShown = await until(() => doc.querySelectorAll('#libList .model-row').length >= 3, 6000);
@@ -1831,6 +1835,19 @@ const libRes2 = await window.FYApp.importLibraryRow(rowMystery);
 check('重复导入幂等：不翻倍、不重复建卡',
   libRes2.added === 0 && S.store.listCharacters().length === libBefore + 10,
   '第二次新增 ' + libRes2.added + ' / 库 ' + S.store.listCharacters().length);
+
+/* 强制重导：用户事后把导入的卡删了，得能补回来（否则面板永远显示"已导入"却少卡） */
+check('整组已导入后按钮变成「重新导入」',
+  /重新导入/.test(rowMystery._btn.textContent), rowMystery._btn.textContent.trim());
+const victim = S.store.listCharacters().filter((c) => (c.tags || []).indexOf('在线卡库') >= 0)[0];
+S.store.deleteCharacter(victim.id);
+check('删掉一张已导入的卡（模拟用户清理）',
+  S.store.listCharacters().length === libBefore + 10 - 1,
+  String(S.store.listCharacters().length));
+const forced = await window.FYApp.importLibraryRow(rowMystery, { force: true });
+check('强制重导把删掉的卡补回来，且不重复建卡',
+  forced.added === 1 && S.store.listCharacters().length === libBefore + 10,
+  '补回 ' + forced.added + ' / 库 ' + S.store.listCharacters().length);
 
 const beforeBad = S.store.listCharacters().length;
 const badCountRow = libRows.find((r) => r.slug === 'badcount');

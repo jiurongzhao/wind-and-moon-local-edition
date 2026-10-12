@@ -74,7 +74,7 @@ node bench-db.mjs 2000 3                                        # 数据库真�
 
 ## 四、提交前自查
 
-- [ ] `cd tests && node ui.test.mjs` 全绿（当前 360 项）
+- [ ] `cd tests && node ui.test.mjs` 全绿（当前 363 项）
 - [ ] `./runtests.sh --quick` 全绿
 - [ ] `./build.sh` 通过（发布包自检会拦 `debuggable`、`resources.arsc` 对齐等）
 - [ ] **没有提交**：`release.keystore` / `release-signing.properties` / `*.apk` / `models/` / `native/` / `sdk/`

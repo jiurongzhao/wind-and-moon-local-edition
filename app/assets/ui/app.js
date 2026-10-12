@@ -2033,9 +2033,13 @@
     });
   }
 
+  /** 已存在的角色名（导入去重用）。
+      必须问 store 要当前列表，不能读 S.characters：后者是界面缓存，
+      删卡/恢复备份/清空数据之后可能还没刷新，会让"重新导入"补不回被删的卡。 */
   function importedNames() {
     var m = {};
-    S.characters.forEach(function (c) { m[c.name] = 1; });
+    var list = (S.store && S.store.listCharacters()) || S.characters || [];
+    list.forEach(function (c) { m[c.name] = 1; });
     return m;
   }
 
@@ -2306,13 +2310,26 @@
       dom.appendChild(col);
 
       var btn = el('button', 'btn btn-xs');
-      btn.appendChild(iconEl('download'));
-      btn.appendChild(el('span', '', '下载并导入'));
+      var label = el('span', '', '');
+      btn.appendChild(label);
       row._btn = btn;
+      row._btnLabel = label;
+      row._btnIcon = null;
+      var paint = function () {
+        var done = libRowImported(row);
+        var full = row.total > 0 && done >= row.total;
+        btn.innerHTML = '';
+        btn.appendChild(iconEl(full ? 'refresh' : 'download'));
+        btn.appendChild(el('span', '', full ? '重新导入' : '下载并导入'));
+        btn.title = full ? '重新下载并导入这一组（你删掉的卡会被补回来）' : '下载并导入这一组';
+      };
+      paint();
+      row._paintBtn = paint;
       btn.onclick = function (ev) {
         ev.stopPropagation();
+        var force = libRowImported(row) >= row.total && row.total > 0;
         btn.disabled = true;
-        importLibraryRow(row).then(function () { btn.disabled = false; });
+        importLibraryRow(row, { force: force }).then(function () { btn.disabled = false; paint(); });
       };
       dom.appendChild(btn);
       list.appendChild(dom);
@@ -2382,6 +2399,10 @@
       return Promise.resolve({ added: 0, error: '没有分片文件' });
     }
     var imported = libImportedMap();
+    /* force：忽略"已导入"记录，重新下载并导入一遍。
+       用途是"我后来把某些卡删了，想补回来"——导入本身按名字幂等，
+       已存在的卡会跳过，缺的卡会被补上。 */
+    if (o.force) imported = {};
     var totalBytes = packs.reduce(function (a, p) { return a + (Number(p.bytes) || 0); }, 0) || packs.length;
     var added = 0, doneBytes = 0, err = '';
     var i = 0;
@@ -2397,6 +2418,7 @@
       }
       var s = libDefaultStatus(row);
       setRowStatus(row, s.text, s.kind);
+      if (row._paintBtn) row._paintBtn();
       if (o.refresh !== false && added) refreshCharList();   // 整组只刷新一次列表
       return { added: added };
     }
