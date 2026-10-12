@@ -1020,6 +1020,53 @@ S.settings = S.store.saveSettings({ appearance: 'dark' });
 window.FYApp.applyAppearance();
 check('收尾回到深色', !root.hasAttribute('data-theme'));
 
+console.log('\n【24】远程模型模式：不启动本地引擎也能聊天（回归）');
+/* 这个用例是补的：v1.1.0 发布后才发现 sendUserMessage 等 5 处仍在检查 engineReady()，
+   于是"配好了外部服务也发不出消息"。这里把本地引擎故意置为 stopped，
+   只把 provider 设成远程就绪，验证整条路走得通。 */
+function sseResponse(chunks) {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    start(c) { chunks.forEach((t) => c.enqueue(enc.encode(t))); c.close(); },
+  });
+  return new globalThis.Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+const rc = S.store.listCharacters()[0];
+window.FYApp.openSoloChat(rc.id, '');
+S.engineState = Object.assign({}, S.engineState, { state: 'stopped', port: 0, model: '' });
+S.provider = { mode: 'remote', baseUrl: 'http://127.0.0.1:11434/v1', model: 'mock-vps-model', hasKey: false, ready: true };
+check('远程就绪时 providerReady 为真（本地引擎是 stopped）',
+  window.FYApp.providerReady() === true && S.engineState.state === 'stopped');
+
+const captured = [];
+const realFetch2 = window.fetch;
+window.fetch = async (url, opts) => {
+  captured.push({ url: String(url), body: opts && opts.body });
+  return sseResponse([
+    'data: {"choices":[{"delta":{"content":"来自远程"}}]}' + '\n\n',
+    'data: {"choices":[{"delta":{"content":"服务的回复"}}]}' + '\n\n',
+    'data: [DONE]' + '\n\n',
+  ]);
+};
+const beforeIds2 = new Set((S.messages || []).map((m) => m.id));
+window.FYApp.sendUserMessage('远程模式测试');
+await until(() => captured.length > 0, 6000);
+check('远程模式：请求打到同源 /api 代理（不是本地端口）',
+  captured.length > 0 && captured[0].url === '/api/chat/completions',
+  captured.length ? captured[0].url : '（没有发出请求）');
+check('远程模式：请求体带上了上游模型名',
+  captured.length > 0 && JSON.parse(captured[0].body).model === 'mock-vps-model',
+  captured.length ? String(captured[0].body).slice(0, 90) : '');
+const gotRemote = await until(() => (S.messages || []).some((m) =>
+  !beforeIds2.has(m.id) && m.role === 'assistant' && /来自远程/.test(m.content || '')), 8000);
+check('远程模式：流式回复正常落地到消息里', gotRemote,
+  JSON.stringify(((S.messages || []).filter((m) => m.role === 'assistant').pop() || {}).content || '').slice(0, 80));
+window.fetch = realFetch2;
+
+/* 收尾：回到本地模式，别影响后面的用例 */
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

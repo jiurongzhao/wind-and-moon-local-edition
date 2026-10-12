@@ -1651,7 +1651,7 @@
     if (!S.session) return;
     var chars = sessionCharacters();
     if (!chars.length) { toast('这个会话没有角色了', 'err'); return; }
-    if (!engineReady()) {
+    if (!providerReady()) {
       toast('引擎未就绪，请先去设置里启动引擎', 'warn', 2600);
       switchView('settings');
       return;
@@ -1852,8 +1852,8 @@
     var v = String(text === undefined ? $('input').value : text).trim();
     if (!v) return;
     if (!S.session) { toast('先去角色页选一个角色', 'warn'); return; }
-    if (!engineReady()) {
-      toast('引擎未就绪：请到设置里启动引擎后再发消息', 'warn', 2800);
+    if (!providerReady()) {
+      toast(isRemote() ? '外部模型未配置好（设置 → 模型来源）' : '引擎未就绪：请到设置里启动引擎后再发消息', 'warn', 2800);
       renderEngineBanner();
       return;
     }
@@ -1960,7 +1960,7 @@
 
   function maybeCompressMemory() {
     if (!S.session || S.generating) return;
-    if (!engineReady()) return;
+    if (!providerReady()) return;
     var need = messagesToCompress();
     var threshold = Math.max(6, Number(S.settings.memoryThreshold) || 20);
     if (need.length < threshold) return;
@@ -1973,7 +1973,7 @@
    */
   function compressMemory(force) {
     if (!S.session) return Promise.reject(new Error('没有会话'));
-    if (!engineReady()) {
+    if (!providerReady()) {
       toast('引擎未就绪，无法压缩记忆', 'warn');
       return Promise.reject(new Error('引擎未就绪'));
     }
