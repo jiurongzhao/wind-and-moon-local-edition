@@ -29,25 +29,42 @@ CATEGORIES = [
 ]
 
 # 字段 → 最少条数
+# v2 把门槛整体抬高：卡库要"每张卡文本翻倍"，靠的就是素材库够厚
+# （habits / reputation 是新增字段，专门喂人设的后半段）。
 MIN = {
-    'tropes': 12, 'plot_models': 10, 'roles': 24, 'axes': 20, 'flaws': 18,
-    'cares': 18, 'hooks': 18, 'scenes': 18, 'voice': 14, 'voice_address': 8,
-    'voice_tics': 10, 'details': 20, 'actions': 16, 'places': 16, 'things': 16,
-    'openings': 16, 'system_musts': 8, 'system_avoids': 8, 'names': 40,
-    'public_domain_sources': 4, 'trope_references': 3, 'do_not': 3,
+    'tropes': 20, 'plot_models': 14, 'roles': 30, 'axes': 24, 'flaws': 22,
+    'cares': 22, 'hooks': 22, 'scenes': 26, 'voice': 18, 'voice_address': 10,
+    'voice_tics': 14, 'details': 30, 'actions': 24, 'places': 22, 'things': 22,
+    'openings': 22, 'system_musts': 10, 'system_avoids': 10, 'names': 40,
+    'habits': 18, 'reputation': 18,
+    'public_domain_sources': 10, 'trope_references': 7, 'do_not': 8,
 }
 # 这些字段必须"能独立成句"（否则拼进人设就是病句）
-CLAUSE_FIELDS = ('flaws', 'cares', 'hooks', 'scenes', 'details')
+CLAUSE_FIELDS = ('flaws', 'cares', 'hooks', 'scenes', 'details', 'habits', 'reputation')
 # 这些字段不能用句号结尾（会被当句子片段拼进去）
 NO_PERIOD = ('voice', 'axes', 'actions', 'places', 'things')
+# 喂给生成器的字段里不许出现"还在版权期作品"的专有名词/角色名 ——
+# 登记表（public_domain_sources / trope_references / do_not）里点名是引用，另当别论。
+COPYRIGHT_BAN = (
+    '哈利', '霍格沃茨', '纳尼亚', '魔戒', '指环王', '霍比特', '甘道夫', '索伦',
+    '米老鼠', '唐老鸭', '迪士尼', '冰雪奇缘', '艾莎', '蜘蛛侠', '蝙蝠侠', '超人',
+    '星球大战', '尤达', '黑武士', '维尼熊', '小王子', '夏洛的网', '姆明',
+)
 
 
 def main():
     stats = '--stats' in sys.argv
+    only = set()
+    if '--only' in sys.argv:
+        i = sys.argv.index('--only')
+        if i + 1 < len(sys.argv):
+            only = {x.strip() for x in sys.argv[i + 1].split(',') if x.strip()}
     errors = []
     warns = []
     rows = []
     for slug, tag in CATEGORIES:
+        if only and slug not in only:
+            continue
         p = os.path.join(BANKS, slug + '.json')
         if not os.path.exists(p):
             errors.append('缺素材库：%s（%s）' % (slug + '.json', tag))
@@ -92,6 +109,16 @@ def main():
         for o in (d.get('openings') or []):
             if isinstance(o, str) and not re.match(r'^[（(]', o.strip()):
                 errors.append('%s.openings 应以「（动作）」开头：%r' % (slug, o[:24]))
+        # 喂给生成器的文本里不许有"还在版权期作品"的专有名词（登记表除外）
+        for f in MIN:
+            if f in ('public_domain_sources', 'trope_references', 'do_not'):
+                continue
+            for item in (d.get(f) or []):
+                t = item if isinstance(item, str) else json.dumps(item, ensure_ascii=False)
+                for w in COPYRIGHT_BAN:
+                    if w in t:
+                        errors.append('%s.%s 出现版权作品专有名词 %r：%r' % (slug, f, w, t[:32]))
+                        break
         # 名字与内置 160 张不能撞
         builtin = set()
         for f in glob.glob(os.path.join(ROOT, 'cards', 'pack-*.json')):
