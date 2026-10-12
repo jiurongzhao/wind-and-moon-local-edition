@@ -25,6 +25,12 @@ OUT="${1:-$ROOT/native}"
 TARBALL="llama-${VERSION}-bin-android-arm64.tar.gz"
 URL="https://github.com/ggml-org/llama.cpp/releases/download/${VERSION}/${TARBALL}"
 
+# 国内网络优先走镜像 / 本地包（见 CONTRIBUTING「依赖镜像」）：
+#   GITEE_MIRROR=https://gitee.com/<user>/<repo>/releases/download/v1.0.0/native-b11552.tar.gz ./tools/fetch-engine.sh
+#   ENGINE_TARBALL=/path/to/native-b11552.tar.gz ./tools/fetch-engine.sh
+MIRROR="${GITEE_MIRROR:-}"
+LOCAL_TAR="${ENGINE_TARBALL:-}"
+
 LIBS=(
   libllama.so libllama-common.so libllama-server-impl.so libmtmd.so
   libggml.so libggml-base.so libggml-rpc.so
@@ -40,20 +46,49 @@ LIBS=(
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "── 下载 llama.cpp ${VERSION}（Android arm64）"
-echo "   $URL"
-if command -v curl >/dev/null 2>&1; then
-  curl -fL --retry 3 -o "$TMP/$TARBALL" "$URL"
+if [ -n "$LOCAL_TAR" ]; then
+  echo "── 使用本地引擎包：$LOCAL_TAR"
+  cp -f "$LOCAL_TAR" "$TMP/pack.tar.gz"
+elif [ -n "$MIRROR" ]; then
+  echo "── 从镜像下载：$MIRROR"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 -o "$TMP/pack.tar.gz" "$MIRROR"
+  else
+    wget -O "$TMP/pack.tar.gz" "$MIRROR"
+  fi
 else
-  wget -O "$TMP/$TARBALL" "$URL"
+  echo "── 下载 llama.cpp ${VERSION}（Android arm64，官方源）"
+  echo "   $URL"
+  echo "   （国内如果超时：见 CONTRIBUTING「依赖镜像」，或设 GITEE_MIRROR / ENGINE_TARBALL）"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 -o "$TMP/pack.tar.gz" "$URL"
+  else
+    wget -O "$TMP/pack.tar.gz" "$URL"
+  fi
 fi
-echo "   已下载 $(du -h "$TMP/$TARBALL" | cut -f1)"
+echo "   已获取 $(du -h "$TMP/pack.tar.gz" | cut -f1)"
 
 echo "── 解包"
-tar xzf "$TMP/$TARBALL" -C "$TMP"
-SRC="$TMP/llama-${VERSION}"
-[ -d "$SRC" ] || SRC="$(find "$TMP" -maxdepth 1 -type d -name 'llama-*' | head -1)"
-[ -d "$SRC" ] || { echo "❌ 解包后找不到 llama-* 目录" >&2; exit 1; }
+mkdir -p "$TMP/x"
+tar xzf "$TMP/pack.tar.gz" -C "$TMP/x"
+# 两种包结构都支持：官方 llama-bXXXX/ 目录，或我们自己打的 native/ 目录
+if [ -d "$TMP/x/native" ]; then
+  SRC="$TMP/x/native"
+  PREBUILT=1
+else
+  SRC="$(find "$TMP/x" -maxdepth 2 -type d -name 'llama-*' | head -1)"
+  PREBUILT=0
+fi
+[ -n "$SRC" ] && [ -d "$SRC" ] || { echo "❌ 解包后找不到可用目录" >&2; exit 1; }
+
+if [ "$PREBUILT" = "1" ]; then
+  echo "── 这是已打好的 native 包，直接拷贝"
+  mkdir -p "$OUT"
+  cp -f "$SRC"/* "$OUT"/
+  chmod 755 "$OUT"/*.so
+  echo; echo "✅ 引擎就绪：$OUT（$(du -sh "$OUT" | cut -f1)）"
+  exit 0
+fi
 
 mkdir -p "$OUT"
 echo "── 拷贝需要的库与可执行文件 → $OUT"

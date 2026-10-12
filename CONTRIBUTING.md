@@ -15,6 +15,9 @@ pkg install openjdk-17 aapt2 apksigner d8 curl unzip nodejs-lts
 #    ├─ native/           llama.cpp 官方 Android 预编译（约 27MB，MIT）
 #    └─ sdk/android-36/   android.jar（约 28MB，Google SDK）
 
+# 3) 国内网络慢 / 拉不动 GitHub 时，用镜像：
+#    维护者把引擎包传到 Gitee 发行版后，其他人这样取（见下面「依赖镜像」）
+
 # 3) 模型（自己准备，仓库不含）
 mkdir -p models && cp /path/to/qwen2.5-0.5b-instruct-q4_k_m.gguf models/
 ```
@@ -33,6 +36,29 @@ cd tests && npm install # 首次
 
 > **发布签名**：`build.sh` 首次运行会生成 `release.keystore` + `release-signing.properties`。
 > 这两个文件**必须备份**（丢了就无法给已安装用户推送更新），且**已被 .gitignore 排除，不要提交**。
+
+## 二点五、依赖镜像（国内网络）
+
+`fetch-engine.sh` 默认从 llama.cpp 官方 GitHub release 下载，国内经常超时。
+维护者可以把准备好的引擎打成包，传到 **Gitee 发行版**当附件：
+
+```bash
+./tools/pack-engine.sh                       # 产出 dist/native-b11552.tar.gz（约 27MB）
+# 然后在 Gitee 仓库 → 发行版 → 新建，上传这个 tar.gz
+
+# 其他人这样取（脚本会优先用镜像）：
+export GITEE_MIRROR=https://gitee.com/<用户名>/fengyue-local/releases/download/v1.0.0/native-b11552.tar.gz
+./tools/fetch-engine.sh
+```
+
+也可以完全离线：把 `native-b11552.tar.gz` 放到任意位置后
+
+```bash
+ENGINE_TARBALL=/path/to/native-b11552.tar.gz ./tools/fetch-engine.sh
+```
+
+`android.jar` 如果也拉不动，可以从任意一台装过 Android SDK 的机器上拷
+`sdk/android-36/android.jar`（约 28MB）过来即可。
 
 ## 三、跑分脚本（改性能前先量一遍）
 

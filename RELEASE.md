@@ -66,28 +66,33 @@ cd ~/2/fy && apksigner verify --print-certs fy.apk
 7. **多机型测试**：目前只在 Redmi Turbo 3 / Android 16 上验过。建议至少再测一台 Android 11~13 的机器。
 8. **内容合规**：角色卡可被用户导入任意内容 → 建议加"导入内容由用户自负"的协议条款 + 违规内容举报入口。
 
-## 三点五、另一种分发方式：GitHub Release（推荐先走这条）
+## 三点五、另一种分发方式：Gitee 发行版（推荐先走这条）
 
-不走商店审核也能让人用上 —— 而且省掉软著/备案/内容合规那一整套：
+不走商店审核也能让人用上 —— 而且省掉软著/备案/内容合规那一整套。
+对国内用户来说 Gitee 还更快、不用代理。
 
 ```bash
-# 1) 把仓库推上去（首次）
-git remote add origin git@github.com:<你的用户名>/fy-local.git
+# 1) 首次推送（HTTPS：用户名 + 私人令牌当密码；或配好 SSH 公钥后用 git@gitee.com:...）
+cd ~/2/fy
+git remote add origin https://gitee.com/<你的用户名>/fengyue-local.git
 git push -u origin main
 
-# 2) 打标签发版
-./build.sh                       # 出 fy.apk
+# 2) 打包并打标签
+./build.sh                                  # 出 fy.apk
+./tools/pack-engine.sh                      # 出 dist/native-b11552.tar.gz（给拉不动 GitHub 的人）
 git tag -a v1.0.0 -m "风月·本地版 v1.0.0"
 git push origin v1.0.0
-# 3) 在 GitHub 上 Releases → Draft a new release → 选 v1.0.0 → 上传 fy.apk → 发布
+
+# 3) Gitee 仓库 → 发行版 → 新建发行版
+#    标签选 v1.0.0，附件上传 fy.apk（可选再传 native-b11552.tar.gz）
 ```
 
-Release 说明里建议写清三件事（避免使用者踩坑）：
+发行说明里建议写清三件事（避免使用者踩坑）：
 1. **安装**：允许「未知来源」，覆盖安装不会丢数据（同一把签名钥匙）；
 2. **模型要自己准备**：推荐 Qwen2.5-0.5B（快）/ 3B（平衡），给出来源；
 3. **内存要求**与"前台运行更快"的说明（后台会被系统限核，实测差 10 倍）。
 
-> 走 GitHub 的好处：面向全球、更新即时、能收到 issue；
+> 走 Gitee 的好处：国内访问快、能收 issue、更新即时；
 > 代价：受众需要自己会装 APK，且**内容仍受当地法律约束**（README 里已放内容声明）。
 
 ## 四、只有你能办的手续

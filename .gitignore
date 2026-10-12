@@ -34,3 +34,6 @@ tmpwork/
 *.orig
 *.rej
 .DS_Store
+
+# 发行版附件（打包给镜像用，不进仓库）
+dist/
