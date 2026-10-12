@@ -73,7 +73,7 @@ else
 fi
 
 echo "── 3/3 校验"
-curl -sS "$API/releases/tags/$TAG" | python3 -c '
+curl -sS "$API/releases/tags/$TAG?access_token=$TOKEN" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 print("   标题:", d.get("name"), "| 标签:", d.get("tag_name"))
