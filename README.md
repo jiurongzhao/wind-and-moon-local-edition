@@ -400,6 +400,16 @@ python3 tools/build-pack-index.py            # 生成目录 + 同步进 App 资�
 20c. **落盘要增量，别整库重写**：老 `persist()` 每次都 `clear + put 全表`，加一条消息
    要把整张消息表重写一遍。现在按 store + id 记脏，只 put/delete 改动过的行；
    消息查询也从"全表扫描 + 排序"改成按 sessionId 的内存索引（`listMessages` 只碰本会话）。
+21b. **MIUI 上 `adb exec-out screencap` 截 WebView 得到全黑图**：真机上验界面时我一度以为
+    应用渲染坏了（只有状态栏），实际是 MIUI 对 WebView 硬件层的截屏限制。
+    改用 CDP 的 `Page.captureScreenshot`（`~/tmpwork/cdpshot.mjs`）拿到的才是真实画面。
+    另外截图要等滚动停止，否则会抓到 fling 中间帧（看起来像元素重叠）。
+21c. **"能不能聊天"的守卫要判断当前后端，不是本地引擎**：v1.1.0 里
+    `sendUserMessage`/重新生成/压缩记忆等 5 处仍写着 `if (!engineReady())`，
+    于是"外部模型来源"配好、测试连接也通过，**真发消息却被"引擎未就绪"拦住**。
+    这类守卫必须统一走 `providerReady()`（本地引擎或外部服务任一就绪），
+    只有引擎状态 UI 和 ping 才该看 `engineReady()`；并且要用"本地引擎故意停着 + 只配好远程"
+    的用例把这条钉住。
 21. **JS 线程会被 `Runtime.evaluate` 卡住的假象骗到**：接 WebView DevTools 调 App 时，
     若 App 在后台被冻结，`evaluate` 会一直不返回（不是超时设置的问题）。
     调试这类问题要看 `cgroup.freeze`、`/proc/<pid>/stat` 的 CPU 时间增量，
