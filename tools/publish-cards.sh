@@ -103,7 +103,7 @@ print(d.get("id","") if isinstance(d,dict) else "")')"
       echo "   同名发行版已存在（或建发行版被限流），尝试读回：$t" >&2
       # 限流时读接口也会 403，退避重试几次
       for _try in 1 2 3 4; do
-        rid="$(curl -sS "$API/releases/tags/$t" | python3 -c 'import sys,json
+        rid="$(curl -sS "$API/releases/tags/$t?access_token=$TOKEN" | python3 -c 'import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(""); raise SystemExit
 print(d.get("id","") if isinstance(d,dict) else "")')"
@@ -139,7 +139,7 @@ print(d.get("id","") if isinstance(d,dict) else "")')"
     if [ -n "${CARDS_RELEASE_ID:-}" ] && [ "$1" = "$TAG" ]; then
       printf '%s' "$CARDS_RELEASE_ID"; return 0
     fi
-    curl -sS --max-time 30 "$API/releases/tags/$1" | python3 -c 'import sys,json
+    curl -sS --max-time 30 "$API/releases/tags/$1?access_token=$TOKEN" | python3 -c 'import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(""); raise SystemExit
 print(d.get("id","") if isinstance(d,dict) else "")'
@@ -149,7 +149,7 @@ print(d.get("id","") if isinstance(d,dict) else "")'
   fetch_names() {
     local code out
     out="$(mktemp)"
-    code="$(curl -sS --max-time 60 -o "$out" -w '%{http_code}' "$API/releases/$(release_id "$1")")"
+    code="$(curl -sS --max-time 60 -o "$out" -w '%{http_code}' "$API/releases/$(release_id "$1")?access_token=$TOKEN")"
     if [ "$code" != "200" ]; then rm -f "$out"; return 1; fi
     python3 - "$out" <<'PY'
 import json, sys
