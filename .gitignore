@@ -40,3 +40,7 @@ dist/
 
 # 卡包：由 tools/build-pack-index.py 从 cards/ 同步生成，不入库
 app/assets/ui/packs/
+
+# Gitee 访问令牌（发版用，绝不入库）
+.gitee_token
+*.token

@@ -87,6 +87,17 @@ git push origin v1.0.0
 #    标签选 v1.0.0，附件上传 fy.apk（可选再传 native-b11552.tar.gz）
 ```
 
+**也可以一条命令发完**（用 Gitee OpenAPI，自动建发行版 + 传附件 + 回读校验）：
+
+```bash
+# 先准备令牌：Gitee → 设置 → 私人令牌，勾 projects 权限
+echo '你的令牌' > ~/.gitee_token && chmod 600 ~/.gitee_token
+./tools/publish-gitee.sh v1.1.0        # 说明自动取 dist/发行说明-v1.1.0.md
+```
+
+脚本只从 `~/.gitee_token` 或 `GITEE_TOKEN` 读令牌，**不会打印它**；
+发完版建议到 Gitee 后台吊销（或至少别把令牌文件提交进仓库 —— .gitignore 里已排除 `*.token`）。
+
 发行说明里建议写清三件事（避免使用者踩坑）：
 1. **安装**：允许「未知来源」，覆盖安装不会丢数据（同一把签名钥匙）；
 2. **模型要自己准备**：推荐 Qwen2.5-0.5B（快）/ 3B（平衡），给出来源；
