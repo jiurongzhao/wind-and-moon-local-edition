@@ -2120,11 +2120,62 @@
     if (m) {
       var n = parseInt(m[1], 16);
       var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      /* 深色底上强调文字要更亮一点，浅色底上要更深 —— 否则对比度不够 */
       root.setProperty('--accent-soft', 'rgba(' + r + ',' + g + ',' + b + ',.18)');
-      root.setProperty('--accent-line', 'rgba(' + r + ',' + g + ',' + b + ',.45)');
+      root.setProperty('--accent-line', 'rgba(' + r + ',' + g + ',' + b + ',.42)');
+      root.setProperty('--accent-strong', isLightAppearance() ? shade(color, .72) : tint(color, .22));
     }
+    syncThemeColorMeta();
+  }
+
+  /* ---------- 外观：深色 / 浅色 / 跟随系统 ----------
+     深色是 :root 默认值，浅色靠 :root[data-theme="light"] 覆盖一组令牌；
+     所以这里只需要切一个 data-theme 属性，其余全交给 CSS。 */
+
+  function isLightAppearance() {
+    var mode = (S.settings && S.settings.appearance) || 'dark';
+    if (mode === 'light') return true;
+    if (mode === 'auto') {
+      try { return !!(global.matchMedia && global.matchMedia('(prefers-color-scheme: light)').matches); }
+      catch (e) { return false; }
+    }
+    return false;
+  }
+
+  function applyAppearance() {
+    var light = isLightAppearance();
+    var el = document.documentElement;
+    if (light) el.setAttribute('data-theme', 'light');
+    else el.removeAttribute('data-theme');
+    /* 顺手把状态栏/浏览器 UI 颜色也切过去 */
+    syncThemeColorMeta();
+    if (S.settings && S.settings.theme) applyTheme(S.settings.theme);
+  }
+
+  function syncThemeColorMeta() {
     var meta = qs('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', '#0d0c12');
+    if (meta) meta.setAttribute('content', isLightAppearance() ? '#f7f5fb' : '#0c0b11');
+  }
+
+  /** #rrggbb 往白里调 t（0~1） */
+  function tint(hex, t) {
+    return mixHex(hex, '#ffffff', t);
+  }
+  /** #rrggbb 往黑里调 t（0~1） */
+  function shade(hex, t) {
+    return mixHex(hex, '#000000', t);
+  }
+  function mixHex(a, b, t) {
+    var ma = /^#([0-9a-f]{6})$/i.exec(a), mb = /^#([0-9a-f]{6})$/i.exec(b);
+    if (!ma || !mb) return a;
+    var x = parseInt(ma[1], 16), y = parseInt(mb[1], 16);
+    var out = '#';
+    for (var i = 2; i >= 0; i--) {
+      var sh = i * 8;
+      var v = Math.round(((x >> sh) & 255) * (1 - t) + ((y >> sh) & 255) * t);
+      out += ('0' + Math.min(255, Math.max(0, v)).toString(16)).slice(-2);
+    }
+    return out;
   }
 
   function renderSettings() {
@@ -2667,7 +2718,7 @@
       if (res.engine !== 'indexeddb') {
         fyLog('IndexedDB 不可用（' + res.error + '），已降级为 localStorage');
       }
-      applyTheme(S.settings.theme);
+      applyAppearance();
       $('bootText').textContent = '正在准备角色卡…';
       return loadPresets();
     }).then(function (presets) {
@@ -2899,6 +2950,19 @@
     $('setGpu').onchange = saveNumSetting('gpuLayers');
 
     /* 设置页：模型 */
+    $('setAppearance').onchange = function () {
+      S.settings = S.store.saveSettings({ appearance: this.value });
+      applyAppearance();
+      toast(this.value === 'auto' ? '已跟随系统外观' : (this.value === 'light' ? '已切换浅色' : '已切换深色'), 'ok', 2000);
+    };
+    if (global.matchMedia) {
+      try {
+        var mq = global.matchMedia('(prefers-color-scheme: light)');
+        var onSys = function () { if ((S.settings.appearance || 'dark') === 'auto') applyAppearance(); };
+        if (mq.addEventListener) mq.addEventListener('change', onSys);
+        else if (mq.addListener) mq.addListener(onSys);
+      } catch (e) { /* 老 WebView 没有就算了 */ }
+    }
     $('selProviderMode').onchange = function () {
       $('remoteBox').hidden = this.value !== 'remote';
       if (this.value === 'local') saveProvider();
@@ -3187,6 +3251,9 @@
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
     renderCharacters: renderCharacters,
+    applyAppearance: applyAppearance,
+    isLightAppearance: isLightAppearance,
+    mixHex: mixHex,
     modelNameFromUrl: modelNameFromUrl,
     apiTarget: apiTarget,
     providerReady: providerReady,

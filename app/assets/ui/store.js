@@ -531,6 +531,7 @@
     speakerMode: 'round',// round 顺序 / random 随机
     ttsRate: 1,
     theme: '#7c5cff',
+    appearance: 'dark',      /* dark | light | auto（跟随系统） */
     lastModel: ''
   };
 

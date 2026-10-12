@@ -971,6 +971,55 @@ window.FY.getProvider = origCall;
 S.provider = realProvider;
 window.FYApp.renderProviderUI();
 
+console.log('\n【23】外观主题（深色 / 浅色 / 跟随系统）+ 强调色对比度');
+const root = doc.documentElement;
+/* 回到已知状态 */
+S.settings = S.store.saveSettings({ appearance: 'dark', theme: '#7c5cff' });
+window.FYApp.applyAppearance();
+check('深色是默认：不挂 data-theme', !root.hasAttribute('data-theme'),
+  'data-theme=' + root.getAttribute('data-theme'));
+check('深色下状态栏色是深底', /0c0b11/i.test(doc.querySelector('meta[name="theme-color"]').getAttribute('content')),
+  doc.querySelector('meta[name="theme-color"]').getAttribute('content'));
+
+S.settings = S.store.saveSettings({ appearance: 'light' });
+window.FYApp.applyAppearance();
+check('切浅色会挂上 data-theme="light"', root.getAttribute('data-theme') === 'light',
+  String(root.getAttribute('data-theme')));
+check('浅色下判定为浅色', window.FYApp.isLightAppearance() === true);
+check('浅色下状态栏色是浅底', /f7f5fb/i.test(doc.querySelector('meta[name="theme-color"]').getAttribute('content')),
+  doc.querySelector('meta[name="theme-color"]').getAttribute('content'));
+
+S.settings = S.store.saveSettings({ appearance: 'auto' });
+/* 模拟系统偏好（jsdom 默认不实现 matchMedia 的 matches） */
+const realMM = window.matchMedia;
+window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+window.FYApp.applyAppearance();
+check('跟随系统：系统是浅色时切浅色', root.getAttribute('data-theme') === 'light',
+  String(root.getAttribute('data-theme')));
+window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.FYApp.applyAppearance();
+check('跟随系统：系统是深色时回深色', !root.hasAttribute('data-theme'));
+window.matchMedia = realMM;
+
+/* 强调色在两种主题下都要有足够对比度 */
+check('浅色下强调文字色被压深（对比度）',
+  window.FYApp.mixHex('#7c5cff', '#000000', .72).length === 7
+  && parseInt(window.FYApp.mixHex('#7c5cff', '#000000', .72).slice(1, 3), 16)
+     < parseInt('#7c5cff'.slice(1, 3), 16),
+  window.FYApp.mixHex('#7c5cff', '#000000', .72));
+check('深色下强调文字色被提亮',
+  parseInt(window.FYApp.mixHex('#7c5cff', '#ffffff', .22).slice(1, 3), 16)
+  > parseInt('#7c5cff'.slice(1, 3), 16),
+  window.FYApp.mixHex('#7c5cff', '#ffffff', .22));
+check('非法主题色不炸（原样返回）', window.FYApp.mixHex('乱七八糟', '#ffffff', .5) === '乱七八糟');
+check('外观设置能落盘', S.store.getSettings().appearance === 'auto',
+  String(S.store.getSettings().appearance));
+
+/* 收尾：回到深色，别影响后面的用例 */
+S.settings = S.store.saveSettings({ appearance: 'dark' });
+window.FYApp.applyAppearance();
+check('收尾回到深色', !root.hasAttribute('data-theme'));
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }
