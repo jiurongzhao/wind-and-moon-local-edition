@@ -1,0 +1,81 @@
+{
+  "spec": "fy_creator_reference_v1",
+  "license": "CC0-1.0",
+  "note": "灵感面板的来源清单。硬规矩：只借鉴模式（标签体系/字段结构/评分维度），不抓取、不展示、不打包任何第三方卡片正文；每个来源必须标出许可证。列表里的许可证是「来源本身」的许可证，不等于其中每一条内容的许可证 —— 用之前请自己再确认一次。",
+  "updated": "2026-10-12",
+  "sources": [
+    {
+      "id": "self-stats",
+      "name": "我的角色库统计",
+      "kind": "local",
+      "license": "CC0-1.0",
+      "note": "从你已经导入的角色里现算：分类分布、人设长度中位数、开场白起手式。完全不联网。"
+    },
+    {
+      "id": "spb-rubric",
+      "name": "人设质量评分维度",
+      "kind": "remote",
+      "format": "json",
+      "url": "https://datasets-server.huggingface.co/info?dataset=marcodsn%2FSPB-2603",
+      "itemsPath": "dataset_info.default.features.eval_results.scores",
+      "license": "CC-BY-4.0（marcodsn/SPB-2603）",
+      "map": { "title": "key" },
+      "labels": {
+        "internal_consistency": "内在一致性",
+        "archetype_fidelity": "原型贴合度",
+        "show_dont_tell": "展示而非告知",
+        "psychological_realism": "心理真实度",
+        "roleplay_utility": "扮演实用性",
+        "distinctiveness": "辨识度",
+        "format_compliance": "格式合规"
+      },
+      "descs": {
+        "internal_consistency": "人设前后不矛盾：说了话少，就别突然长篇大论",
+        "archetype_fidelity": "真的像你选的那个分类，而不是套了个皮的通用角色",
+        "show_dont_tell": "用行为和具体细节说话，不堆形容词",
+        "psychological_realism": "有缺点、有在意的事、有说不出口的部分",
+        "roleplay_utility": "能撑住多轮对话：有可回应的开场，有能推进的话题",
+        "distinctiveness": "换个名字就不成立 —— 有只属于这个角色的东西",
+        "format_compliance": "字段齐全、长度达标、格式规范"
+      },
+      "note": "这是公开数据集 marcdsn/SPB-2603 用来给合成人设打分的 7 个维度（CC-BY-4.0，合成数据、无第三方 IP）。本 App 的质量评分按这 7 个维度逐项给分，见「编辑角色 → 质量评分」。"
+    },
+    {
+      "id": "chub-topics",
+      "name": "社区标签词表",
+      "kind": "remote",
+      "format": "json",
+      "url": "https://api.chub.ai/search?search={q}&first=24&page=1&namespace=characters&sort=default",
+      "urlNoQuery": "https://api.chub.ai/search?search=&first=24&page=1&namespace=characters&sort=default",
+      "itemsPath": "data.nodes",
+      "license": "各创作者保留版权（这里只取公开元数据）",
+      "map": {
+        "title": "name",
+        "sub": "fullPath",
+        "tags": "topics",
+        "meta": "★{starCount} · {nTokens} tokens"
+      },
+      "filter": [{ "field": "nsfw_image", "eq": false }],
+      "limit": 16,
+      "note": "只看名字和 topics 标签，不看正文也不看简介：有用的信号是「社区习惯用哪些标签描述一个角色」。点开某个名字可以直接到社区看原卡（链接在下面）。这个来源受对方风控影响，偶发 403 属正常，过一会儿再试。"
+    },
+    {
+      "id": "gh-open-cards",
+      "name": "开源卡库 / 工具检索",
+      "kind": "remote",
+      "format": "json",
+      "url": "https://api.github.com/search/repositories?q={q}+character+card&sort=stars&order=desc&per_page=20",
+      "urlNoQuery": "https://api.github.com/search/repositories?q=character+card&sort=stars&order=desc&per_page=20",
+      "itemsPath": "items",
+      "license": "各仓库自带（列表中逐条显示）",
+      "map": {
+        "title": "full_name",
+        "sub": "description",
+        "tags": "topics",
+        "meta": "★{stargazers_count} · 许可：{license.spdx_id}"
+      },
+      "limit": 16,
+      "note": "只列仓库元数据和它自己声明的许可证，方便你去找许可证干净的原语料。App 不会下载其中任何卡片；许可证为 null 的仓库建议直接跳过。GitHub 未鉴权检索有频率限制（约 10 次/分钟）。"
+    }
+  ]
+}

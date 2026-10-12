@@ -57,6 +57,33 @@ Copyright (c) 2023-2026 The ggml authors
 
 它们只在 `tests/` 里用，不会进入 APK。
 
+## 6. 创作者工具的知识来源 —— 只借鉴模式，不含第三方卡片正文
+
+「创作者工具」的分类模板、骨架与写作要点**全部由本项目原创撰写**，
+不含任何第三方卡片正文。成文时参考了以下公开来源的**结构与分类口径**：
+
+| 来源 | 许可证 | 借鉴了什么 | 有没有引入原文 |
+|---|---|---|---|
+| [marcodsn/SPB-2603](https://huggingface.co/datasets/marcodsn/SPB-2603)（Synthetic Persona Bank，合成人设库） | **CC-BY-4.0** | 人设的 7 个质量评分维度（内在一致性 / 原型贴合度 / 展示而非告知 / 心理真实度 / 扮演实用性 / 辨识度 / 格式合规） | ❌ 只借维度名称与口径，判定逻辑是本项目自己写的启发式规则 |
+| [kwaroran/character-card-spec-v3](https://github.com/kwaroran/character-card-spec-v3) | MIT | `chara_card_v3` 字段定义 | ❌ 未复制规范正文 |
+| [malfoyslastname/character-card-spec-v2](https://github.com/malfoyslastname/character-card-spec-v2) | 未声明许可证 | `chara_card_v2` 字段语义（本项目一直兼容它） | ❌ 仅按规范实现字段映射 |
+| [Sn0w123/booru-characters](https://huggingface.co/datasets/Sn0w123/booru-characters) | MIT | 「按覆盖率阈值把标签自动分级」的思路 | ❌ 未取任何标签数据 |
+| [Gryphe/CharcardCodex](https://huggingface.co/datasets/Gryphe/CharcardCodex) | unknown | 把 `objective`（用户目标）与 `user_role`（用户身份）显式字段化的思路 | ❌ 许可证不明，**只看了字段结构** |
+
+**明确没有采用**的来源（许可证带 NC/SA，会污染本项目的 CC0 产出）：
+`proj-persona/PersonaHub`（CC-BY-NC-SA-4.0）等一切 NC / SA 语料。
+
+> SPB-2603 为 CC-BY-4.0：署名要求已在此满足。若你要在别处分发基于这 7 个维度名称的衍生作品，
+> 请一并保留本条署名。
+>
+> 联网参考面板（「💡 灵感」）在运行时展示的来源包括：
+> - `datasets-server.huggingface.co` 上 SPB-2603 的**字段结构**（CC-BY-4.0）；
+> - `api.chub.ai` 搜索接口返回的**角色名与 topics 标签**（社区创作者保留版权，仅作标签词表参考，
+>   已按 `nsfw_image` 标记过滤，且不下载、不保存、不分发任何卡正文）；
+> - `api.github.com` 仓库检索返回的**仓库元数据与许可证**。
+>
+> 这些内容**不会被打包进 APK**，只在用户主动点击「拉取」时即时请求并显示。
+
 ---
 
 ## 内容声明（非许可证，但请一并阅读）

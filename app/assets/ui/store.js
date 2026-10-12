@@ -435,6 +435,9 @@
       avatar: toStr(p.avatar, '🙂').slice(0, 8) || '🙂',
       tagline: toStr(p.tagline, '').slice(0, 60),
       persona: toStr(p.persona, ''),
+      /* scenario —— 剧情卡的世界观/局面（chara_card_v2 的标准字段）。
+         以前这个字段没进模型，导致导入剧情卡时 scenario 被丢掉、再导出就没了。 */
+      scenario: toStr(p.scenario, ''),
       greeting: toStr(p.greeting, ''),
       examples: toStr(p.examples, ''),
       systemPrompt: toStr(p.systemPrompt, '') || DEFAULT_SYSTEM_PROMPT,

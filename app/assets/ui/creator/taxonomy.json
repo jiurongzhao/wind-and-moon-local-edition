@@ -1,0 +1,194 @@
+{
+  "spec": "fy_creator_taxonomy_v1",
+  "license": "CC0-1.0",
+  "note": "分类体系与写作要点：由本项目原创整理（归纳自公开角色卡社区的结构性惯例与开源角色扮演语料的字段模式，只借鉴模式，不包含任何第三方卡片正文）。可自由使用/修改/分发。",
+  "updated": "2026-10-12",
+  "kinds": {
+    "character": {
+      "label": "角色卡",
+      "emoji": "🎭",
+      "hint": "一个人 + 你和 TA 的关系。开场就是日常对话，聊到哪算哪。"
+    },
+    "story": {
+      "label": "剧情卡",
+      "emoji": "📖",
+      "hint": "一个局面 + 一个要解决的事。必须写「情境」（scenario），否则模型没有可推进的剧情。"
+    }
+  },
+  "categories": [
+    {
+      "tag": "日常治愈",
+      "slug": "daily-healing",
+      "emoji": "🌤",
+      "blurb": "慢节奏、低冲突，适合睡前随便聊两句",
+      "defaultTemp": 0.85,
+      "defaultKind": "character",
+      "suggestedTags": ["日常治愈", "情感树洞"],
+      "coreTension": "没有大事发生，但小事里全是人味"
+    },
+    {
+      "tag": "恋爱",
+      "slug": "romance",
+      "emoji": "💗",
+      "blurb": "暧昧、告白、异地、久别重逢",
+      "defaultTemp": 0.9,
+      "defaultKind": "character",
+      "suggestedTags": ["恋爱", "情感树洞"],
+      "coreTension": "想靠近又不敢先说破"
+    },
+    {
+      "tag": "悬疑推理",
+      "slug": "mystery",
+      "emoji": "🔍",
+      "blurb": "案件、线索、审讯与反转",
+      "defaultTemp": 0.75,
+      "defaultKind": "story",
+      "suggestedTags": ["悬疑推理", "职场"],
+      "coreTension": "每个人说的都有一部分是假话"
+    },
+    {
+      "tag": "古风仙侠",
+      "slug": "wuxia",
+      "emoji": "⚔️",
+      "blurb": "江湖恩怨、门派、修行与旧约",
+      "defaultTemp": 0.85,
+      "defaultKind": "story",
+      "suggestedTags": ["古风仙侠", "历史"],
+      "coreTension": "规矩要守，但人已经动情"
+    },
+    {
+      "tag": "科幻未来",
+      "slug": "scifi",
+      "emoji": "🛰",
+      "blurb": "飞船、AI、深空与伦理困境",
+      "defaultTemp": 0.8,
+      "defaultKind": "story",
+      "suggestedTags": ["科幻未来", "悬疑推理"],
+      "coreTension": "技术进步了，人的难题一个没少"
+    },
+    {
+      "tag": "奇幻冒险",
+      "slug": "fantasy",
+      "emoji": "🐉",
+      "blurb": "剑与魔法、公会、遗迹与巨龙",
+      "defaultTemp": 0.9,
+      "defaultKind": "story",
+      "suggestedTags": ["奇幻冒险", "喜剧沙雕"],
+      "coreTension": "队伍里没人真的只为钱"
+    },
+    {
+      "tag": "校园",
+      "slug": "campus",
+      "emoji": "🎒",
+      "blurb": "教室、社团、晚自习与青春期的心事",
+      "defaultTemp": 0.88,
+      "defaultKind": "character",
+      "suggestedTags": ["校园", "恋爱"],
+      "coreTension": "天大的事，和很小的自尊"
+    },
+    {
+      "tag": "职场",
+      "slug": "workplace",
+      "emoji": "💼",
+      "blurb": "项目、加班、甲方与办公室政治",
+      "defaultTemp": 0.82,
+      "defaultKind": "character",
+      "suggestedTags": ["职场", "喜剧沙雕"],
+      "coreTension": "KPI 压着，人还想当个好人"
+    },
+    {
+      "tag": "历史",
+      "slug": "history",
+      "emoji": "📜",
+      "blurb": "朝代更替里的具体人，考据向",
+      "defaultTemp": 0.75,
+      "defaultKind": "story",
+      "suggestedTags": ["历史", "悬疑推理"],
+      "coreTension": "大势不可逆，小人物还得选"
+    },
+    {
+      "tag": "恐怖惊悚",
+      "slug": "horror",
+      "emoji": "🕯",
+      "blurb": "密室、规则怪谈、步步紧逼",
+      "defaultTemp": 0.85,
+      "defaultKind": "story",
+      "suggestedTags": ["恐怖惊悚", "灵异怪谈"],
+      "coreTension": "活下去的唯一办法是违反直觉"
+    },
+    {
+      "tag": "喜剧沙雕",
+      "slug": "comedy",
+      "emoji": "🤣",
+      "blurb": "无厘头、整活、脱线日常",
+      "defaultTemp": 1.0,
+      "defaultKind": "character",
+      "suggestedTags": ["喜剧沙雕", "日常治愈"],
+      "coreTension": "一本正经地做荒唐事"
+    },
+    {
+      "tag": "灵异怪谈",
+      "slug": "supernatural",
+      "emoji": "👻",
+      "blurb": "都市传说、民俗禁忌、阴阳两界",
+      "defaultTemp": 0.88,
+      "defaultKind": "story",
+      "suggestedTags": ["灵异怪谈", "恐怖惊悚"],
+      "coreTension": "规则是真的，但没说全"
+    },
+    {
+      "tag": "末世生存",
+      "slug": "apocalypse",
+      "emoji": "☢️",
+      "blurb": "废墟、物资、人心与活下去",
+      "defaultTemp": 0.85,
+      "defaultKind": "story",
+      "suggestedTags": ["末世生存", "职场"],
+      "coreTension": "资源只够一个人，可你有两个人"
+    },
+    {
+      "tag": "赛博朋克",
+      "slug": "cyberpunk",
+      "emoji": "🌃",
+      "blurb": "义体、财团、霓虹与底层",
+      "defaultTemp": 0.85,
+      "defaultKind": "story",
+      "suggestedTags": ["赛博朋克", "科幻未来"],
+      "coreTension": "身体可以换，记忆不能退"
+    },
+    {
+      "tag": "神话志怪",
+      "slug": "mythology",
+      "emoji": "🐚",
+      "blurb": "山海经、妖怪、香火与因果",
+      "defaultTemp": 0.85,
+      "defaultKind": "story",
+      "suggestedTags": ["神话志怪", "古风仙侠"],
+      "coreTension": "神也要讲道理，人偏不讲"
+    },
+    {
+      "tag": "情感树洞",
+      "slug": "comfort",
+      "emoji": "🫂",
+      "blurb": "倾诉、陪伴、被认真听见",
+      "defaultTemp": 0.8,
+      "defaultKind": "character",
+      "suggestedTags": ["情感树洞", "日常治愈"],
+      "coreTension": "不要建议，只要有人接住"
+    }
+  ],
+  "voiceAxes": [
+    { "key": "length", "label": "句长", "low": "短句，一两句就停", "high": "会铺开说，三四句" },
+    { "key": "warmth", "label": "温度", "low": "冷、就事论事", "high": "热、先照顾情绪" },
+    { "key": "formality", "label": "正式度", "low": "口语、带口癖", "high": "端方、书面" },
+    { "key": "initiative", "label": "主动性", "low": "被动应答", "high": "会主动追问、推进" }
+  ],
+  "referenceSources": [
+    {
+      "id": "self-corpus",
+      "name": "本项目内置卡库",
+      "license": "CC0-1.0",
+      "note": "160 张原创卡的字段分布统计，本地可离线计算"
+    }
+  ]
+}

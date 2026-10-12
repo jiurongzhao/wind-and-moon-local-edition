@@ -38,7 +38,7 @@
         name: str(p.name, '无名角色'),
         description: str(p.persona),
         personality: str(p.tagline),
-        scenario: '',
+        scenario: str(p.scenario),
         first_mes: str(p.greeting),
         mes_example: str(p.examples),
         creator_notes: '由「风月·本地版」导出',
@@ -99,6 +99,8 @@
       avatar: str(ext.avatar || d.avatar || '', '🙂').slice(0, 8) || '🙂',
       tagline: str(ext.tagline || personality).slice(0, 60),
       persona: persona,
+      /* scenario 必须带出来：剧情卡丢了这个字段就只剩一堆没有局面的对话 */
+      scenario: str(d.scenario),
       greeting: greeting,
       examples: str(d.mes_example || d.example_dialogue),
       /* 空的 systemPrompt 交给 store.makeCharacter 填默认值 */

@@ -32,6 +32,11 @@ else
   echo "  跳过：tests/node_modules 不存在，先 cd tests && npm install jsdom fake-indexeddb"
 fi
 
+# ---------------------------------------------------------------- 1.5 模板库
+step "1.5/5 创作者工具模板库校验（三份 JSON 的对齐关系）"
+python3 "$ROOT/tools/check-creator.py" 2>&1 | tail -12
+[ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+
 # ---------------------------------------------------------------- 2 & 3. Java
 step "2/5 编译 JVM 测试桩"
 rm -rf build/jvmtest && mkdir -p build/jvmtest

@@ -405,6 +405,84 @@ b { font-weight: 600; }
   background: var(--accent-soft); color: var(--accent-strong);
   border-color: var(--accent-line); font-weight: 600;
 }
+/* 会换行的 chips：分类标签有 16 个，横向滚动会找不到目标 */
+.chips.wrap { flex-wrap: wrap; overflow-x: visible; }
+
+/* ---------- 创作者工具：向导 ---------- */
+.steps { display: flex; gap: 6px; margin-bottom: 14px; }
+.step {
+  flex: 1; text-align: center; font-size: 11px; color: var(--muted);
+  padding: 6px 4px; border-radius: var(--r-xs);
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+}
+.step.on { color: var(--accent-strong); border-color: var(--accent-line); background: var(--accent-soft); font-weight: 600; }
+.step.done { color: var(--ok-text); border-color: var(--ok-line); }
+
+.wiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wiz-card {
+  text-align: left; padding: 10px 11px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+  color: var(--text-2); font-size: 12px; line-height: 1.5;
+  transition: border-color var(--dur-2) var(--ease-std), background var(--dur-2) var(--ease-std);
+}
+.wiz-card:active { transform: scale(.98); }
+.wiz-card.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--text); }
+.wiz-card .wiz-emoji { font-size: 18px; display: block; margin-bottom: 4px; }
+.wiz-card .wiz-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.wiz-card .wiz-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+.wiz-block {
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm); padding: 10px 11px; margin-bottom: 8px; font-size: 12px; line-height: 1.6;
+}
+.wiz-block .wiz-name { font-weight: 600; color: var(--text); }
+.wiz-block .wiz-sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
+.wiz-block.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.wiz-kv { color: var(--text-2); font-size: 12px; }
+.wiz-kv b { color: var(--text); font-weight: 600; }
+
+/* ---------- 质量评分 ---------- */
+.lint-box { display: flex; flex-direction: column; gap: 6px; }
+.lint-item {
+  font-size: 12px; line-height: 1.55; padding: 7px 9px;
+  border-radius: var(--r-xs); border: 1px solid var(--line-soft); background: var(--surface-2);
+}
+.lint-item.err { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger-text); }
+.lint-item.warn { border-color: var(--warn-line); background: var(--warn-soft); color: var(--warn-text); }
+.lint-item.ok { border-color: var(--ok-line); background: var(--ok-soft); color: var(--ok-text); }
+.lint-fix { color: var(--text-2); font-size: 11px; margin-top: 3px; }
+
+/* 七维评分条（维度取自公开数据集 SPB-2603 的评分口径，见 THIRD_PARTY_NOTICES） */
+.dims { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
+.dim-head { display: flex; align-items: baseline; justify-content: space-between; font-size: 12px; }
+.dim-name { color: var(--text-2); }
+.dim-score { font-weight: 700; color: var(--warn-text); font-variant-numeric: tabular-nums; }
+.dim-score.ok { color: var(--ok-text); }
+.dim-score.bad { color: var(--danger-text); }
+.dim-bar {
+  height: 4px; border-radius: var(--r-full); background: var(--surface-3);
+  overflow: hidden; margin-top: 3px;
+}
+.dim-fill {
+  height: 100%; width: 0; border-radius: var(--r-full); background: var(--warn);
+  transition: width var(--dur-2) var(--ease-std);
+}
+.dim-fill.ok { background: var(--ok); }
+.dim-fill.bad { background: var(--danger); }
+.dim-hint { color: var(--text-3); font-size: 11px; margin-top: 3px; }
+
+/* ---------- 灵感面板 ---------- */
+.ref-item {
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm); padding: 10px 11px; margin-bottom: 8px;
+}
+.ref-item .ref-title { font-weight: 600; font-size: 13px; color: var(--text); }
+.ref-item .ref-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.ref-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.ref-tag {
+  font-size: 11px; padding: 3px 8px; border-radius: var(--r-full);
+  background: var(--surface-3); color: var(--text-2);
+}
 
 /* ---------- 卡片 ---------- */
 .card {

@@ -39,7 +39,8 @@
           </div>
           <div class="row gap">
             <button class="btn btn-sm" id="btnImportCard" title="导入 SillyTavern 角色卡（.json / .png）">导入卡</button>
-            <button class="btn btn-primary btn-sm" id="btnNewChar">＋ 新建</button>
+            <button class="btn btn-sm" id="btnIdea" title="联网参考：看看公开社区里同类角色怎么写">💡 灵感</button>
+            <button class="btn btn-primary btn-sm" id="btnNewChar" title="创作者工具：分类模板 + 质量评分 + AI 辅助">✍️ 创作</button>
           </div>
         </div>
 
@@ -457,38 +458,144 @@
           <input class="input" id="fName" placeholder="例如：林夏">
         </div>
       </div>
+
       <div class="field">
-        <label class="label">一句话简介</label>
+        <label class="label">分类 <span class="muted xs">决定筛选归类，也决定下面给的写作要点</span></label>
+        <div class="chips" id="fTags"></div>
+      </div>
+
+      <div class="field">
+        <label class="label">类型</label>
+        <div class="chips" id="fKind"></div>
+      </div>
+
+      <div class="field">
+        <div class="row-between">
+          <label class="label">人设 <span class="muted xs">本 App 的主字段：模型主要看这段</span></label>
+          <button class="btn btn-xs" id="btnCatGuide" title="这个分类的写作要点与常见崩坏写法">📋 分类要点</button>
+        </div>
+        <textarea class="input" id="fPersona" rows="5" placeholder="年龄、身份、性格、说话方式、一个缺点、最在意的事、你和 TA 的起点…"></textarea>
+        <div class="row gap wrap" style="margin-top:6px">
+          <button class="btn btn-xs" id="btnAiPersona">✨ AI 扩写</button>
+          <button class="btn btn-xs" id="btnAiPolish">✨ 去 AI 腔</button>
+          <button class="btn btn-xs" id="btnSkeleton" title="从分类骨架里挑一个，一键填进人设">🦴 套骨架</button>
+        </div>
+      </div>
+
+      <div class="field" id="fScenarioField" hidden>
+        <div class="row-between">
+          <label class="label">情境 <span class="muted xs">剧情卡必填：局面 / 要解决的事 / 失败代价</span></label>
+          <button class="btn btn-xs" id="btnAiScenario">✨ AI 起草</button>
+        </div>
+        <textarea class="input" id="fScenario" rows="4" placeholder="现在是什么局面、要解决什么事、为什么不能失败"></textarea>
+      </div>
+
+      <div class="field">
+        <div class="row-between">
+          <label class="label">一句话简介</label>
+          <button class="btn btn-xs" id="btnAiTagline">✨ 起草</button>
+        </div>
         <input class="input" id="fTagline" placeholder="出现在角色卡上的那句话">
       </div>
+
       <div class="field">
-        <label class="label">人设</label>
-        <textarea class="input" id="fPersona" rows="4" placeholder="年龄、身份、性格、说话方式…"></textarea>
-      </div>
-      <div class="field">
-        <label class="label">开场白（首次进入自动插入）</label>
+        <div class="row-between">
+          <label class="label">开场白（首次进入自动插入）</label>
+          <button class="btn btn-xs" id="btnAiGreeting">✨ 起草</button>
+        </div>
         <textarea class="input" id="fGreeting" rows="3"></textarea>
       </div>
+
       <div class="field">
-        <label class="label">示例对话（给模型的语气参考）</label>
+        <div class="row-between">
+          <label class="label">示例对话（给模型的语气参考）</label>
+          <button class="btn btn-xs" id="btnAiExamples">✨ 起草</button>
+        </div>
         <textarea class="input" id="fExamples" rows="4" placeholder="用户：…&#10;角色：…"></textarea>
       </div>
+
       <div class="field">
-        <label class="label">系统提示词</label>
+        <div class="row-between">
+          <label class="label">系统提示词</label>
+          <button class="btn btn-xs" id="btnAiSystem">✨ 生成</button>
+        </div>
         <textarea class="input" id="fSystem" rows="4"></textarea>
       </div>
+
       <div class="field">
         <label class="label">温度 <b id="fTempVal">0.85</b></label>
         <input class="range" id="fTemp" type="range" min="0" max="2" step="0.05" value="0.85">
       </div>
+
+      <div class="field">
+        <div class="row-between">
+          <label class="label">质量评分 <b id="lintScore">—</b></label>
+          <button class="btn btn-xs" id="btnLintRefresh">重新评分</button>
+        </div>
+        <div class="lint-box" id="lintBox"><span class="muted xs">填一点内容就会自动评分。</span></div>
+      </div>
+
+      <div class="muted xs" id="aiStatus" hidden></div>
       <div class="err" id="charSheetErr" hidden></div>
     </div>
     <div class="sheet-foot">
       <button class="btn danger" id="btnCharDelete" hidden>删除</button>
       <button class="btn" id="btnCharExport" hidden title="导出为 chara_card_v2">导出</button>
+      <button class="btn" id="btnCharPreview" title="直接开一个会话试聊">试聊</button>
       <span class="grow"></span>
       <button class="btn" id="btnCharCancel">取消</button>
       <button class="btn btn-primary" id="btnCharSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 创作者工具（引导式建卡向导） ======================= -->
+<div class="sheet-mask" id="creatorMask" hidden>
+  <div class="sheet" id="creatorSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="creatorTitle">创作者工具</div>
+      <button class="icon-btn" id="btnCreatorClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="steps" id="creatorSteps"></div>
+      <div id="creatorPanel"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn" id="btnCreatorBack">← 上一步</button>
+      <button class="btn" id="btnCreatorSkip" title="不用模板，直接手填">直接手填</button>
+      <span class="grow"></span>
+      <button class="btn btn-primary" id="btnCreatorNext">下一步 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 灵感 · 公开参考面板 ======================= -->
+<div class="sheet-mask" id="refMask" hidden>
+  <div class="sheet" id="refSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">💡 灵感 · 公开参考</div>
+      <button class="icon-btn" id="btnRefClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <p class="muted xs" id="refNote">只借鉴模式，不复制正文。</p>
+      <div class="field">
+        <label class="label">来源</label>
+        <div class="chips" id="refSources"></div>
+      </div>
+      <div class="field">
+        <label class="label">关键词（可留空）</label>
+        <div class="row gap">
+          <input class="input grow" id="refQuery" placeholder="例如：医生、末世、侦探" autocomplete="off">
+          <button class="btn btn-sm" id="btnRefLoad">拉取</button>
+        </div>
+      </div>
+      <div id="refBody"><span class="muted xs">选一个来源，点「拉取」。</span></div>
+    </div>
+    <div class="sheet-foot">
+      <span class="grow"></span>
+      <button class="btn" id="btnRefDone">关闭</button>
     </div>
   </div>
 </div>
@@ -653,6 +760,7 @@
 <!-- 经典 script 加载（不用 ES module，保证 WebView 兼容性） -->
 <script src="store.js"></script>
 <script src="cards.js"></script>
+<script src="creator.js"></script>
 <script src="mock.js"></script>
 <script src="app.js"></script>
 </body>

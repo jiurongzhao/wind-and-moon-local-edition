@@ -31,7 +31,7 @@ if (!PACKS_READY && fs.existsSync(path.join(ROOT, 'cards'))) {
   }
 }
 const HTML = fs.readFileSync(path.join(UI, 'index.html'), 'utf8');
-const SCRIPTS = ['store.js', 'cards.js', 'mock.js', 'app.js'];
+const SCRIPTS = ['store.js', 'cards.js', 'creator.js', 'mock.js', 'app.js'];
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -311,6 +311,13 @@ window.fyEvent('download', JSON.stringify({ name: 'Qwen3-4B', received: 52428800
 await sleep(200);
 check('下载进度条已更新', /50/.test($('dlText').textContent), $('dlText').textContent.slice(0, 60));
 check('下载进度条可见', $('dlProgress').hidden === false);
+/* 先让 mock 的引擎真的停下，再发一次合成事件。
+   为什么要多这一步：App 里有一个 8 秒一次的低频轮询「兜住事件丢失」，
+   它会读 engineStatus() 覆盖状态。如果只发合成事件而 mock 内部还是 ready，
+   轮询一旦落进下面这 200ms 的断言窗口，就会把状态改回「就绪」——
+   那是测试环境的假不一致（引擎真的停了吗？没有），不是 App 的缺陷。
+   以前这条断言是碰运气过的：只是恰好没撞上轮询。 */
+window.FY.engineStop();
 window.fyEvent('engine', JSON.stringify({ state: 'stopped', message: '已停止' }));
 await sleep(200);
 check('停止事件后状态回到未启动', /未启动/.test($('setEngineState').textContent), $('setEngineState').textContent);
@@ -1358,6 +1365,296 @@ check('续写请求里带了"接着写"的指示（不依赖各家私有参数�
   String(cap2[0] && cap2[0].body).slice(-80));
 window.fetch = realFetch4;
 S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+
+/* ============================================================================
+ * 【29】创作者工具：分类模板 / 质量评分 / 骨架 / AI 辅助 / 灵感面板
+ * ==========================================================================*/
+console.log('\n【29】创作者工具（分类模板 / 质量评分 / AI 辅助）');
+const FC = window.FYCreator;
+check('FYCreator 已加载', !!FC && typeof FC.lint === 'function');
+check('质量闸门与发布校验脚本 check-cards.py 同源',
+  FC.GATE.personaMin === 60 && FC.GATE.greetingMin === 20 && FC.GATE.examplesMin === 40 && FC.GATE.nameMax === 12,
+  JSON.stringify(FC.GATE));
+
+const bundle = await FC.loadBundle();
+check('分类模板加载成功（16 类）', !!bundle && bundle.categories.length === 16,
+  '分类 ' + (bundle ? bundle.categories.length : 0));
+check('每个分类都有 ≥3 个骨架和完整的写作要点',
+  bundle.categories.every(c => c.skeletons.length >= 3 && c.guide &&
+    c.guide.must.length === 3 && c.guide.avoid.length === 3 &&
+    c.guide.voice && c.guide.openers.length === 2));
+check('骨架字段完整（who/axis/voice/flaw/care/hook/scene）',
+  bundle.categories.every(c => c.skeletons.every(s =>
+    s.who && s.axis && s.voice && s.flaw && s.care && s.hook && s.scene)));
+check('模板库标注了 CC0 与"只借鉴模式"的边界',
+  /CC0/.test(bundle.license) && /第三方卡片正文/.test(bundle.note));
+if (PACKS_READY) {
+  const packIdx = JSON.parse(fs.readFileSync(path.join(UI, 'packs', 'index.json'), 'utf8'));
+  const packNames = new Set(packIdx.packs.map(p => p.name));
+  const missing = FC.categoryTags().filter(t => !packNames.has(t));
+  check('分类标签与内置卡包的 16 个分类名完全对齐', missing.length === 0, '对不上：' + missing.join('、'));
+}
+
+/* ---- 质量评分 ---- */
+const emptyLint = FC.lint({ name: '', persona: '', greeting: '', examples: '', systemPrompt: '', tags: [], kind: 'character', temperature: 0.85, avatar: '🙂', tagline: '' });
+check('空卡会报硬错误，不是静默通过', emptyLint.errors >= 4 && emptyLint.score < 60,
+  'errors=' + emptyLint.errors + ' score=' + emptyLint.score);
+check('每条问题都给了可执行的改法', emptyLint.issues.every(i => i.fix && i.fix.length > 4));
+
+const goodCard = {
+  name: '林夏', avatar: '🌤', tagline: '嘴上说没事，手上多下一把面',
+  persona: '林夏，58 岁，前纺织厂工人，老伴走了三年，一个人在小区门口开面馆。' +
+    '她烫一头紫红色小卷，手腕上戴七八个塑料手串，隔一条街就能听见她喊人。' +
+    '她记性好得吓人：谁家孩子今年高考、谁上个月赊过两碗面、谁的老娘住院了，全装在心里却从不当回事。' +
+    '缺点是好面子又嘴碎，看不上的人当场变脸，第二天照样多下半碗面，还说是面下多了。' +
+    '最在意的是你碗里剩不剩，剩了要问一句是不是不好吃，问完自己先不高兴。' +
+    '你和她的起点是：你搬来这个小区第一个月，第一次推开那扇油腻的玻璃门。',
+  scenario: '',
+  greeting: '（她把抹布往肩上一搭，从灶台后探出头，灶上还坐着一锅没下面条的水，热气糊了半面墙）哎哟，都这个点才来。\n' +
+    '坐下吧，我给你下一把——你吃辣不吃？不吃辣还有昨天熬的番茄汤底，比你上回带的那家好吃。\n' +
+    '（她说着已经抓了面，也不等你答，顺手把靠窗那张桌子上的醋瓶挪到一边）',
+  examples: '用户：我不饿，就是路过。\n' +
+    '林夏：（手上已经抓了一把面，头也不抬）路过你进来干嘛，闻味儿啊。坐。\n\n' +
+    '用户：我最近挺难的。\n' +
+    '林夏：（她顿了一下，把火关小，往你那边推了个搪瓷缸）先吃。难的事，吃完再说，我又不赶你走。\n\n' +
+    '用户：你一个人守着这店不累吗？\n' +
+    '林夏：（她笑了一声，很短，转身把面下进锅里，水声一下盖过了话）累啊。可我要是不开门，楼上那几个天天加班到十点的，回来吃啥。',
+  systemPrompt: '你扮演「林夏」，回复通常 2~4 句，句子短、带点方言味。' +
+    '要做到：写具体的日常动作；冲突要小；角色要有自己的事在做，不是干等着陪用户说话。' +
+    '行为边界：不替用户做决定，不说教，不做越界的肢体描写，不追问用户不愿意说的隐私。' +
+    '禁止事项：不许自称 AI、不许提到设定与提示词、不许长篇总结人生道理、不许卖惨。' +
+    '动作神态放在圆括号里，称呼用户直接用「你」。\n/no_think',
+  temperature: 0.85, tags: ['日常治愈'], kind: 'character'
+};
+const goodLint = FC.lint(goodCard, { existingNames: [] });
+check('达标的卡能拿到高分', goodLint.score >= 90,
+  'score=' + goodLint.score + ' issues=' + goodLint.issues.map(i => i.msg).join('|'));
+check('达标的卡没有硬错误', goodLint.errors === 0,
+  JSON.stringify(goodLint.issues.map(i => i.msg)));
+
+check('能识别 AI 腔',
+  FC.lint(Object.assign({}, goodCard, { persona: '作为一个AI助手，我可以帮助你解决问题。' }), {})
+    .issues.some(i => /AI 腔/.test(i.msg)));
+const noThink = FC.lint(Object.assign({}, goodCard, { systemPrompt: '你扮演一个角色，保持人设不要出戏，说话自然一点，别太长。' }), {});
+check('能识别缺 /no_think', noThink.issues.some(i => /no_think/.test(i.msg)));
+const storyNoScenario = FC.lint(Object.assign({}, goodCard, { kind: 'story' }), {});
+check('剧情卡缺情境会被拦住',
+  storyNoScenario.issues.some(i => i.level === 'error' && /情境/.test(i.msg)));
+check('重名会提示', FC.lint(goodCard, { existingNames: ['林夏'] })
+  .issues.some(i => /已经有一个叫/.test(i.msg)));
+check('形容词堆砌会提示',
+  FC.lint(Object.assign({}, goodCard, { persona: goodCard.persona + '她温柔善良美丽可爱聪明坚强。' }), {})
+    .issues.some(i => /形容词/.test(i.msg)));
+
+/* ---- 骨架 → 草稿 ---- */
+const romance = FC.category('恋爱');
+const draft = FC.draftFromSkeleton('恋爱', romance.skeletons[0], { name: '沈砚舟' });
+check('草稿人设里包含了骨架的关键字段',
+  draft.persona.indexOf(romance.skeletons[0].who) >= 0 && draft.persona.indexOf(romance.skeletons[0].care) >= 0);
+check('草稿系统提示词带 /no_think', /\/no_think/.test(draft.systemPrompt));
+check('草稿带上了分类默认温度与建议标签',
+  draft.temperature === romance.defaultTemp && draft.tags.indexOf('恋爱') >= 0, JSON.stringify(draft.tags));
+check('草稿本身就能过闸门（不是一坨占位符）', FC.lint(draft, {}).errors === 0,
+  JSON.stringify(FC.lint(draft, {}).issues.map(i => i.msg)));
+
+/* ---- AI 辅助：提示词组装与结果解析 ---- */
+const aiMsgs = FC.buildAssistMessages('persona', { card: goodCard, category: FC.category('日常治愈'), seed: '想看深夜食堂' });
+check('AI 辅助请求是 system+user 两条', aiMsgs.length === 2 && aiMsgs[0].role === 'system' && aiMsgs[1].role === 'user');
+check('提示词里带了分类的写作要点', /必须做到/.test(aiMsgs[1].content) && /最容易写崩/.test(aiMsgs[1].content));
+check('提示词里带了用户写的方向', /深夜食堂/.test(aiMsgs[1].content));
+const parsedAll = FC.parseAssistResult('all', '好的：\n```json\n{"name":"阿澈","persona":"他是夜班店员。"}\n```\n希望有帮助');
+check('能从 ```json 包裹和废话里抠出整卡草稿',
+  parsedAll.ok && parsedAll.patch.name === '阿澈' && parsedAll.patch.persona === '他是夜班店员。', JSON.stringify(parsedAll));
+check('单字段任务落到对应字段',
+  FC.parseAssistResult('greeting', '（他把门推开）来了？').patch.greeting === '（他把门推开）来了？');
+check('系统提示词任务会自动补上 /no_think',
+  /\/no_think/.test(FC.parseAssistResult('system', '你是林夏，保持人设，别出戏，说话短一点。').patch.systemPrompt));
+check('掏不出 JSON 时退回 persona，而不是丢弃',
+  FC.parseAssistResult('all', '就是一段话').patch.persona === '就是一段话');
+
+/* ---- scenario 回归：导入 → 角色模型 → 导出，不能丢 ---- */
+const storyCardIn = {
+  spec: 'chara_card_v2', spec_version: '2.0',
+  data: {
+    name: '规则怪谈', description: '一张剧情卡的人设，写的是宿舍楼里的宿管。',
+    scenario: '宿舍楼有七条规则，第七条被人撕掉了，而你昨晚违反了它，现在还听得见走廊里的拖鞋声。',
+    first_mes: '你入住第一天就被塞了一张手写规则。',
+    mes_example: '用户：第一条是什么？\n角色：（她压低声音）别问。',
+    system_prompt: '你扮演宿管。\n/no_think', tags: ['恐怖惊悚']
+  }
+};
+const importedStory = window.FYCards.fromCard(storyCardIn);
+check('导入剧情卡时 scenario 被保留', /第七条被人撕掉了/.test(importedStory.scenario), importedStory.scenario.slice(0, 20));
+check('导入时按 scenario 判定为剧情卡', importedStory.kind === 'story');
+check('导出时 scenario 会回写（以前永远是空串）',
+  /第七条被人撕掉了/.test(window.FYCards.toCardV2(importedStory).data.scenario));
+const savedStory = S.store.saveCharacter(importedStory);
+check('角色模型里存住了 scenario', /第七条被人撕掉了/.test(savedStory.scenario), String(savedStory.scenario).slice(0, 20));
+
+/* ---- 编辑面板：分类 / 类型 / 情境不能丢（回归：以前编辑会清掉 tags） ---- */
+window.FYApp.openCharSheet(null, Object.assign({}, goodCard, { scenario: '宿舍楼有七条规则。'.repeat(3), kind: 'story' }));
+await sleep(60);
+check('编辑面板预填了分类标签', S.charTags.indexOf('日常治愈') >= 0, JSON.stringify(S.charTags));
+check('编辑面板预填了类型', S.charKind === 'story', S.charKind);
+check('剧情卡才显示「情境」输入框', $('fScenarioField').hidden === false);
+$('fName').value = '林夏二号';
+$('fPersona').value = goodCard.persona;
+$('fGreeting').value = goodCard.greeting;
+$('fExamples').value = goodCard.examples;
+$('fSystem').value = goodCard.systemPrompt;
+$('fScenario').value = '宿舍楼有七条规则，第七条被撕掉了。'.repeat(2);
+window.FYApp.refreshLint();
+check('评分面板渲染出了结果', $('lintBox').children.length > 0 && /·/.test($('lintScore').textContent),
+  $('lintScore').textContent);
+window.FYApp.saveCharSheet();
+await sleep(150);
+const savedTwice = S.store.listCharacters().filter(c => c.name === '林夏二号')[0];
+check('保存后分类标签还在（回归）',
+  savedTwice && savedTwice.tags.indexOf('日常治愈') >= 0, JSON.stringify(savedTwice && savedTwice.tags));
+check('保存后类型与情境还在（回归）',
+  savedTwice && savedTwice.kind === 'story' && /第七条被撕掉了/.test(savedTwice.scenario),
+  savedTwice ? (savedTwice.kind + '/' + String(savedTwice.scenario).slice(0, 12)) : 'missing');
+
+/* ---- 向导：分类 → 骨架 → 起草 ---- */
+window.FYApp.openCreatorWizard();
+await until(() => FC.bundle() && $('creatorPanel').querySelectorAll('.wiz-card').length > 0, 4000);
+check('向导第一步列出 16 个分类', $('creatorPanel').querySelectorAll('.wiz-card').length === 16,
+  String($('creatorPanel').querySelectorAll('.wiz-card').length));
+S.creator.tag = '科幻未来';
+S.creator.kind = 'story';
+window.FYApp.creatorNext();
+check('第二步给出该分类的骨架', $('creatorPanel').querySelectorAll('.wiz-block').length >= 3,
+  String($('creatorPanel').querySelectorAll('.wiz-block').length));
+S.creator.skeleton = 0;
+window.FYApp.creatorNext();
+check('第三步要求填名字与方向', !!$('creatorName') && !!$('creatorSeed'));
+$('creatorName').value = 'F-9';
+S.creator.name = 'F-9';
+window.FYApp.makeDraft(false);
+await sleep(80);
+check('生成草稿后打开编辑面板并预填名字',
+  $('charSheetMask').hidden === false && $('fName').value === 'F-9', $('fName').value);
+check('草稿带上了向导里选的分类与类型',
+  S.charTags.indexOf('科幻未来') >= 0 && S.charKind === 'story', S.charTags + ' / ' + S.charKind);
+check('剧情卡草稿带了情境脚手架', /【局面】/.test($('fScenario').value), $('fScenario').value.slice(0, 20));
+check('草稿的系统提示词含 /no_think', /\/no_think/.test($('fSystem').value));
+check('草稿的分类写作要点进了系统提示词', /要做到：/.test($('fSystem').value), $('fSystem').value.slice(0, 40));
+window.FYApp.openCategoryGuide();
+check('「分类要点」面板能打开', $('actionMask').hidden === false);
+if ($('btnActionClose').onclick) $('btnActionClose').onclick();
+
+/* ---- AI 辅助端到端：真的发一次补全请求，并把结果写进字段 ---- */
+window.FYApp.openCharSheet(null, goodCard);
+await sleep(60);
+const prevProvider = S.provider;
+S.provider = { mode: 'remote', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: true, ready: true };
+const realFetch5 = window.fetch;
+const aiCalls = [];
+window.fetch = async (url, opts) => {
+  if (String(url).indexOf('/chat/completions') >= 0) {
+    aiCalls.push({ url: String(url), body: String(opts && opts.body) });
+    return sseResponse(['data: {"choices":[{"delta":{"content":"（他把账本合上）"}}]}' + '\n\n',
+      'data: {"choices":[{"delta":{"content":"今天不接单了。"}}]}' + '\n\n', 'data: [DONE]' + '\n\n']);
+  }
+  return realFetch5(url, opts);
+};
+await window.FYApp.aiAssist('greeting');
+window.fetch = realFetch5;
+S.provider = prevProvider;
+check('AI 辅助确实发了一次补全请求', aiCalls.length === 1, String(aiCalls.length));
+check('请求体里带了分类写作要点', aiCalls.length > 0 && /必须做到/.test(aiCalls[0].body));
+check('请求体里关了思考段（思考段不能写进卡里）',
+  aiCalls.length > 0 && /"enable_thinking":false/.test(aiCalls[0].body));
+check('AI 结果落进了「开场白」字段', /今天不接单了/.test($('fGreeting').value), $('fGreeting').value);
+
+/* ---- 灵感面板：本地来源不联网也能给统计 ---- */
+$('charSheetMask').hidden = true;
+if (!S.characters.length) { S.store.saveCharacter(goodCard); S.characters = S.store.listCharacters(); }
+window.FYApp.openRefSheet();
+/* 注意：不能只判断"refBody 没有正在拉取 且 有子节点"——静态占位里本来就有一个 span，
+   那样断言会在异步加载完成前就成立，等于什么都没测。这里等来源 chips 真的渲染出来。 */
+await until(() => $('refSources').children.length > 0, 5000);
+await sleep(150);
+check('灵感面板列出了来源', $('refSources').children.length >= 1, String($('refSources').children.length));
+check('本地来源渲染出分类分布与人设长度统计',
+  /分类分布/.test($('refBody').textContent) && /人设中位长度/.test($('refBody').textContent),
+  $('refBody').textContent.slice(0, 70));
+check('界面明确写了「只借鉴模式，不复制正文」与许可证提示',
+  /只借鉴模式/.test($('refNote').textContent) && /许可证/.test($('refNote').textContent),
+  $('refNote').textContent.slice(0, 50));
+$('refMask').hidden = true;
+
+/* ---- 联网来源的清单纪律：每个来源都必须标许可证，且至少留一个离线来源 ---- */
+const refIdx = await (await window.fetch('creator/reference.json')).json();
+check('参考来源清单结构完整（id/name/kind/license）',
+  refIdx.sources.length >= 4 &&
+  refIdx.sources.every(s => s.id && s.name && s.kind && s.license),
+  '来源数 ' + refIdx.sources.length);
+check('远程来源都必须给 https 地址和明确许可证',
+  refIdx.sources.filter(s => s.kind === 'remote')
+    .every(s => /^https:\/\//.test(s.url) && s.license && s.license !== '未标注' && s.license !== 'unknown'));
+check('至少有一个离线来源（断网也有参考面板）',
+  refIdx.sources.some(s => s.kind === 'local'));
+check('社区来源配置了内容标记过滤（挡掉成人向条目）',
+  refIdx.sources.some(s => Array.isArray(s.filter) && s.filter.some(f => f.field === 'nsfw_image')));
+check('远程来源只取结构信息（标题/标签），不取正文',
+  refIdx.sources.filter(s => s.kind === 'remote').every(s => !/definition|first_mes|description/.test(String(s.itemsPath))));
+
+/* ---- 远程渲染：对象→条目、模板替换、内容过滤 ---- */
+check('对象型返回（HF schema 那种）能展开成条目',
+  window.FYApp.asItemList({ a: { dtype: 'string' }, b: { dtype: 'int64' } }).length === 2);
+check('数组型返回原样返回',
+  window.FYApp.asItemList([{ x: 1 }]).length === 1);
+check('meta 模板能按路径替换',
+  window.FYApp.fillTemplate('★{stargazers_count} · 许可：{license.spdx_id}',
+    { stargazers_count: 42, license: { spdx_id: 'MIT' } }) === '★42 · 许可：MIT');
+check('取不到的字段渲染成占位符而不是 undefined',
+  window.FYApp.fillTemplate('{nope}', {}) === '—');
+check('内容标记过滤生效（nsfw_image=true 会被剔掉）',
+  window.FYApp.passesRefFilter({ filter: [{ field: 'nsfw_image', eq: false }] }, { nsfw_image: true }) === false &&
+  window.FYApp.passesRefFilter({ filter: [{ field: 'nsfw_image', eq: false }] }, { nsfw_image: false }) === true);
+check('没有配过滤就全部保留', window.FYApp.passesRefFilter({}, { anything: 1 }) === true);
+
+/* ---- 七维质量评分（维度口径借鉴 SPB-2603，见 THIRD_PARTY_NOTICES） ---- */
+check('评分给出七个维度', goodLint.dimensions && goodLint.dimensions.length === 7,
+  goodLint.dimensions ? goodLint.dimensions.map(d => d.label).join('/') : 'none');
+check('每个维度都落在 0~100',
+  goodLint.dimensions.every(d => d.score >= 0 && d.score <= 100 && d.weight > 0));
+check('维度名与权重之和正确',
+  Math.abs(goodLint.dimensions.reduce((a, d) => a + d.weight, 0) - 1) < 1e-9);
+const adjOnly = FC.lint(Object.assign({}, goodCard, {
+  persona: '她很温柔，很善良，很美丽，很可爱，很聪明，很坚强，很阳光，很大方，很体贴，很优秀。'
+}), {});
+const adjDim = (r, k) => r.dimensions.filter(d => d.key === k)[0].score;
+check('只堆形容词时「展示而非告知」明显掉分',
+  adjDim(adjOnly, 'show_dont_tell') < adjDim(goodLint, 'show_dont_tell') - 20,
+  adjDim(adjOnly, 'show_dont_tell') + ' vs ' + adjDim(goodLint, 'show_dont_tell'));
+check('缺 /no_think 时「格式合规」掉分',
+  adjDim(noThink, 'format_compliance') < adjDim(goodLint, 'format_compliance'));
+check('剧情卡缺情境时「格式合规」掉分',
+  adjDim(storyNoScenario, 'format_compliance') < adjDim(goodLint, 'format_compliance'));
+const noFlaw = FC.lint(Object.assign({}, goodCard, {
+  persona: '林夏，58 岁，开面馆。她烫紫红色小卷，手腕上戴塑料手串。她和你的起点是第一次推门。',
+  examples: '用户：你好。\n林夏：（点头）坐。'
+}), {});
+check('没有缺点与矛盾时「心理真实度」掉分',
+  adjDim(noFlaw, 'psychological_realism') < adjDim(goodLint, 'psychological_realism'),
+  adjDim(noFlaw, 'psychological_realism') + ' vs ' + adjDim(goodLint, 'psychological_realism'));
+check('同一张卡相似度判罚：和已有卡几乎一样会掉「辨识度」',
+  adjDim(FC.lint(goodCard, { existingCards: [{ id: 'x', name: '别人', persona: goodCard.persona }] }), 'distinctiveness')
+  < adjDim(goodLint, 'distinctiveness'));
+check('卡片相似度会在问题列表里提示',
+  FC.lint(goodCard, { existingCards: [{ id: 'x', name: '别人', persona: goodCard.persona }] })
+    .issues.some(i => /相似度/.test(i.msg)));
+check('没选分类时「原型贴合度」中性处理，不惩罚',
+  FC.lint(Object.assign({}, goodCard, { tags: [] }), {}).dimensions.filter(d => d.key === 'archetype_fidelity')[0].score === 55);
+
+check('评分面板渲染出七维评分条', (function () {
+  window.FYApp.openCharSheet(null, goodCard);
+  window.FYApp.refreshLint();
+  return $('lintBox').querySelectorAll('.dim-row').length === 7;
+})(), String($('lintBox').querySelectorAll('.dim-row').length));
+$('charSheetMask').hidden = true;
 
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);

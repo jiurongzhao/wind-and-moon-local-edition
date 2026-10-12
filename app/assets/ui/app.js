@@ -189,6 +189,14 @@
     speakingMsgId: '',
     memoryTarget: null,   // 记忆面板当前编辑对象
     editChar: null,       // 正在编辑的角色
+    /* 创作者工具：编辑面板里的工作副本 + 向导状态 */
+    charTags: [],         // 编辑面板里"当前选中"的分类标签
+    charKind: 'character',
+    lint: null,           // 最近一次质量评分结果
+    aiBusy: false,        // AI 辅助是否正在生成
+    creator: { step: 1, tag: '', kind: '', skeleton: null },
+    refSources: null,     // 灵感面板的来源列表（只加载一次）
+    refCurrent: '',
     lastOptions: [],      // 当前展示的剧情选项
     lastUserText: '',     // 用于重新生成
     booted: false
@@ -462,23 +470,852 @@
     fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色（筛出 ' + shown.length + '），消息 ' + st.messages + ' 条');
   }
 
-  function openCharSheet(c) {
+  /**
+   * 打开角色编辑面板。
+   * @param {object} c      要编辑的已有角色（新建传 null）
+   * @param {object} draft  创作者工具生成的草稿（新建时可传，直接预填）
+   */
+  function openCharSheet(c, draft) {
+    var d = draft || null;
     S.editChar = c || null;
-    $('charSheetTitle').textContent = c ? '编辑角色' : '新建角色';
-    $('fAvatar').value = c ? c.avatar : '🙂';
-    $('fName').value = c ? c.name : '';
-    $('fTagline').value = c ? c.tagline : '';
-    $('fPersona').value = c ? c.persona : '';
-    $('fGreeting').value = c ? c.greeting : '';
-    $('fExamples').value = c ? c.examples : '';
-    $('fSystem').value = c ? c.systemPrompt : FYStore.DEFAULT_SYSTEM_PROMPT;
-    $('fTemp').value = c ? c.temperature : 0.85;
+    $('charSheetTitle').textContent = c ? '编辑角色' : (d ? '新建角色 · 已套模板' : '新建角色');
+    $('fAvatar').value = c ? c.avatar : (d ? d.avatar : '🙂');
+    $('fName').value = c ? c.name : (d ? d.name : '');
+    $('fTagline').value = c ? c.tagline : (d ? (d.tagline || '') : '');
+    $('fPersona').value = c ? c.persona : (d ? (d.persona || '') : '');
+    $('fScenario').value = c ? (c.scenario || '') : (d ? (d.scenario || '') : '');
+    $('fGreeting').value = c ? c.greeting : (d ? (d.greeting || '') : '');
+    $('fExamples').value = c ? c.examples : (d ? (d.examples || '') : '');
+    $('fSystem').value = c ? c.systemPrompt
+      : ((d && d.systemPrompt) ? d.systemPrompt : FYStore.DEFAULT_SYSTEM_PROMPT);
+    $('fTemp').value = c ? c.temperature : (d ? d.temperature : 0.85);
     $('fTempVal').textContent = Number($('fTemp').value).toFixed(2);
+    /* 分类与类型在标题栏之外单独维护（chips 不是原生表单控件） */
+    S.charTags = c ? (c.tags || []).slice() : (d && d.tags ? d.tags.slice() : []);
+    S.charKind = c ? (c.kind === 'story' ? 'story' : 'character')
+      : (d && d.kind === 'story' ? 'story' : 'character');
+    renderFTags();
+    renderFKind();
+    syncScenarioField();
     $('btnCharDelete').hidden = !c;
     $('btnCharExport').hidden = !c;
     $('charSheetErr').hidden = true;
+    var st = $('aiStatus');
+    if (st) { st.hidden = true; st.textContent = ''; }
     openSheet($('charSheetMask'));
+    refreshLint();
     setTimeout(function () { try { $('fName').focus(); } catch (e) {} }, 120);
+  }
+
+  /* ---------- 分类标签 / 类型（创作者工具的一部分） ---------- */
+
+  /** 渲染分类标签 chips；模板还没加载完就先拉一次再画 */
+  function renderFTags() {
+    var box = $('fTags');
+    if (!box) return;
+    var b = FYCreator.bundle();
+    if (!b) {
+      box.innerHTML = '';
+      box.appendChild(el('span', 'muted xs', '正在加载分类…'));
+      FYCreator.loadBundle().then(function () {
+        renderFTags();
+        /* 分类到位后「原型贴合度」才算得准，重算一次，别让用户看着一个假的低分 */
+        refreshLint();
+      }).catch(function (e) {
+        box.innerHTML = '';
+        box.appendChild(el('span', 'muted xs', '分类模板加载失败：' + ((e && e.message) || e)));
+      });
+      return;
+    }
+    box.className = 'chips wrap';
+    box.innerHTML = '';
+    b.categories.forEach(function (cat) {
+      var on = S.charTags.indexOf(cat.tag) >= 0;
+      var chip = el('button', 'chip' + (on ? ' on' : ''), cat.emoji + ' ' + cat.tag);
+      chip.title = cat.blurb + (cat.coreTension ? '\n核心张力：' + cat.coreTension : '');
+      chip.onclick = function () {
+        var i = S.charTags.indexOf(cat.tag);
+        if (i >= 0) S.charTags.splice(i, 1);
+        else {
+          if (S.charTags.length >= FYCreator.GATE.tagsMax) {
+            toast('最多 ' + FYCreator.GATE.tagsMax + ' 个分类标签', 'warn');
+            return;
+          }
+          S.charTags.push(cat.tag);
+        }
+        renderFTags();
+        /* 换分类会换写作要点，评分也跟着变 */
+        refreshLint();
+      };
+      box.appendChild(chip);
+    });
+    box.appendChild(el('span', 'muted xs', '（已选 ' + S.charTags.length + '/' + FYCreator.GATE.tagsMax + '）'));
+  }
+
+  /** 角色卡 / 剧情卡 */
+  function renderFKind() {
+    var box = $('fKind');
+    if (!box) return;
+    var b = FYCreator.bundle();
+    var kinds = (b && b.kinds) || {};
+    box.className = 'chips wrap';
+    box.innerHTML = '';
+    [['character', '🎭 角色卡'], ['story', '📖 剧情卡']].forEach(function (pair) {
+      var key = pair[0];
+      var chip = el('button', 'chip' + (S.charKind === key ? ' on' : ''), pair[1]);
+      var meta = kinds[key];
+      chip.title = meta ? (meta.hint || '') : '';
+      chip.onclick = function () {
+        S.charKind = key;
+        renderFKind();
+        syncScenarioField();
+        refreshLint();
+      };
+      box.appendChild(chip);
+    });
+    var hint = kinds[S.charKind];
+    if (hint && hint.hint) box.appendChild(el('span', 'muted xs', hint.hint));
+  }
+
+  /** 剧情卡才显示「情境」；角色卡也可以写，但不强制 */
+  function syncScenarioField() {
+    var f = $('fScenarioField');
+    if (f) f.hidden = (S.charKind !== 'story');
+  }
+
+  /** 把编辑面板里的内容收成一个角色 patch（保存和评分共用一份，避免两边不一致） */
+  function collectCharForm() {
+    return {
+      id: S.editChar ? S.editChar.id : '',
+      name: $('fName').value.trim(),
+      avatar: ($('fAvatar').value || '🙂').trim().slice(0, 4),
+      tagline: $('fTagline').value.trim(),
+      persona: $('fPersona').value.trim(),
+      scenario: $('fScenario').value,
+      greeting: $('fGreeting').value,
+      examples: $('fExamples').value,
+      systemPrompt: $('fSystem').value.trim() || FYStore.DEFAULT_SYSTEM_PROMPT,
+      temperature: Number($('fTemp').value),
+      tags: S.charTags.slice(),
+      kind: S.charKind,
+      plot: S.charKind === 'story',
+      createdAt: S.editChar ? S.editChar.createdAt : 0,
+      builtin: S.editChar ? S.editChar.builtin : false
+    };
+  }
+
+  /* ---------- 质量评分面板 ---------- */
+
+  function refreshLint() {
+    var box = $('lintBox');
+    if (!box) return;
+    if (!global.FYCreator) return;
+    var patch = collectCharForm();
+    var others = S.characters.filter(function (c) { return !S.editChar || c.id !== S.editChar.id; });
+    var r = FYCreator.lint(patch, {
+      existingNames: others.map(function (c) { return c.name; }),
+      existingCards: others
+    });
+    S.lint = r;
+    if ($('lintScore')) $('lintScore').textContent = r.score + ' · ' + r.grade;
+
+    box.innerHTML = '';
+
+    /* 七维评分：给出"差在哪一类"，而不只是"差多少分" */
+    if (r.dimensions && r.dimensions.length) {
+      var dims = el('div', 'dims');
+      r.dimensions.forEach(function (d) {
+        var tone = d.score >= 80 ? ' ok' : (d.score >= 55 ? '' : ' bad');
+        var row = el('div', 'dim-row');
+        var head = el('div', 'dim-head');
+        head.appendChild(el('span', 'dim-name', d.label));
+        head.appendChild(el('span', 'dim-score' + tone, String(d.score)));
+        row.appendChild(head);
+        var bar = el('div', 'dim-bar');
+        var fill = el('div', 'dim-fill' + tone);
+        fill.style.width = d.score + '%';
+        bar.appendChild(fill);
+        row.appendChild(bar);
+        if (d.score < 70) row.appendChild(el('div', 'dim-hint', d.hint));
+        dims.appendChild(row);
+      });
+      box.appendChild(dims);
+    }
+
+    if (!r.issues.length) {
+      box.appendChild(el('div', 'lint-item ok', '✅ 没有发现问题：这张卡可以直接发了'));
+      return;
+    }
+    r.issues.forEach(function (it) {
+      var row = el('div', 'lint-item ' + (it.level === 'error' ? 'err' : 'warn'));
+      row.appendChild(el('div', '', (it.level === 'error' ? '❌ ' : '⚠️ ') + it.msg));
+      if (it.fix) row.appendChild(el('div', 'lint-fix', '→ ' + it.fix));
+      box.appendChild(row);
+    });
+    if (r.passed.length) {
+      box.appendChild(el('div', 'lint-item ok', '✅ ' + r.passed.join('、')));
+    }
+  }
+
+  /* 每一次按键都重算七维 + 和已有卡做相似度比对，在手机上会卡；
+     输入时轻量防抖，手动点「重新评分」或保存时同步算一次。 */
+  var lintTimer = null;
+  function scheduleLint() {
+    if (lintTimer) clearTimeout(lintTimer);
+    lintTimer = setTimeout(function () { lintTimer = null; refreshLint(); }, 160);
+  }
+
+  /* ---------- AI 辅助（复用聊天那套流式通道，本地/云端都走同一条路） ---------- */
+
+  function aiStatus(text) {
+    var st = $('aiStatus');
+    if (!st) return;
+    if (!text) { st.hidden = true; st.textContent = ''; return; }
+    st.hidden = false;
+    st.textContent = text;
+  }
+
+  /**
+   * 跑一次 AI 辅助。
+   * @param {string} task  FYCreator.TASKS 的键
+   */
+  function aiAssist(task) {
+    if (S.aiBusy) { toast('上一次生成还没结束', 'warn'); return Promise.resolve(false); }
+    if (!providerReady()) {
+      toast('还没有可用的模型：设置 → 模型来源（云端或本地都行）', 'warn', 4000);
+      return Promise.resolve(false);
+    }
+    var patch = collectCharForm();
+    var cat = FYCreator.category(S.charTags[0]);
+    var seed = (S.creator && S.creator.seed) || '';
+    var t = FYCreator.TASKS[task] || {};
+    var msgs = FYCreator.buildAssistMessages(task, { card: patch, category: cat, seed: seed });
+
+    S.aiBusy = true;
+    aiStatus('正在用「' + (isRemote() ? (provider().model || '云端模型') : '本地模型') + '」生成' + (t.label || '内容') + '…');
+    toast('AI 正在生成' + (t.label || '') + '…', 'ok', 1600);
+
+    var body = {
+      messages: msgs,
+      stream: true,
+      temperature: task === 'polish' ? 0.4 : 0.8,
+      top_p: 0.95,
+      max_tokens: task === 'all' ? 1200 : 800,
+      /* 创作者工具永远不要思考段：思考段会混进正文，写进卡里就是污染 */
+      chat_template_kwargs: { enable_thinking: false }
+    };
+    var acc = '';
+    var fieldEl = t.field ? $(charFieldId(t.field)) : null;
+
+    return streamChat(body, function (full) {
+      acc = full;
+      if (fieldEl) { fieldEl.value = full; }
+      aiStatus('生成中… ' + full.length + ' 字');
+    }, null).then(function () {
+      S.aiBusy = false;
+      var res = FYCreator.parseAssistResult(task, acc);
+      if (!res.ok) {
+        aiStatus('');
+        toast('生成失败：' + (res.message || '模型没有返回可用内容'), 'err', 4200);
+        return false;
+      }
+      var n = applyAssistPatch(res.patch, fieldEl);
+      aiStatus('');
+      refreshLint();
+      toast('已填入 ' + n + ' 个字段' + (res.message ? '（' + res.message + '）' : ''), 'ok', 3000);
+      fyLog('创作者工具 AI 辅助：' + task + ' → ' + JSON.stringify(Object.keys(res.patch)));
+      return true;
+    }).catch(function (e) {
+      S.aiBusy = false;
+      aiStatus('');
+      var msg = (e && e.message) || String(e);
+      if (e && e.name === 'AbortError') { toast('已停止生成', 'warn'); return false; }
+      toast('生成失败：' + msg, 'err', 4600);
+      fyLog('创作者工具 AI 辅助失败：' + msg);
+      return false;
+    });
+  }
+
+  /** 字段名 → 编辑面板里的元素 id */
+  function charFieldId(field) {
+    var map = {
+      name: 'fName', tagline: 'fTagline', persona: 'fPersona', greeting: 'fGreeting',
+      examples: 'fExamples', scenario: 'fScenario', systemPrompt: 'fSystem'
+    };
+    return map[field] || 'fPersona';
+  }
+
+  /** 把 AI 返回的补丁写进表单，返回填了几个字段 */
+  function applyAssistPatch(patch, skipEl) {
+    var n = 0;
+    Object.keys(patch || {}).forEach(function (k) {
+      var id = charFieldId(k);
+      var node = $(id);
+      if (!node) return;
+      /* 单字段任务已经流式写进去了，不用再覆盖一遍 */
+      if (node === skipEl) { n++; return; }
+      node.value = patch[k];
+      n++;
+    });
+    return n;
+  }
+
+  /* ---------- 分类要点 / 骨架挑选 ---------- */
+
+  function openCategoryGuide() {
+    var tag = S.charTags[0];
+    var cat = tag ? FYCreator.category(tag) : null;
+    if (!cat) {
+      openActions('分类要点', [{ icon: '🎭', label: '还没选分类：先在上面点一个分类标签', run: function () {} }]);
+      return;
+    }
+    var g = cat.guide || {};
+    var acts = [];
+    acts.push({ icon: cat.emoji, label: '『' + cat.tag + '』：' + (cat.blurb || ''), run: function () {} });
+    if (cat.coreTension) acts.push({ icon: '⚡', label: '核心张力：' + cat.coreTension, run: function () {} });
+    (g.must || []).forEach(function (m) { acts.push({ icon: '✅', label: '必须做到：' + m, run: function () {} }); });
+    (g.avoid || []).forEach(function (m) { acts.push({ icon: '🚫', label: '别这样写：' + m, run: function () {} }); });
+    if (g.voice) {
+      acts.push({ icon: '🗣', label: '称呼：' + g.voice.address, run: function () {} });
+      acts.push({ icon: '🗣', label: '口癖：' + g.voice.tics, run: function () {} });
+      acts.push({ icon: '🗣', label: '节奏：' + g.voice.pattern, run: function () {} });
+    }
+    (g.openers || []).forEach(function (m, i) { acts.push({ icon: '🚪', label: '开场式 ' + (i + 1) + '：' + m, run: function () {} }); });
+    if (g.exampleHint) acts.push({ icon: '💬', label: '示例对话：' + g.exampleHint, run: function () {} });
+    acts.push({ icon: '✨', label: '按这个分类的要点重写人设（AI）', run: function () { aiAssist('persona'); } });
+    openActions('分类要点 · ' + cat.tag, acts);
+  }
+
+  /** 骨架挑选：把选中骨架的字段填进表单 */
+  function openSkeletonPicker() {
+    var tag = S.charTags[0];
+    var cat = tag ? FYCreator.category(tag) : null;
+    if (!cat || !cat.skeletons.length) {
+      openActions('套骨架', [{ icon: '🎭', label: '先在编辑面板里选一个分类标签', run: function () {} }]);
+      return;
+    }
+    var acts = cat.skeletons.map(function (sk) {
+      return {
+        icon: '🦴',
+        label: sk.title + '——' + sk.who,
+        run: function () {
+          var draft = FYCreator.draftFromSkeleton(cat.tag, sk, { name: $('fName').value.trim() });
+          applyAssistPatch({
+            persona: draft.persona,
+            greeting: $('fGreeting').value.trim() ? $('fGreeting').value : draft.greeting,
+            examples: $('fExamples').value.trim() ? $('fExamples').value : draft.examples,
+            systemPrompt: draft.systemPrompt,
+            scenario: S.charKind === 'story' ? draft.scenario : $('fScenario').value
+          });
+          $('fTemp').value = draft.temperature;
+          $('fTempVal').textContent = Number(draft.temperature).toFixed(2);
+          refreshLint();
+          toast('已套用骨架「' + sk.title + '」，改到像你自己的为止', 'ok', 3600);
+        }
+      };
+    });
+    acts.push({ icon: '✨', label: '让 AI 按这个分类自由发挥一版人设', run: function () { aiAssist('persona'); } });
+    openActions('套骨架 · ' + cat.tag, acts);
+  }
+
+  /* ---------------------------------------------------------------------------
+   * 创作者工具：引导式建卡向导（分类 → 骨架 → 起草 → 进编辑器）
+   * ------------------------------------------------------------------------ */
+
+  var CREATOR_STEP_NAMES = ['选分类', '挑骨架', '起草'];
+
+  function openCreatorWizard() {
+    S.creator.step = 1;
+    S.creator.tag = '';
+    S.creator.kind = '';
+    S.creator.skeleton = null;
+    S.creator.seed = '';
+    openSheet($('creatorMask'));
+    renderCreator();
+    FYCreator.loadBundle().then(function () {
+      /* 默认选中第一个分类，省一步点击 */
+      if (!S.creator.tag) {
+        var first = FYCreator.bundle().categories[0];
+        S.creator.tag = first.tag;
+        S.creator.kind = first.defaultKind;
+        renderCreator();
+      }
+    }).catch(function (e) {
+      $('creatorPanel').innerHTML = '';
+      $('creatorPanel').appendChild(el('div', 'err', '分类模板加载失败：' + ((e && e.message) || e)));
+    });
+  }
+
+  function renderCreator() {
+    var steps = $('creatorSteps');
+    steps.innerHTML = '';
+    CREATOR_STEP_NAMES.forEach(function (n, i) {
+      steps.appendChild(el('div', 'step' + (S.creator.step === i + 1 ? ' on' : (S.creator.step > i + 1 ? ' done' : '')), (i + 1) + '. ' + n));
+    });
+    var panel = $('creatorPanel');
+    panel.innerHTML = '';
+    $('btnCreatorBack').hidden = S.creator.step <= 1;
+    $('btnCreatorNext').textContent = S.creator.step >= 3 ? '生成草稿 →' : '下一步 →';
+
+    var b = FYCreator.bundle();
+    if (!b) { panel.appendChild(el('div', 'muted sm', '正在加载分类模板…')); return; }
+
+    if (S.creator.step === 1) renderCreatorStep1(panel, b);
+    else if (S.creator.step === 2) renderCreatorStep2(panel, b);
+    else renderCreatorStep3(panel, b);
+  }
+
+  function renderCreatorStep1(panel, b) {
+    panel.appendChild(el('p', 'muted sm', '先选一个分类。分类不是装饰：它决定下面给你哪套骨架、哪些写作要点，也决定评分标准。'));
+    var grid = el('div', 'wiz-grid');
+    b.categories.forEach(function (cat) {
+      var on = S.creator.tag === cat.tag;
+      var card = el('button', 'wiz-card' + (on ? ' on' : ''));
+      card.appendChild(el('span', 'wiz-emoji', cat.emoji));
+      card.appendChild(el('span', 'wiz-name', cat.tag));
+      card.appendChild(el('div', 'wiz-sub', cat.blurb));
+      card.onclick = function () {
+        S.creator.tag = cat.tag;
+        S.creator.kind = cat.defaultKind;
+        S.creator.skeleton = null;
+        renderCreator();
+      };
+      grid.appendChild(card);
+    });
+    panel.appendChild(grid);
+
+    var cat = FYCreator.category(S.creator.tag);
+    if (cat) {
+      panel.appendChild(el('div', 'divider'));
+      var kinds = el('div', 'chips wrap');
+      [['character', '🎭 角色卡'], ['story', '📖 剧情卡']].forEach(function (pair) {
+        var chip = el('button', 'chip' + (S.creator.kind === pair[0] ? ' on' : ''), pair[1]);
+        chip.onclick = function () { S.creator.kind = pair[0]; renderCreator(); };
+        kinds.appendChild(chip);
+      });
+      panel.appendChild(el('div', 'label', '类型'));
+      panel.appendChild(kinds);
+      panel.appendChild(el('p', 'muted xs', '这个分类通常写成「' + (cat.defaultKind === 'story' ? '剧情卡' : '角色卡') + '」；核心张力是：' + cat.coreTension));
+    }
+  }
+
+  function renderCreatorStep2(panel, b) {
+    var cat = FYCreator.category(S.creator.tag);
+    if (!cat) { panel.appendChild(el('div', 'muted sm', '先回上一步选个分类。')); return; }
+    panel.appendChild(el('p', 'muted sm', '挑一个骨架当起点（不是成品，是让你少对着空白页发呆）。也可以不挑，直接手写。'));
+
+    cat.skeletons.forEach(function (sk, i) {
+      var on = S.creator.skeleton === i;
+      var box = el('div', 'wiz-block' + (on ? ' on' : ''));
+      box.appendChild(el('div', 'wiz-name', sk.title));
+      box.appendChild(el('div', 'wiz-sub', sk.who));
+      var kv = el('div', 'wiz-kv');
+      kv.appendChild(el('div', '', '性格张力：' + sk.axis));
+      kv.appendChild(el('div', '', '说话方式：' + sk.voice));
+      kv.appendChild(el('div', '', '缺点：' + sk.flaw));
+      kv.appendChild(el('div', '', '最在意：' + sk.care));
+      kv.appendChild(el('div', '', '和你的起点：' + sk.hook));
+      kv.appendChild(el('div', '', '开场场景：' + sk.scene));
+      box.appendChild(kv);
+      box.onclick = function () { S.creator.skeleton = on ? null : i; renderCreator(); };
+      panel.appendChild(box);
+    });
+
+    if (cat.guide) {
+      panel.appendChild(el('div', 'divider'));
+      var g = cat.guide;
+      var musts = el('div', 'lint-item ok', '必须做到：' + (g.must || []).join('；'));
+      panel.appendChild(musts);
+      panel.appendChild(el('div', 'lint-item warn', '最容易写崩：' + (g.avoid || []).join('；')));
+    }
+  }
+
+  function renderCreatorStep3(panel, b) {
+    var cat = FYCreator.category(S.creator.tag);
+    var sk = (cat && S.creator.skeleton !== null && S.creator.skeleton !== undefined)
+      ? cat.skeletons[S.creator.skeleton] : null;
+
+    panel.appendChild(el('p', 'muted sm', '最后填两个东西。名字可以先随便写，进编辑器还能改。'));
+
+    var f1 = el('div', 'field');
+    f1.appendChild(el('label', 'label', '名字'));
+    var nameInput = el('input', 'input');
+    nameInput.id = 'creatorName';
+    nameInput.placeholder = '例如：林夏';
+    nameInput.value = (S.creator.name || '');
+    nameInput.oninput = function () { S.creator.name = this.value; };
+    f1.appendChild(nameInput);
+    panel.appendChild(f1);
+
+    var f2 = el('div', 'field');
+    f2.appendChild(el('label', 'label', '一句话方向（可留空）'));
+    var seedInput = el('textarea', 'input');
+    seedInput.id = 'creatorSeed';
+    seedInput.rows = 3;
+    seedInput.placeholder = '例如：一个在深夜便利店上班的人，话很少，但记得每个熟客买什么';
+    seedInput.value = S.creator.seed || '';
+    seedInput.oninput = function () { S.creator.seed = this.value; };
+    f2.appendChild(seedInput);
+    panel.appendChild(f2);
+
+    var summary = el('div', 'wiz-block');
+    summary.appendChild(el('div', 'wiz-name', (cat ? cat.emoji + ' ' + cat.tag : '未选分类') + ' · ' + (S.creator.kind === 'story' ? '剧情卡' : '角色卡')));
+    summary.appendChild(el('div', 'wiz-sub', sk ? ('骨架：' + sk.title) : '不使用骨架（自由发挥）'));
+    panel.appendChild(summary);
+
+    var row = el('div', 'row gap wrap');
+    var btnDraft = el('button', 'btn btn-sm btn-primary', '生成草稿');
+    btnDraft.onclick = function () { makeDraft(false); };
+    var btnAi = el('button', 'btn btn-sm', '✨ 让 AI 直接写一版');
+    btnAi.onclick = function () { makeDraft(true); };
+    row.appendChild(btnDraft);
+    row.appendChild(btnAi);
+    panel.appendChild(row);
+
+    panel.appendChild(el('p', 'muted xs', '「生成草稿」= 用模板和骨架拼出一版可以改的初稿；「让 AI 写」= 额外调用你配置的模型（本地或云端）扩写。没有模型也能用前者。'));
+  }
+
+  /** 从向导收尾：拼草稿 → 打开编辑器 */
+  function makeDraft(useAi) {
+    var cat = FYCreator.category(S.creator.tag);
+    if (!cat) { toast('先选一个分类', 'warn'); return; }
+    var sk = (S.creator.skeleton !== null && S.creator.skeleton !== undefined)
+      ? cat.skeletons[S.creator.skeleton] : null;
+    var seed = { name: (S.creator.name || '').trim() };
+    var draft;
+    if (sk) {
+      draft = FYCreator.draftFromSkeleton(cat.tag, sk, seed);
+    } else {
+      /* 不用骨架也要给一份像样的底：分类要点直接变成系统提示词 */
+      draft = {
+        name: seed.name,
+        avatar: cat.emoji,
+        tagline: '',
+        persona: '',
+        greeting: '',
+        scenario: '',
+        examples: '',
+        systemPrompt: FYCreator.composeSystemPrompt(seed.name, cat, {}),
+        temperature: cat.defaultTemp,
+        tags: cat.suggestedTags.slice(0, FYCreator.GATE.tagsMax),
+        kind: S.creator.kind || cat.defaultKind,
+        plot: (S.creator.kind || cat.defaultKind) === 'story'
+      };
+    }
+    draft.kind = S.creator.kind || cat.defaultKind;
+    draft.plot = draft.kind === 'story';
+    if (draft.kind === 'character') draft.scenario = '';
+    closeSheet($('creatorMask'));
+    openCharSheet(null, draft);
+    if (useAi) {
+      toast('先按模板填好了，正在让 AI 改写…', 'ok', 2600);
+      setTimeout(function () { aiAssist('all'); }, 400);
+    } else {
+      toast('草稿已生成：改到像你自己的为止', 'ok', 3000);
+    }
+  }
+
+  function creatorNext() {
+    if (S.creator.step === 1 && !S.creator.tag) { toast('先选一个分类', 'warn'); return; }
+    if (S.creator.step >= 3) { makeDraft(false); return; }
+    S.creator.step++;
+    renderCreator();
+  }
+
+  function creatorBack() {
+    if (S.creator.step <= 1) return;
+    S.creator.step--;
+    renderCreator();
+  }
+
+  /* ---------------------------------------------------------------------------
+   * 灵感 · 公开参考面板
+   *
+   * 边界（很重要，别越界）：
+   *   - 只借鉴「模式」：标签体系、结构、写法统计；
+   *   - 不抓取、不展示、不打包任何第三方卡片正文；
+   *   - 每个来源都必须标出许可证，界面上要能让用户看见。
+   * ------------------------------------------------------------------------ */
+
+  var refIndexCache = null;
+
+  function loadRefIndex() {
+    if (refIndexCache) return Promise.resolve(refIndexCache);
+    return fetch('creator/reference.json').then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (idx) {
+      refIndexCache = idx || { sources: [] };
+      return refIndexCache;
+    });
+  }
+
+  function openRefSheet() {
+    openSheet($('refMask'));
+    var note = $('refNote');
+    if (note) {
+      note.textContent = '只借鉴模式，不复制正文：这里展示的是公开来源的标签、结构与写法统计，' +
+        '用来找灵感；你写出来的仍然是自己的原创卡（CC0）。每个来源都标了许可证。';
+    }
+    loadRefIndex().then(function (idx) {
+      var sources = (idx.sources || []).filter(function (s) { return s && s.id; });
+      if (!S.refCurrent && sources.length) S.refCurrent = sources[0].id;
+      renderRefSources(sources);
+      loadReference();
+    }).catch(function (e) {
+      $('refSources').innerHTML = '';
+      $('refBody').innerHTML = '';
+      $('refBody').appendChild(el('div', 'err', '参考来源加载失败：' + ((e && e.message) || e)));
+    });
+  }
+
+  function renderRefSources(sources) {
+    var box = $('refSources');
+    box.className = 'chips wrap';
+    box.innerHTML = '';
+    sources.forEach(function (s) {
+      var chip = el('button', 'chip' + (S.refCurrent === s.id ? ' on' : ''), s.name || s.id);
+      chip.title = (s.license ? '许可：' + s.license + '\n' : '') + (s.note || '');
+      chip.onclick = function () {
+        S.refCurrent = s.id;
+        renderRefSources(sources);
+        loadReference();
+      };
+      box.appendChild(chip);
+    });
+  }
+
+  function loadReference() {
+    var body = $('refBody');
+    if (!body) return;
+    body.innerHTML = '';
+    body.appendChild(el('div', 'muted sm', '正在拉取…'));
+    if (!global.FYCreator) return;
+    loadRefIndex().then(function (idx) {
+      var src = (idx.sources || []).filter(function (s) { return s.id === S.refCurrent; })[0];
+      if (!src) throw new Error('没有这个来源');
+      if (src.kind === 'local') { renderLocalRef(src, body); return; }
+      fetchRemoteRef(src, body);
+    }).catch(function (e) {
+      body.innerHTML = '';
+      body.appendChild(el('div', 'err', '拉取失败：' + ((e && e.message) || e)));
+      body.appendChild(el('div', 'muted xs', '离线也照样能用：分类模板与写作要点都随 App 打包，不依赖网络。'));
+    });
+  }
+
+  /* ---------- 本地来源：从自己已有的角色里现算样式统计 ---------- */
+
+  function renderLocalRef(src, body) {
+    body.innerHTML = '';
+    var chars = S.characters || [];
+    body.appendChild(el('p', 'muted sm', src.note || ''));
+
+    if (!chars.length) {
+      body.appendChild(el('div', 'lint-item warn',
+        '你还没有任何角色。先去「📦 卡包」一键导入内置的 160 张，这里就能统计出各类角色的人设长度和开场白写法。'));
+      return;
+    }
+
+    var tagCount = {};
+    var personaLens = [];
+    var greetLens = [];
+    var withExamples = 0;
+    var openers = {};
+    chars.forEach(function (c) {
+      (c.tags && c.tags.length ? c.tags : ['未分类']).forEach(function (t) {
+        tagCount[t] = (tagCount[t] || 0) + 1;
+      });
+      personaLens.push((c.persona || '').replace(/\s/g, '').length);
+      var g = (c.greeting || '').replace(/\s/g, '');
+      greetLens.push(g.length);
+      if ((c.examples || '').length >= 40) withExamples++;
+      var head = g.slice(0, 6);
+      if (head) openers[head] = (openers[head] || 0) + 1;
+    });
+
+    function median(arr) {
+      if (!arr.length) return 0;
+      var a = arr.slice().sort(function (x, y) { return x - y; });
+      return a[Math.floor(a.length / 2)];
+    }
+
+    var stats = el('div', 'ref-item');
+    stats.appendChild(el('div', 'ref-title', '你的角色库：' + chars.length + ' 张'));
+    stats.appendChild(el('div', 'ref-meta',
+      '人设中位长度 ' + median(personaLens) + ' 字 · 开场白中位长度 ' + median(greetLens) + ' 字 · ' +
+      '带示例对话 ' + withExamples + ' 张（' + Math.round(withExamples / chars.length * 100) + '%）'));
+    body.appendChild(stats);
+
+    var tags = Object.keys(tagCount).map(function (t) { return { tag: t, n: tagCount[t] }; })
+      .sort(function (a, b) { return b.n - a.n; });
+    var tagItem = el('div', 'ref-item');
+    tagItem.appendChild(el('div', 'ref-title', '分类分布'));
+    tagItem.appendChild(el('div', 'ref-meta', '标签越集中，说明你的口味越明确；想突破就到向导里换个分类试试。'));
+    var chips = el('div', 'ref-tags');
+    tags.slice(0, 24).forEach(function (t) {
+      chips.appendChild(el('span', 'ref-tag', t.tag + ' ' + t.n));
+    });
+    tagItem.appendChild(chips);
+    body.appendChild(tagItem);
+
+    var openerRows = Object.keys(openers).map(function (k) { return { k: k, n: openers[k] }; })
+      .sort(function (a, b) { return b.n - a.n; }).slice(0, 8);
+    var opItem = el('div', 'ref-item');
+    opItem.appendChild(el('div', 'ref-title', '开场白起手式 Top ' + openerRows.length));
+    opItem.appendChild(el('div', 'ref-meta', '开头雷同是最容易被察觉的"AI 味"。如果你的开场白都从同一句起手，换一个动作开场。'));
+    var opTags = el('div', 'ref-tags');
+    openerRows.forEach(function (r) { opTags.appendChild(el('span', 'ref-tag', r.k + '… ×' + r.n)); });
+    opItem.appendChild(opTags);
+    body.appendChild(opItem);
+
+    var tip = el('div', 'ref-item');
+    tip.appendChild(el('div', 'ref-title', '拿这些数字做什么'));
+    tip.appendChild(el('div', 'ref-meta',
+      '人设比中位数短很多 → 大概率撑不住三轮对话；开场白明显偏长 → 模型容易跟着啰嗦。' +
+      '这些是"风格校准"，不是硬标准。'));
+    body.appendChild(tip);
+  }
+
+  /* ---------- 联网来源：只取标题/标签这类结构信息 ---------- */
+
+  function refFetchJson(url) {
+    /* 刻意不加任何自定义请求头：保持"简单请求"，浏览器不会先发 OPTIONS 预检。
+       预检一旦被对方拦掉，面板就整个不可用，不值得为省一点带宽冒这个险。 */
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  function fetchRemoteRef(src, body) {
+    var q = ($('refQuery') && $('refQuery').value || '').trim();
+    var url = String(src.url || '');
+    if (!url) throw new Error('这个来源没配地址');
+    url = url.replace('{q}', encodeURIComponent(q));
+    if (!q && src.urlNoQuery) url = src.urlNoQuery;
+
+    var chain = src.format === 'text'
+      ? fetch(url).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      : refFetchJson(url);
+
+    return chain.then(function (data) {
+      renderRemoteRef(src, data, body, url);
+    }).catch(function (e) {
+      body.innerHTML = '';
+      body.appendChild(el('div', 'err', '拉取失败：' + ((e && e.message) || e) +
+        '（网络不通、来源改了接口、或该来源不允许跨域都会这样）'));
+      var tip = el('div', 'ref-item');
+      tip.appendChild(el('div', 'ref-title', '离线方案'));
+      tip.appendChild(el('div', 'ref-meta',
+        '分类模板、骨架、写作要点、质量评分全部是本地功能，不联网也能用完整流程。'));
+      body.appendChild(tip);
+    });
+  }
+
+  /** 按点号路径取值（"data.nodes" / "license.spdx_id" 都可以） */
+  function pickPath(obj, path) {
+    if (path === undefined || path === null || path === '') return obj;
+    var cur = obj;
+    var parts = String(path).split('.');
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null) return null;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  /** 把 {a:{...},b:{...}} 这种对象展开成 [{key:'a',...},…]：
+      远程来源给数组也行（GitHub items、chub nodes）、给「字段名→定义」的对象也行（HF schema）。 */
+  function asItemList(v) {
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === 'object') {
+      return Object.keys(v).map(function (k) {
+        var val = v[k];
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+          return Object.assign({ key: k }, val);
+        }
+        return { key: k, value: val };
+      });
+    }
+    return [];
+  }
+
+  /** 模板替换：'★{starCount} · 许可：{license.spdx_id}' */
+  function fillTemplate(tpl, item) {
+    return String(tpl).replace(/\{([^}]+)\}/g, function (_, path) {
+      var v = pickPath(item, path.trim());
+      if (v === null || v === undefined || v === '') return '—';
+      return String(v);
+    });
+  }
+
+  /** 客户端过滤：来源可以用 {field, eq|ne} 剔掉不该显示的内容（例如成人向标记） */
+  function passesRefFilter(src, item) {
+    var fs = src && src.filter;
+    if (!Array.isArray(fs) || !fs.length) return true;
+    for (var i = 0; i < fs.length; i++) {
+      var f = fs[i] || {};
+      if (!f.field) continue;
+      var v = pickPath(item, f.field);
+      if (Object.prototype.hasOwnProperty.call(f, 'eq') && v !== f.eq) return false;
+      if (Object.prototype.hasOwnProperty.call(f, 'ne') && v === f.ne) return false;
+    }
+    return true;
+  }
+
+  function renderRemoteRef(src, data, body, url) {
+    body.innerHTML = '';
+    var all = asItemList(pickPath(data, src.itemsPath));
+    var list = all.filter(function (it) { return passesRefFilter(src, it); });
+    var dropped = all.length - list.length;
+
+    var head = el('div', 'ref-item');
+    head.appendChild(el('div', 'ref-title', src.name || '参考来源'));
+    head.appendChild(el('div', 'ref-meta',
+      '许可：' + (src.license || '未标注（谨慎使用）') +
+      ' · 取到 ' + list.length + ' 条结构信息' +
+      (dropped > 0 ? '（按内容标记过滤掉 ' + dropped + ' 条）' : '') +
+      ' · 只展示标题与标签这类结构信息，不展示正文'));
+    if (src.note) head.appendChild(el('div', 'ref-meta', src.note));
+    body.appendChild(head);
+
+    if (!list.length) {
+      body.appendChild(el('div', 'lint-item warn',
+        '这个来源没有返回可用的条目（可能接口改了、关键词没匹配上，或返回的内容都被过滤了）。'));
+      return;
+    }
+
+    var map = src.map || {};
+    var labels = src.labels || {};
+    var descs = src.descs || {};
+    var limit = Math.min(Number(src.limit) || 20, list.length);
+    for (var i = 0; i < limit; i++) {
+      var it = list[i] || {};
+      var key = it.key;
+      var title = map.title ? pickPath(it, map.title) : null;
+      if (title === undefined || title === null || title === '') title = key;
+      if (key && labels[key]) title = title + ' · ' + labels[key];
+      var sub = map.sub ? pickPath(it, map.sub) : ((key && descs[key]) ? descs[key] : '');
+      var meta = map.meta ? fillTemplate(map.meta, it) : '';
+      var tags = map.tags ? pickPath(it, map.tags) : null;
+
+      var item = el('div', 'ref-item');
+      item.appendChild(el('div', 'ref-title', String(title || ('条目 ' + (i + 1))).slice(0, 90)));
+      if (sub) item.appendChild(el('div', 'ref-meta', String(sub).slice(0, 160)));
+      if (meta) item.appendChild(el('div', 'ref-meta', String(meta).slice(0, 120)));
+      if (Array.isArray(tags) && tags.length) {
+        var box = el('div', 'ref-tags');
+        tags.slice(0, 12).forEach(function (t) { box.appendChild(el('span', 'ref-tag', String(t).slice(0, 20))); });
+        item.appendChild(box);
+      }
+      body.appendChild(item);
+    }
+    var foot = el('div', 'muted xs');
+    foot.textContent = '来源：' + url;
+    body.appendChild(foot);
   }
 
   /* ---------- 角色卡导入 / 导出（chara_card_v2，见 cards.js） ---------- */
@@ -1251,27 +2088,33 @@
   }
 
   function saveCharSheet() {
-    var name = $('fName').value.trim();
-    if (!name) { $('charSheetErr').hidden = false; $('charSheetErr').textContent = '请填一个名字'; return; }
-    var patch = {
-      id: S.editChar ? S.editChar.id : '',
-      name: name,
-      avatar: ($('fAvatar').value || '🙂').trim().slice(0, 4),
-      tagline: $('fTagline').value.trim(),
-      persona: $('fPersona').value.trim(),
-      greeting: $('fGreeting').value,
-      examples: $('fExamples').value,
-      systemPrompt: $('fSystem').value.trim() || FYStore.DEFAULT_SYSTEM_PROMPT,
-      temperature: Number($('fTemp').value),
-      createdAt: S.editChar ? S.editChar.createdAt : 0,
-      builtin: S.editChar ? S.editChar.builtin : false
-    };
+    var patch = collectCharForm();
+    if (!patch.name) {
+      $('charSheetErr').hidden = false;
+      $('charSheetErr').textContent = '请填一个名字';
+      return;
+    }
+    /* 质量闸门：有硬伤不拦着保存，但要用户知道自己在存什么 */
+    var r = S.lint || (global.FYCreator ? FYCreator.lint(patch, {}) : null);
+    if (r && r.errors > 0) {
+      confirmAction('还有 ' + r.errors + ' 处不达标',
+        '「质量评分」里标红的 ' + r.errors + ' 条是发布级标准（人设长度、开场白、示例对话、/no_think 等）。' +
+        '照样保存也能聊，只是更容易出戏。',
+        '就这样保存', function () { doSaveChar(patch); });
+      return;
+    }
+    doSaveChar(patch);
+  }
+
+  function doSaveChar(patch) {
     var saved = S.store.saveCharacter(patch);
     closeSheet($('charSheetMask'));
     toast('已保存「' + saved.name + '」', 'ok');
-    fyLog('角色已保存 id=' + saved.id);
+    fyLog('角色已保存 id=' + saved.id + ' 分类=' + (saved.tags || []).join('/') + ' 类型=' + saved.kind);
     S.characters = S.store.listCharacters();
+    S.charCount = -1;   /* 让分类 chips 按新标签重算 */
     if (S.session) { S.session = S.store.getSession(S.session.id) || S.session; }
+    renderCharCats();
     renderCharacters();
     if (S.view === 'chat') { renderChatHeader(); renderMessages(); }
   }
@@ -3251,12 +4094,28 @@
     $('obLan').onclick = function () { finishOnboarding('lan'); };
 
     /* 角色页 */
-    $('btnNewChar').onclick = function () { openCharSheet(null); };
+    $('btnNewChar').onclick = openCreatorWizard;
+    $('btnIdea').onclick = openRefSheet;
     $('btnImportCard').onclick = function () {
       if (!bridgeAlive()) { toast('网页预览模式不能选文件', 'warn'); return; }
       var r = fyCall('pickCharacterCard', []);
       if (r && r.ok === false) toast((r.message || '打不开文件选择器'), 'warn', 3000);
     };
+    /* 创作者工具：向导 */
+    $('btnCreatorClose').onclick = function () { closeSheet($('creatorMask')); };
+    $('btnCreatorNext').onclick = creatorNext;
+    $('btnCreatorBack').onclick = creatorBack;
+    $('btnCreatorSkip').onclick = function () {
+      closeSheet($('creatorMask'));
+      openCharSheet(null);
+      toast('已进入手填模式', 'ok');
+    };
+    /* 灵感 / 公开参考 */
+    $('btnRefClose').onclick = $('btnRefDone').onclick = function () { closeSheet($('refMask')); };
+    $('btnRefLoad').onclick = loadReference;
+    $('refQuery').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); loadReference(); }
+    });
     $('btnCharExport').onclick = exportCharCard;
     $('btnSearchClose').onclick = closeSearchSheet;
     $('btnPackClose').onclick = function () { closeSheet($('packMask')); };
@@ -3335,6 +4194,36 @@
       });
     };
     $('fTemp').oninput = function () { $('fTempVal').textContent = Number($('fTemp').value).toFixed(2); };
+
+    /* 创作者工具：编辑面板里的 AI 辅助与质量评分 */
+    $('btnAiPersona').onclick = function () { aiAssist('persona'); };
+    $('btnAiPolish').onclick = function () { aiAssist('polish'); };
+    $('btnAiTagline').onclick = function () { aiAssist('tagline'); };
+    $('btnAiGreeting').onclick = function () { aiAssist('greeting'); };
+    $('btnAiExamples').onclick = function () { aiAssist('examples'); };
+    $('btnAiScenario').onclick = function () { aiAssist('scenario'); };
+    $('btnAiSystem').onclick = function () { aiAssist('system'); };
+    $('btnCatGuide').onclick = openCategoryGuide;
+    $('btnSkeleton').onclick = openSkeletonPicker;
+    $('btnLintRefresh').onclick = function () { refreshLint(); toast('已重新评分', 'ok', 1600); };
+    /* 改动任何字段都重算评分：分数要跟着人一起呼吸，用户才有反馈（输入时防抖） */
+    ['fName', 'fTagline', 'fPersona', 'fScenario', 'fGreeting', 'fExamples', 'fSystem'].forEach(function (id) {
+      var node = $(id);
+      if (node) node.addEventListener('input', scheduleLint);
+    });
+    $('btnCharPreview').onclick = function () {
+      /* 试聊：先存下来再开一个会话，省得用户"存了才能试" */
+      var patch = collectCharForm();
+      if (!patch.name) { $('charSheetErr').hidden = false; $('charSheetErr').textContent = '请填一个名字'; return; }
+      var saved = S.store.saveCharacter(patch);
+      S.characters = S.store.listCharacters();
+      S.charCount = -1;
+      closeSheet($('charSheetMask'));
+      renderCharCats();
+      renderCharacters();
+      openSoloChat(saved.id, '');
+      toast('已保存「' + saved.name + '」，这是试聊会话', 'ok', 3000);
+    };
 
     /* 聊天页 */
     $('btnSend').onclick = function () { sendUserMessage(); };
@@ -3769,6 +4658,31 @@
     metaForMessage: metaForMessage,
     memoryHint: memoryHint,
     startEngine: startEngine,
+    /* 创作者工具（测试要能逐步驱动向导、评分与参考面板） */
+    openCreatorWizard: openCreatorWizard,
+    renderCreator: renderCreator,
+    creatorNext: creatorNext,
+    creatorBack: creatorBack,
+    makeDraft: makeDraft,
+    openCharSheet: openCharSheet,
+    collectCharForm: collectCharForm,
+    refreshLint: refreshLint,
+    saveCharSheet: saveCharSheet,
+    doSaveChar: doSaveChar,
+    aiAssist: aiAssist,
+    applyAssistPatch: applyAssistPatch,
+    openCategoryGuide: openCategoryGuide,
+    openSkeletonPicker: openSkeletonPicker,
+    renderFTags: renderFTags,
+    renderFKind: renderFKind,
+    openRefSheet: openRefSheet,
+    loadReference: loadReference,
+    renderLocalRef: renderLocalRef,
+    renderRemoteRef: renderRemoteRef,
+    asItemList: asItemList,
+    fillTemplate: fillTemplate,
+    passesRefFilter: passesRefFilter,
+    pickPath: pickPath,
     selftest: runSelftest
   };
 
