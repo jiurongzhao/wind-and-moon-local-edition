@@ -42,5 +42,5 @@ echo "✅ 已生成：$OUT（$(du -h "$OUT" | cut -f1)）"
 echo "   sha256: $(sha256sum "$OUT" | cut -d' ' -f1)"
 echo
 echo "下一步：把上面这个文件传到 Gitee 仓库的「发行版」附件，然后告诉使用者："
-echo "  export GITEE_MIRROR=https://gitee.com/<用户名>/fengyue-local/releases/download/v1.0.0/$(basename "$OUT")"
+echo "  export GITEE_MIRROR=https://gitee.com/zhaojiurong/wind-and-moon-local-edition/releases/download/v1.0.0/$(basename "$OUT")"
 echo "  ./tools/fetch-engine.sh"

@@ -74,7 +74,7 @@ cd ~/2/fy && apksigner verify --print-certs fy.apk
 ```bash
 # 1) 首次推送（HTTPS：用户名 + 私人令牌当密码；或配好 SSH 公钥后用 git@gitee.com:...）
 cd ~/2/fy
-git remote add origin https://gitee.com/<你的用户名>/fengyue-local.git
+git remote add origin git@gitee.com:zhaojiurong/wind-and-moon-local-edition.git
 git push -u origin main
 
 # 2) 打包并打标签

@@ -47,7 +47,7 @@ cd tests && npm install # 首次
 # 然后在 Gitee 仓库 → 发行版 → 新建，上传这个 tar.gz
 
 # 其他人这样取（脚本会优先用镜像）：
-export GITEE_MIRROR=https://gitee.com/<用户名>/fengyue-local/releases/download/v1.0.0/native-b11552.tar.gz
+export GITEE_MIRROR=https://gitee.com/zhaojiurong/wind-and-moon-local-edition/releases/download/v1.0.0/native-b11552.tar.gz
 ./tools/fetch-engine.sh
 ```
 

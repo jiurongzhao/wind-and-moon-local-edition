@@ -1,6 +1,6 @@
 # 风月·本地版（fy）
 
-<!-- 建好仓库后把下面的 your-name 换成你的 Gitee 用户名/组织名，再删掉这一行注释 -->
+<!-- 仓库：https://gitee.com/zhaojiurong/wind-and-moon-local-edition -->
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
@@ -22,7 +22,7 @@
 **自己构建**（Termux 或任意 Linux，不需要 Android Studio / Gradle / NDK）：
 
 ```bash
-git clone https://gitee.com/your-name/fengyue-local.git && cd fengyue-local
+git clone https://gitee.com/zhaojiurong/wind-and-moon-local-edition.git && cd wind-and-moon-local-edition
 ./tools/fetch-deps.sh     # 拉两个第三方大件：llama.cpp 预编译引擎 + android.jar
                           # 国内网络慢的话见 CONTRIBUTING 里的「依赖镜像」一节
 ./build.sh                # 产出 fy.apk（release 签名）
