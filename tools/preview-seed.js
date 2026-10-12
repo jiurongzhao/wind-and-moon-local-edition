@@ -75,10 +75,18 @@
   function go() {
     var App = window.FYApp;
     if (!App) return;
+    try { App.state.characters = App.state.store.listCharacters(); } catch (e) {}
     App.state.settings = App.state.store.saveSettings({ appearance: theme === 'light' ? 'light' : 'dark' });
     App.applyAppearance();
     if (view === 'chat' || view === 'chatlight') {
-      var s = App.state.store.listSessions()[0];
+      var st = App.state.store;
+      var s = st.listSessions()[0];
+      var ch0 = st.listCharacters()[0];
+      /* 截图要好看：如果会话绑的角色已经不存在（种子与 App 预设种入抢过），
+         就地把它重新指到一个有效角色，避免截出「（角色已删除）」 */
+      if (s && ch0 && (!(s.characterIds || []).length || !st.getCharacter(s.characterIds[0]))) {
+        s = st.saveSession(Object.assign({}, s, { characterIds: [ch0.id], title: ch0.name }));
+      }
       if (s) App.openSessionById(s.id);
       App.switchView('chat');
       /* 剧情选项栏是从 S.lastOptions 渲染的（真实流程里由流式解析写入），这里手动摆出来 */

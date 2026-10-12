@@ -532,6 +532,7 @@
     ttsRate: 1,
     theme: '#7c5cff',
     appearance: 'dark',      /* dark | light | auto（跟随系统） */
+    bgPattern: true,         /* 背景图案（星野/点阵）开关 */
     lastModel: ''
   };
 

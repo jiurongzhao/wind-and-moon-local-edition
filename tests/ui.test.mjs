@@ -1121,6 +1121,64 @@ window.FY.testProvider = realFetch3;
 S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
 window.FYApp.renderProviderUI();
 
+console.log('\n【26】背景图案开关 + 品牌色自动配色（对比度）');
+const root2 = doc.documentElement;
+/* 默认开启图案 */
+S.settings = S.store.saveSettings({ bgPattern: true });
+window.FYApp.applyAppearance();
+check('默认开启背景图案（html 上没有 data-bg=off）', !root2.hasAttribute('data-bg'),
+  'data-bg=' + root2.getAttribute('data-bg'));
+/* 关掉 */
+S.settings = S.store.saveSettings({ bgPattern: false });
+window.FYApp.applyAppearance();
+check('关闭后给 html 打上 data-bg=off（CSS 里隐藏图案层）', root2.getAttribute('data-bg') === 'off');
+check('设置能落盘', S.store.getSettings().bgPattern === false,
+  String(S.store.getSettings().bgPattern));
+/* 再打开 */
+S.settings = S.store.saveSettings({ bgPattern: true });
+window.FYApp.applyAppearance();
+check('可以再次打开', !root2.hasAttribute('data-bg'));
+check('图案层用的是 CSS 变量（深浅主题各自一套）',
+  /--bg-stars/.test(doc.defaultView.getComputedStyle(root2).getPropertyValue('--bg-stars') ||
+    fs.readFileSync(path.join(UI, 'style.css'), 'utf8'))
+  && /body::before/.test(fs.readFileSync(path.join(UI, 'style.css'), 'utf8')),
+  '（检查样式里存在变量与图层）');
+
+/* 品牌色亮度 → 叠在其上的文字该黑还是白（浅色主题色曾是"白字看不清"的重灾区） */
+const lum = window.FYApp.luminance;
+check('亮度函数：黑≈0 / 白≈1', lum('#000000') < 0.01 && lum('#ffffff') > 0.99,
+  lum('#000000').toFixed(3) + ' / ' + lum('#ffffff').toFixed(3));
+for (const c of ['#ffb020', '#00c2b2', '#3fb6ff', '#ffd166']) {
+  S.settings = S.store.saveSettings({ appearance: 'dark', theme: c });
+  window.FYApp.applyAppearance();
+  const on = window.getComputedStyle(root2).getPropertyValue('--on-accent').trim();
+  const bb = window.getComputedStyle(root2).getPropertyValue('--bubble-b').trim();
+  check('亮色主题色 ' + c + ' → 叠字改为深色（不再白字）', on === '#1a1526', 'on-accent=' + on);
+  check('  渐变的第二档也变亮了（两端都够对比）', bb !== c && bb.length === 7, 'bubble-b=' + bb);
+}
+S.settings = S.store.saveSettings({ appearance: 'dark', theme: '#7c5cff' });
+window.FYApp.applyAppearance();
+check('深色主题色仍用白字', window.getComputedStyle(root2).getPropertyValue('--on-accent').trim() === '#ffffff',
+  window.getComputedStyle(root2).getPropertyValue('--on-accent').trim());
+check('浅色主题下品牌色被压深（保证亮底可读）',
+  (() => { S.settings = S.store.saveSettings({ appearance: 'light', theme: '#7c5cff' });
+    window.FYApp.applyAppearance();
+    const strong = window.getComputedStyle(root2).getPropertyValue('--accent-strong').trim();
+    return strong.length === 7 && parseInt(strong.slice(1, 3), 16) < parseInt('7c', 16); })(),
+  window.getComputedStyle(root2).getPropertyValue('--accent-strong').trim());
+
+/* 把"主题色选择器里所有颜色"都扫一遍：气泡上的字必须 ≥4.5:1（WCAG AA 正文） */
+const SWATCHES = ['#7c5cff', '#b06bff', '#3fb6ff', '#00c2b2', '#35d07f', '#ffb020', '#ff6b9d', '#ff5f6d'];
+const bad = SWATCHES.filter((c) => {
+  const pick = window.FYApp.pickOnAccent(c);
+  return window.FYApp.contrastRatio(pick.on, pick.base) < 4.5;
+});
+check('8 个可选主题色全部满足正文对比度 ≥4.5:1（气泡文字看得清）', bad.length === 0,
+  bad.length ? ('不达标：' + bad.join(',')) : SWATCHES.map((c) => c + '→' + window.FYApp.pickOnAccent(c).on).join(' '));
+
+S.settings = S.store.saveSettings({ appearance: 'dark', theme: '#7c5cff', bgPattern: true });
+window.FYApp.applyAppearance();
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

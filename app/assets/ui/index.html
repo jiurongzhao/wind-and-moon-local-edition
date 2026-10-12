@@ -100,7 +100,7 @@
       <div class="composer" id="composer">
         <button class="icon-btn round" id="btnMic" aria-label="语音输入">🎤</button>
         <div class="composer-input-wrap">
-          <textarea id="input" class="composer-input" rows="1" placeholder="说点什么…（Shift+Enter 换行）"></textarea>
+          <textarea id="input" class="composer-input" rows="1" placeholder="说点什么…"></textarea>
         </div>
         <button class="icon-btn round primary" id="btnSend" aria-label="发送">➤</button>
         <button class="icon-btn round danger" id="btnStop" aria-label="停止生成" hidden>■</button>
@@ -166,15 +166,15 @@
           </div>
           <div class="row gap">
             <div class="field grow">
-              <label class="label">上下文 ctx</label>
+              <label class="label">上下文长度 ctx</label>
               <input class="input" id="setCtx" type="number" min="512" step="512" inputmode="numeric">
             </div>
             <div class="field grow">
-              <label class="label">线程（0=自动）</label>
+              <label class="label">线程数（0=自动）</label>
               <input class="input" id="setThreads" type="number" min="0" max="16" inputmode="numeric">
             </div>
             <div class="field grow">
-              <label class="label">GPU 层</label>
+              <label class="label">GPU 加速层</label>
               <input class="input" id="setGpu" type="number" min="0" max="99" inputmode="numeric">
             </div>
           </div>
@@ -275,11 +275,11 @@
             <input class="range" id="setMaxTokens" type="range" min="64" max="2048" step="64">
           </div>
           <div class="field">
-            <label class="label">送入模型的历史条数 <b id="valHist">20</b></label>
+            <label class="label">带入对话的历史条数 <b id="valHist">20</b></label>
             <input class="range" id="setHist" type="range" min="4" max="60" step="2">
           </div>
           <div class="field">
-            <label class="label">记忆压缩阈值（消息条数） <b id="valMemTh">20</b></label>
+            <label class="label">自动整理记忆：超过多少条消息 <b id="valMemTh">20</b></label>
             <input class="range" id="setMemTh" type="range" min="8" max="80" step="2">
           </div>
         </div>
@@ -316,11 +316,16 @@
             <label class="label">主题色</label>
             <div class="swatches" id="swatches"></div>
           </div>
+          <div class="rows" style="margin-bottom:10px">
+            <label class="row-switch"><span>背景图案<br><span class="muted xs">深色为星野，浅色为极淡点阵</span></span>
+              <span class="switch"><input type="checkbox" id="setBgPattern"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+            </label>
+          </div>
           <div class="rows">
             <label class="row-switch"><span>默认开启剧情模式</span>
               <span class="switch"><input type="checkbox" id="setPlotDefault"><span class="switch-track"><span class="switch-thumb"></span></span></span>
             </label>
-            <label class="row-switch"><span>关闭 Qwen3 思考模式（/no_think）</span>
+            <label class="row-switch"><span>关闭思考模式（更快，直出正文）</span>
               <span class="switch"><input type="checkbox" id="setNoThink"><span class="switch-track"><span class="switch-thumb"></span></span></span>
             </label>
             <label class="row-switch"><span>显示「思考过程」折叠区</span>

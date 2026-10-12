@@ -423,7 +423,9 @@
       }
       var meta = el('div', 'char-meta');
       if (sess) meta.appendChild(el('span', 'badge accent', fmtWhen(sess.updatedAt) + '聊过'));
-      meta.appendChild(el('span', 'badge', 'T ' + (c.temperature || 0).toFixed(2)));
+      var temp = el('span', 'badge', '🌡 ' + (c.temperature || 0).toFixed(2));
+      temp.title = '采样温度：越高越天马行空，越低越稳定';
+      meta.appendChild(temp);
       card.appendChild(meta);
 
       var edit = el('button', 'char-edit', '✏️');
@@ -543,6 +545,9 @@
   function openSessionById(sid) {
     var s = S.store.getSession(sid);
     if (!s) { toast('这个会话已经不存在了', 'warn'); return false; }
+    /* 角色列表可能刚被导入/删除过（例如刚导完卡就直接进会话），
+       不刷新的话会话头部会误显示「角色已删除」 */
+    S.characters = S.store.listCharacters();
     S.session = s;
     S.store.setActiveSessionId(sid);
     S.messages = S.store.listMessages(sid);
@@ -2143,6 +2148,13 @@
       root.setProperty('--accent-soft', 'rgba(' + r + ',' + g + ',' + b + ',.18)');
       root.setProperty('--accent-line', 'rgba(' + r + ',' + g + ',' + b + ',.42)');
       root.setProperty('--accent-strong', isLightAppearance() ? shade(color, .72) : tint(color, .22));
+      /* 关键：用户可能挑一个很亮的主题色（黄/青/绿），此时白字只有 1.4~2.9:1，根本看不清。
+         这里按相对亮度自动决定叠在品牌色上用黑字还是白字，并把气泡渐变第二档
+         往"文字的反方向"调，保证渐变两端都够对比度。 */
+      var pick = pickOnAccent(color);
+      root.setProperty('--on-accent', pick.on);
+      root.setProperty('--bubble-b', pick.second);
+      root.setProperty('--accent-solid', pick.base);   /* 气泡/主按钮用的可读底色 */
     }
     syncThemeColorMeta();
   }
@@ -2166,6 +2178,9 @@
     var el = document.documentElement;
     if (light) el.setAttribute('data-theme', 'light');
     else el.removeAttribute('data-theme');
+    /* 背景图案（星野 / 点阵）开关 */
+    if (S.settings && S.settings.bgPattern === false) el.setAttribute('data-bg', 'off');
+    else el.removeAttribute('data-bg');
     /* 顺手把状态栏/浏览器 UI 颜色也切过去 */
     syncThemeColorMeta();
     if (S.settings && S.settings.theme) applyTheme(S.settings.theme);
@@ -2174,6 +2189,43 @@
   function syncThemeColorMeta() {
     var meta = qs('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', isLightAppearance() ? '#f7f5fb' : '#0c0b11');
+  }
+
+  /** 对比度（WCAG 公式） */
+  function contrastRatio(a, b) {
+    var la = luminance(a), lb = luminance(b);
+    var hi = Math.max(la, lb), lo = Math.min(la, lb);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  /**
+   * 品牌色上该配黑字还是白字 —— 不是拍阈值，而是**按对比度择优**；
+   * 若两边都不够 4.5:1（中间调颜色常见），就把底色往文字的反方向微调，
+   * 直到达标（最多调 50%，避免把用户选的颜色改得面目全非）。
+   */
+  function pickOnAccent(hex) {
+    var DARK = '#1a1526', WHITE = '#ffffff';
+    if (!/^#([0-9a-f]{6})$/i.test(hex)) return { on: WHITE, base: hex, second: hex };
+    var useDark = contrastRatio(DARK, hex) >= contrastRatio(WHITE, hex);
+    var on = useDark ? DARK : WHITE;
+    var base = hex, t = 0;
+    while (contrastRatio(on, base) < 4.5 && t < 0.5) {
+      t += 0.05;
+      base = useDark ? tint(hex, t) : shade(hex, t);
+    }
+    return { on: on, base: base, second: useDark ? tint(base, .10) : shade(base, .28) };
+  }
+
+  /** WCAG 相对亮度（对比度计算用） */
+  function luminance(hex) {
+    var m = /^#([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return 0;
+    var n = parseInt(m[1], 16);
+    var ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (v) {
+      v = v / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
   }
 
   /** #rrggbb 往白里调 t（0~1） */
@@ -2434,7 +2486,7 @@
     var st = S.engineState.state;
     var pill = $('enginePill');
     var txt = ({ stopped: '未启动', starting: '启动中', loading: '加载中', ready: '就绪', error: '出错' })[st] || st;
-    pill.textContent = '引擎：' + txt;
+    pill.textContent = (isRemote() ? '外部模型：' : '引擎：') + txt;
     pill.className = 'pill ' + (st === 'ready' ? 'ok' : (st === 'error' ? 'err' : (st === 'stopped' ? '' : 'busy')));
 
     var dotCls = { ready: 'ok', error: 'err', stopped: '' }[st] || 'busy';
@@ -2457,11 +2509,17 @@
     var ready = engineReady();
     b.hidden = ready;
     if (!ready) {
-      var t = { stopped: '引擎未启动，还不能聊天', starting: '引擎正在启动…', loading: '模型正在加载…', error: '引擎出错：' + (S.engineState.lastError || S.engineState.message || '未知') };
+      var t = {
+        stopped: isRemote() ? '外部模型还没配好，还不能聊天' : '引擎未启动，还不能聊天',
+        starting: '正在连接外部服务…',
+        loading: '模型正在加载…',
+        error: (isRemote() ? '外部服务出错：' : '引擎出错：') + (S.engineState.lastError || S.engineState.message || '未知')
+      };
       $('chatEngineText').textContent = t[S.engineState.state] || '引擎未就绪';
     }
     var badge = $('btnChatToSettings');
-    badge.textContent = S.models.length ? '去设置里启动引擎' : '去导入模型';
+    badge.textContent = isRemote() ? '去设置模型来源'
+      : (S.models.length ? '去设置里启动引擎' : '去导入模型');
   }
 
   /* ===========================================================================
@@ -2969,6 +3027,11 @@
     $('setGpu').onchange = saveNumSetting('gpuLayers');
 
     /* 设置页：模型 */
+    $('setBgPattern').onchange = function () {
+      S.settings = S.store.saveSettings({ bgPattern: this.checked });
+      applyAppearance();
+      toast(this.checked ? '已开启背景图案' : '已关闭背景图案', 'ok', 1800);
+    };
     $('setAppearance').onchange = function () {
       S.settings = S.store.saveSettings({ appearance: this.value });
       applyAppearance();
@@ -3273,6 +3336,9 @@
     renderCharacters: renderCharacters,
     renderOptionsBar: renderOptionsBar,
     applyAppearance: applyAppearance,
+    luminance: luminance,
+    contrastRatio: contrastRatio,
+    pickOnAccent: pickOnAccent,
     isLightAppearance: isLightAppearance,
     mixHex: mixHex,
     modelNameFromUrl: modelNameFromUrl,
