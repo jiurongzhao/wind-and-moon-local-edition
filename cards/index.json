@@ -1,0 +1,304 @@
+{
+ "spec": "fy_pack_index_v1",
+ "note": "内置卡包目录 · 全部由本项目原创生成（AI 辅助创作），CC0-1.0 许可，可自由使用/修改/分发",
+ "total": 160,
+ "packs": [
+  {
+   "file": "pack-apocalypse.json",
+   "slug": "apocalypse",
+   "name": "末世生存",
+   "emoji": "☢️",
+   "desc": "末世生存：废墟、物资、人心与活下去",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "末世生存",
+    "职场",
+    "日常治愈",
+    "情感树洞"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-campus.json",
+   "slug": "campus",
+   "name": "校园",
+   "emoji": "🎒",
+   "desc": "校园：教室、社团、晚自习与青春期的心事",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "校园",
+    "日常治愈",
+    "职场",
+    "喜剧沙雕",
+    "悬疑推理"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-comedy.json",
+   "slug": "comedy",
+   "name": "喜剧沙雕",
+   "emoji": "🤣",
+   "desc": "喜剧沙雕：无厘头、整活、脱线日常",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "喜剧沙雕",
+    "职场",
+    "日常治愈",
+    "灵异怪谈",
+    "恋爱",
+    "科幻未来",
+    "校园",
+    "情感树洞"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-comfort.json",
+   "slug": "comfort",
+   "name": "情感树洞",
+   "emoji": "🫂",
+   "desc": "情感树洞：倾诉、陪伴、被认真听见",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "情感树洞",
+    "日常治愈",
+    "职场",
+    "恋爱",
+    "校园",
+    "悬疑推理"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-cyberpunk.json",
+   "slug": "cyberpunk",
+   "name": "赛博朋克",
+   "emoji": "🌃",
+   "desc": "赛博朋克：义体、财团、霓虹与底层",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "赛博朋克",
+    "日常治愈",
+    "情感树洞",
+    "职场",
+    "科幻未来",
+    "悬疑推理",
+    "喜剧沙雕",
+    "末世生存",
+    "恐怖惊悚"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-daily-healing.json",
+   "slug": "daily-healing",
+   "name": "日常治愈",
+   "emoji": "🌤",
+   "desc": "日常、治愈、慢生活：适合睡前随便聊两句",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "日常治愈",
+    "职场",
+    "情感树洞",
+    "校园"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-fantasy.json",
+   "slug": "fantasy",
+   "name": "奇幻冒险",
+   "emoji": "🐉",
+   "desc": "奇幻冒险：剑与魔法、公会、遗迹与巨龙",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "奇幻冒险",
+    "日常治愈",
+    "悬疑推理",
+    "喜剧沙雕",
+    "恐怖惊悚",
+    "末世生存"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-history.json",
+   "slug": "history",
+   "name": "历史",
+   "emoji": "📜",
+   "desc": "历史：朝代更替里的具体人，考据向",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "历史",
+    "喜剧沙雕",
+    "悬疑推理",
+    "职场",
+    "末世生存",
+    "日常治愈"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-horror.json",
+   "slug": "horror",
+   "name": "恐怖惊悚",
+   "emoji": "🕯",
+   "desc": "恐怖惊悚：密室、规则怪谈、步步紧逼",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "恐怖惊悚",
+    "职场",
+    "灵异怪谈",
+    "悬疑推理",
+    "校园",
+    "历史"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-mystery.json",
+   "slug": "mystery",
+   "name": "悬疑推理",
+   "emoji": "🔍",
+   "desc": "悬疑推理：案件、线索、审讯与反转",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "悬疑推理",
+    "职场",
+    "恐怖惊悚",
+    "情感树洞",
+    "灵异怪谈"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-mythology.json",
+   "slug": "mythology",
+   "name": "神话志怪",
+   "emoji": "🐚",
+   "desc": "神话志怪：山海经、妖怪、香火与因果",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "神话志怪",
+    "灵异怪谈",
+    "古风仙侠",
+    "恐怖惊悚",
+    "奇幻冒险",
+    "历史",
+    "悬疑推理"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-romance.json",
+   "slug": "romance",
+   "name": "恋爱",
+   "emoji": "💗",
+   "desc": "恋爱线：暧昧、告白、异地、久别重逢",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "恋爱",
+    "职场",
+    "喜剧沙雕",
+    "日常治愈",
+    "情感树洞",
+    "校园"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-scifi.json",
+   "slug": "scifi",
+   "name": "科幻未来",
+   "emoji": "🛰",
+   "desc": "科幻未来：飞船、AI、深空与伦理困境",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "科幻未来",
+    "职场",
+    "情感树洞",
+    "日常治愈",
+    "悬疑推理",
+    "恐怖惊悚",
+    "末世生存",
+    "赛博朋克"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-supernatural.json",
+   "slug": "supernatural",
+   "name": "灵异怪谈",
+   "emoji": "👻",
+   "desc": "灵异怪谈：都市传说、民俗禁忌、阴阳两界",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "灵异怪谈",
+    "历史",
+    "日常治愈",
+    "悬疑推理",
+    "情感树洞",
+    "职场",
+    "喜剧沙雕",
+    "恐怖惊悚"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-workplace.json",
+   "slug": "workplace",
+   "name": "职场",
+   "emoji": "💼",
+   "desc": "职场：项目、加班、甲方与办公室政治",
+   "count": 10,
+   "story": 1,
+   "tags": [
+    "职场",
+    "校园",
+    "日常治愈",
+    "情感树洞",
+    "喜剧沙雕",
+    "悬疑推理"
+   ],
+   "license": "CC0-1.0"
+  },
+  {
+   "file": "pack-wuxia.json",
+   "slug": "wuxia",
+   "name": "古风仙侠",
+   "emoji": "⚔️",
+   "desc": "古风仙侠：江湖恩怨、门派、修行与旧约",
+   "count": 10,
+   "story": 3,
+   "tags": [
+    "古风仙侠",
+    "日常治愈",
+    "历史",
+    "奇幻冒险",
+    "职场",
+    "神话志怪",
+    "灵异怪谈",
+    "情感树洞",
+    "校园",
+    "悬疑推理",
+    "恐怖惊悚"
+   ],
+   "license": "CC0-1.0"
+  }
+ ]
+}

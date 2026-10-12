@@ -37,3 +37,6 @@ tmpwork/
 
 # 发行版附件（打包给镜像用，不进仓库）
 dist/
+
+# 卡包：由 tools/build-pack-index.py 从 cards/ 同步生成，不入库
+app/assets/ui/packs/

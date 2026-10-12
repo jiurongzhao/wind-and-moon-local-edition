@@ -53,11 +53,21 @@
           <button class="btn btn-primary btn-sm" id="btnGoSetup">去设置</button>
         </div>
 
+        <div class="row gap" style="margin-top:10px">
+          <input class="input grow" id="charSearch" placeholder="搜索角色：名字 / 简介 / 人设 / 标签" autocomplete="off">
+          <button class="btn btn-sm" id="btnSurprise" title="随机推荐">🎲 推荐</button>
+          <button class="btn btn-sm" id="btnPacks" title="内置卡包">📦 卡包</button>
+        </div>
+        <div class="chips" id="charCats"></div>
+
         <div class="grid" id="charGrid"></div>
         <div class="empty" id="charEmpty" hidden>
           <div class="empty-emoji">🌙</div>
           <div class="empty-title">还没有角色</div>
-          <div class="empty-text">点右上角「新建」，或从设置里恢复内置角色</div>
+          <div class="empty-text">点右上角「新建」，或一键导入内置的 160 张原创卡</div>
+          <div class="row gap" style="margin-top:12px;justify-content:center">
+            <button class="btn btn-primary btn-sm" id="btnImportPacksEmpty">📦 导入内置卡包</button>
+          </div>
         </div>
       </div>
     </section>
@@ -393,6 +403,42 @@
       <span class="grow"></span>
       <button class="btn" id="btnCharCancel">取消</button>
       <button class="btn btn-primary" id="btnCharSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 内置卡包 ======================= -->
+<div class="sheet-mask" id="packMask" hidden>
+  <div class="sheet" id="packSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">内置卡包</div>
+      <button class="icon-btn" id="btnPackClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted xs" id="packStatus">正在加载卡包目录…</div>
+      <div class="row gap wrap">
+        <button class="btn btn-sm btn-primary" id="btnPackAll">全部导入</button>
+        <button class="btn btn-sm" id="btnPackRefresh">刷新目录</button>
+      </div>
+      <div class="model-list" id="packList"></div>
+      <div class="muted xs" style="margin-top:8px">卡包均为本项目原创（CC0），可自由使用与修改；导入后可在角色页按分类筛选。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 随机推荐 ======================= -->
+<div class="sheet-mask" id="recMask" hidden>
+  <div class="sheet compact" id="recSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">给你推荐</div>
+      <button class="icon-btn" id="btnRecClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted xs" id="recStatus">优先推荐你还没聊过的角色</div>
+      <div class="model-list" id="recList"></div>
+      <div class="row gap" style="margin-top:8px"><button class="btn btn-sm" id="btnRecAgain">换一批</button></div>
     </div>
   </div>
 </div>

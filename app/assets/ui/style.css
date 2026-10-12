@@ -229,6 +229,13 @@ b { font-weight: 600; }
 .icon-btn.round.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .icon-btn.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
 
+.chips {
+  display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+.chips .chip { flex: 0 0 auto; }
+
 .chip {
   appearance: none;
   border: 1px solid var(--line);

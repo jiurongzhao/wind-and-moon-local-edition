@@ -332,20 +332,86 @@
     return S.session.characterIds.map(charById).filter(Boolean);
   }
 
+  /* ---------- 角色分类 / 搜索 / 推荐 ----------
+     分类用的就是卡片自带的 tags（chara_card_v2 标准字段），不额外维护一套体系，
+     导入别人写的卡时标签会一起进来；没有标签的卡归到「未分类」。 */
+
+  var CAT_OTHER = '未分类';
+
+  function allCategories() {
+    var seen = {}, out = [];
+    S.characters.forEach(function (c) {
+      var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
+      tags.forEach(function (t) { if (!seen[t]) { seen[t] = 1; out.push(t); } });
+    });
+    return out;
+  }
+
+  function countByCat(cat) {
+    if (cat === 'all') return S.characters.length;
+    return S.characters.filter(function (c) {
+      var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
+      return tags.indexOf(cat) >= 0;
+    }).length;
+  }
+
+  function charMatches(c) {
+    if (S.charCat && S.charCat !== 'all') {
+      var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
+      if (tags.indexOf(S.charCat) < 0) return false;
+    }
+    var q = (S.charQuery || '').trim().toLowerCase();
+    if (!q) return true;
+    var hay = [c.name, c.tagline, c.persona, (c.tags || []).join(' '), c.kind === 'story' ? '剧情卡' : '']
+      .join(' ').toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }
+
+  function renderCharCats() {
+    var box = $('charCats');
+    if (!box) return;
+    box.innerHTML = '';
+    var cats = ['all'].concat(allCategories());
+    cats.forEach(function (t) {
+      var b = el('button', 'chip' + ((S.charCat || 'all') === t ? ' on' : ''),
+        t === 'all' ? ('全部 ' + countByCat('all')) : (t + ' ' + countByCat(t)));
+      b.onclick = function () {
+        S.charCat = t;
+        renderCharCats();
+        renderCharacters();
+      };
+      box.appendChild(b);
+    });
+  }
+
   function renderCharacters() {
     S.characters = S.store.listCharacters();
     var grid = $('charGrid');
     grid.innerHTML = '';
-    $('charCount').textContent = '共 ' + S.characters.length + ' 位角色';
-    $('charEmpty').hidden = S.characters.length > 0;
+    if (S.charCount !== S.characters.length || !S.charCat) renderCharCats();
+    S.charCount = S.characters.length;
+
+    var shown = S.characters.filter(charMatches);
+    $('charCount').textContent = (shown.length === S.characters.length)
+      ? ('共 ' + S.characters.length + ' 位角色')
+      : ('共 ' + S.characters.length + ' 位角色，筛出 ' + shown.length + ' 位');
+    $('charEmpty').hidden = shown.length > 0;
+    if (!shown.length && S.characters.length) {
+      $('charEmpty').querySelector('.empty-title').textContent = '没有匹配的角色';
+      $('charEmpty').querySelector('.empty-text').textContent = '换个分类或清空搜索词试试';
+    } else if (S.characters.length) {
+      $('charEmpty').querySelector('.empty-title').textContent = '还没有角色';
+      $('charEmpty').querySelector('.empty-text').textContent = '点右上角「新建」，或从设置里恢复内置角色';
+    }
 
     var sessions = S.store.listSessions();
-    S.characters.forEach(function (c) {
+    shown.forEach(function (c) {
       var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
       card.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
 
       var nameRow = el('div', 'char-name');
       nameRow.appendChild(el('span', '', c.name));
+      if (c.kind === 'story') nameRow.appendChild(el('span', 'badge accent', '剧情'));
       card.appendChild(nameRow);
 
       card.appendChild(el('div', 'char-tagline', c.tagline || c.persona.slice(0, 30) || '（没有简介）'));
@@ -370,7 +436,7 @@
 
     var st = S.store.stats();
     $('setupBanner').hidden = !(S.models.length === 0 && !engineReady());
-    fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色，消息 ' + st.messages + ' 条');
+    fyLog('角色列表渲染完成：' + S.characters.length + ' 个角色（筛出 ' + shown.length + '），消息 ' + st.messages + ' 条');
   }
 
   function openCharSheet(c) {
@@ -483,6 +549,186 @@
     renderChatHeader();
     renderMessages();
     return true;
+  }
+
+  /* ---------- 推荐：还没聊过的优先，其次最久没聊的 ---------- */
+
+  function chattedAt() {
+    var seen = {};
+    S.store.listSessions().forEach(function (s) {
+      (s.characterIds || []).forEach(function (id) {
+        seen[id] = Math.max(seen[id] || 0, s.updatedAt || 0);
+      });
+    });
+    return seen;
+  }
+
+  /** 返回 [{c, why}]，尊重当前的分类/搜索筛选 */
+  function recommendPicks(n) {
+    var seen = chattedAt();
+    var pool = S.characters.filter(charMatches);
+    if (!pool.length) pool = S.characters.slice();
+    var fresh = pool.filter(function (c) { return !seen[c.id]; });
+    var old = pool.filter(function (c) { return seen[c.id]; })
+      .sort(function (a, b) { return (seen[a.id] || 0) - (seen[b.id] || 0); });
+    var out = [];
+    function take(arr, why) {
+      while (out.length < n && arr.length) {
+        out.push({ c: arr.splice(Math.floor(Math.random() * arr.length), 1)[0], why: why });
+      }
+    }
+    take(fresh, '还没聊过');
+    take(old, '好久没聊了');
+    return out;
+  }
+
+  function renderRecommend() {
+    var list = $('recList');
+    var st = $('recStatus');
+    list.innerHTML = '';
+    if (!S.characters.length) { st.textContent = '还没有角色，先导入卡包或新建一个'; return; }
+    var picks = recommendPicks(3);
+    st.textContent = '按「还没聊过 → 最久没聊」排序，当前筛选下的随机 3 个';
+    picks.forEach(function (p) {
+      var row = el('div', 'model-row');
+      var col = el('div', 'grow');
+      var nm = el('div', 'model-name', (p.c.avatar || '🙂') + ' ' + p.c.name
+        + (p.c.kind === 'story' ? ' · 剧情卡' : ''));
+      col.appendChild(nm);
+      col.appendChild(el('div', 'model-size', (p.c.tagline || '').slice(0, 40)));
+      col.appendChild(el('div', 'model-size', '推荐理由：' + p.why
+        + ((p.c.tags || []).length ? (' · ' + p.c.tags.join(' / ')) : '')));
+      row.appendChild(col);
+      row.onclick = function () {
+        closeSheet($('recMask'));
+        S.charCat = 'all'; S.charQuery = ''; $('charSearch').value = '';
+        renderCharCats();
+        renderCharacters();
+        openSoloChat(p.c.id, '');
+      };
+      list.appendChild(row);
+    });
+  }
+
+  function openRecSheet() { openSheet($('recMask')); renderRecommend(); }
+
+  /* ---------- 内置卡包（随 APK 打包，一键导入） ---------- */
+
+  var packIndexCache = null;
+
+  function loadPackIndex(force) {
+    if (packIndexCache && !force) return Promise.resolve(packIndexCache);
+    return fetch('packs/index.json').then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (idx) {
+      packIndexCache = idx || { packs: [] };
+      return packIndexCache;
+    });
+  }
+
+  function importedNames() {
+    var m = {};
+    S.characters.forEach(function (c) { m[c.name] = 1; });
+    return m;
+  }
+
+  /** 导入一个卡包文件：已存在同名的跳过，只补缺 */
+  function importPackFile(file, packName) {
+    return fetch('packs/' + file).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function (txt) {
+      var pack = FYCards.parsePack(txt);
+      var have = importedNames();
+      var added = 0, skipped = 0;
+      pack.cards.forEach(function (card) {
+        if (have[card.name]) { skipped++; return; }
+        if (S.store.saveCharacter(card)) { added++; have[card.name] = 1; }
+      });
+      S.characters = S.store.listCharacters();
+      S.charCount = -1;   // 让分类 chips 重新统计
+      renderCharCats();
+      renderCharacters();
+      var label = pack.packName || packName || file;
+      if (added) toast('「' + label + '」导入 ' + added + ' 张' + (skipped ? '（跳过已存在 ' + skipped + ' 张）' : ''), 'ok', 3600);
+      else toast('「' + label + '」里的 ' + skipped + ' 张都已经有了', 'warn', 3000);
+      fyLog('卡包导入：' + label + ' 新增=' + added + ' 跳过=' + skipped + ' 许可=' + (pack.license || '未标注'));
+      return { added: added, skipped: skipped };
+    });
+  }
+
+  /** 一键导入全部内置卡包（新用户最快上手路径） */
+  function importAllPacks() {
+    var btn = $('btnPackAll');
+    var st = $('packStatus');
+    return loadPackIndex(true).then(function (idx) {
+      var packs = idx.packs || [];
+      if (!packs.length) throw new Error('目录为空');
+      var totalAdded = 0, totalSkipped = 0, i = 0;
+      if (btn) { btn.disabled = true; }
+      function step() {
+        if (i >= packs.length) {
+          if (btn) { btn.disabled = false; btn.textContent = '全部导入'; }
+          st.textContent = '全部导入完成：新增 ' + totalAdded + ' 张，跳过已存在 ' + totalSkipped + ' 张';
+          toast('内置卡包：新增 ' + totalAdded + ' 张', 'ok', 3600);
+          fyLog('全部卡包导入完成 新增=' + totalAdded + ' 跳过=' + totalSkipped);
+          return { added: totalAdded, skipped: totalSkipped };
+        }
+        var p = packs[i++];
+        if (btn) btn.textContent = '导入中 ' + i + '/' + packs.length;
+        return importPackFile(p.file, p.name).then(function (r) {
+          totalAdded += r.added; totalSkipped += r.skipped;
+          return step();
+        });
+      }
+      return step();
+    }).catch(function (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '全部导入'; }
+      toast('导入失败：' + ((e && e.message) || e), 'err', 3600);
+      throw e;
+    });
+  }
+
+  function openPackSheet() {
+    openSheet($('packMask'));
+    var st = $('packStatus');
+    var list = $('packList');
+    list.innerHTML = '';
+    st.textContent = '正在加载卡包目录…';
+    loadPackIndex().then(function (idx) {
+      var packs = idx.packs || [];
+      var total = packs.reduce(function (a, p) { return a + (Number(p.count) || 0); }, 0);
+      if (!packs.length) { st.textContent = '没有内置卡包（packs/index.json 为空）'; return; }
+      st.textContent = '内置 ' + packs.length + ' 个卡包 · 共 ' + total + ' 张卡（原创，CC0 许可）';
+      var have = importedNames();
+      packs.forEach(function (p) {
+        var row = el('div', 'model-row');
+        var col = el('div', 'grow');
+        col.appendChild(el('div', 'model-name', (p.emoji || '📦') + ' ' + p.name + ' · ' + p.count + ' 张'));
+        col.appendChild(el('div', 'model-size', (p.tags || []).join(' / ')));
+        col.appendChild(el('div', 'model-size', (p.desc || '').slice(0, 46)));
+        row.appendChild(col);
+        var btn = el('button', 'btn btn-xs', '导入');
+        btn.onclick = function (ev) {
+          ev.stopPropagation();
+          btn.disabled = true;
+          btn.textContent = '导入中';
+          importPackFile(p.file, p.name).then(function (r) {
+            btn.disabled = false;
+            btn.textContent = r.added ? '再检查一次' : '已全部导入';
+          }).catch(function (e) {
+            btn.disabled = false;
+            btn.textContent = '重试';
+            toast('导入失败：' + ((e && e.message) || e), 'err', 3600);
+          });
+        };
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+    }).catch(function (e) {
+      st.textContent = '卡包目录加载失败：' + ((e && e.message) || e) + '（网页预览模式可能没有该文件）';
+    });
   }
 
   /* ---------- 存储后端（多后端可切换，见 store.js 的 BACKENDS） ---------- */
@@ -634,12 +880,15 @@
     var sess = sessionId ? S.store.getSession(sessionId) : null;
     if (!sess) {
       var c = charById(charId);
+      /* 剧情卡（kind=story / plot=true）开局就进剧情模式：它的开场白本来就是一段处境 */
+      var wantPlot = (c && (c.plot || c.kind === 'story')) ? true : !!S.settings.plotDefault;
       sess = S.store.saveSession({
         title: c ? c.name : '新的对话',
         characterIds: [charId],
         mode: 'solo',
-        plot: !!S.settings.plotDefault
+        plot: wantPlot
       });
+      if (c && c.kind === 'story') toast('剧情卡：已自动开启剧情模式', 'ok', 2200);
       fyLog('新建会话 ' + sess.id + ' → ' + (c && c.name));
     }
     activateSession(sess.id);
@@ -2369,6 +2618,23 @@
     };
     $('btnCharExport').onclick = exportCharCard;
     $('btnSearchClose').onclick = closeSearchSheet;
+    $('btnPackClose').onclick = function () { closeSheet($('packMask')); };
+    $('btnRecClose').onclick = function () { closeSheet($('recMask')); };
+    $('btnRecAgain').onclick = renderRecommend;
+    $('btnPacks').onclick = openPackSheet;
+    $('btnPackAll').onclick = importAllPacks;
+    $('btnPackRefresh').onclick = function () { packIndexCache = null; openPackSheet(); };
+    $('btnImportPacksEmpty').onclick = openPackSheet;
+    $('btnSurprise').onclick = openRecSheet;
+    $('charSearch').addEventListener('input', function () {
+      var self = this;
+      if (S.charSearchTimer) clearTimeout(S.charSearchTimer);
+      S.charSearchTimer = setTimeout(function () {
+        S.charQuery = self.value;
+        renderCharCats && renderCharCats();
+        renderCharacters();
+      }, 180);
+    });
     $('searchInput').addEventListener('input', function () {
       if (searchTimer) clearTimeout(searchTimer);
       searchTimer = setTimeout(runSearch, 220);
@@ -2772,6 +3038,13 @@
     exportCharCard: exportCharCard,
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
+    renderCharacters: renderCharacters,
+    renderCharCats: renderCharCats,
+    openSoloChat: openSoloChat,
+    recommendPicks: recommendPicks,
+    openPackSheet: openPackSheet,
+    importPackFile: importPackFile,
+    importAllPacks: importAllPacks,
     openSearchSheet: openSearchSheet,
     runSearch: runSearch,
     openSessionById: openSessionById,

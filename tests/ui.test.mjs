@@ -8,12 +8,28 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import 'fake-indexeddb/auto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
 const UI = path.resolve(__dirname, '../app/assets/ui');
+
+/* 卡包是从 cards/ 同步到 App 资源目录的（生成的目录不入库，见 .gitignore）。
+   直接 `node ui.test.mjs` 时先自动同步一次，免得因为缺 packs/ 而误报失败；
+   没有 python3 就标记为跳过，让【21】自己退让而不是报错。 */
+let PACKS_READY = fs.existsSync(path.join(UI, 'packs', 'index.json'));
+if (!PACKS_READY && fs.existsSync(path.join(ROOT, 'cards'))) {
+  try {
+    execFileSync('python3', [path.join(ROOT, 'tools', 'build-pack-index.py')], { stdio: 'ignore' });
+    PACKS_READY = fs.existsSync(path.join(UI, 'packs', 'index.json'));
+    if (PACKS_READY) console.log('（已自动从 cards/ 同步内置卡包到 app/assets/ui/packs/）');
+  } catch (e) {
+    console.log('（卡包同步失败，将跳过【21】内置卡包校验：' + (e && e.message) + '）');
+  }
+}
 const HTML = fs.readFileSync(path.join(UI, 'index.html'), 'utf8');
 const SCRIPTS = ['store.js', 'cards.js', 'mock.js', 'app.js'];
 
@@ -731,6 +747,150 @@ srStore.deleteSession(srSessA.id);
 srStore.deleteSession(srSessB.id);
 srStore.flushNow();
 await sleep(150);
+
+console.log('\n【20】分类 / 搜索 / 推荐 / 剧情卡 / 卡包导入');
+const catStore = S.store;
+/* 造 4 个角色：3 个带分类，1 个无标签 */
+const mkChar = (name, tags, kind) => catStore.saveCharacter({
+  name, avatar: '🙂', tagline: name + ' 的一句话', persona: name + ' 的人设描述，'.repeat(4),
+  greeting: '（看着你）你好，我是' + name + '。', examples: '用户：hi\n' + name + '：嗯。',
+  systemPrompt: '你扮演' + name + '。/no_think', tags, kind: kind || 'character', plot: kind === 'story',
+});
+const cA = mkChar('甲角色', ['古风仙侠']);
+const cB = mkChar('乙角色', ['恋爱', '日常治愈']);
+const cC = mkChar('丙角色', ['恋爱'], 'story');
+const cD = mkChar('丁角色', []);
+S.characters = catStore.listCharacters();
+
+window.FYApp.renderCharCats();
+const chips = Array.from(doc.querySelectorAll('#charCats .chip')).map((b) => b.textContent);
+check('分类 chips 会生成（含「全部」与「未分类」）',
+  chips.some((t) => t.startsWith('全部')) && chips.some((t) => t.startsWith('恋爱')) && chips.some((t) => t.startsWith('未分类')),
+  chips.join(' | '));
+
+S.charCat = '恋爱';
+window.FYApp.renderCharacters();
+let cards = Array.from(doc.querySelectorAll('#charGrid .char-card .char-name')).map((n) => n.textContent);
+check('按分类筛选只显示该分类的卡',
+  cards.length === 2 && cards.some((t) => t.includes('乙角色')) && cards.some((t) => t.includes('丙角色')),
+  cards.join(' | '));
+check('剧情卡带「剧情」标记',
+  cards.some((t) => t.includes('剧情')), cards.join(' | '));
+
+S.charCat = 'all'; S.charQuery = '人设描述';
+window.FYApp.renderCharacters();
+check('搜索能命中人设正文',
+  doc.querySelectorAll('#charGrid .char-card').length === 4,
+  String(doc.querySelectorAll('#charGrid .char-card').length));
+
+S.charQuery = '丙角色';
+window.FYApp.renderCharacters();
+check('搜索能按名字精确筛出',
+  doc.querySelectorAll('#charGrid .char-card').length === 1,
+  String(doc.querySelectorAll('#charGrid .char-card').length));
+
+S.charQuery = '不存在的词xyz';
+window.FYApp.renderCharacters();
+check('搜不到时显示空状态并提示换词',
+  doc.getElementById('charEmpty').hidden === false && /没有匹配/.test(doc.getElementById('charEmpty').textContent),
+  doc.getElementById('charEmpty').textContent.replace(/\s+/g, ' ').slice(0, 50));
+
+S.charQuery = ''; S.charCat = 'all';
+window.FYApp.renderCharacters();
+
+/* 推荐：还没聊过的优先 */
+const rec1 = window.FYApp.recommendPicks(3);
+check('推荐优先给「还没聊过」的角色',
+  rec1.length === 3 && rec1.every((p) => p.why === '还没聊过'),
+  rec1.map((p) => p.c.name + ':' + p.why).join(', '));
+
+/* 剧情卡开局自动进剧情模式 */
+window.FYApp.openSoloChat(cC.id, '');
+check('剧情卡自动开启剧情模式', S.session && S.session.plot === true,
+  'plot=' + (S.session && S.session.plot) + ' title=' + (S.session && S.session.title));
+const rec2 = window.FYApp.recommendPicks(3);
+check('聊过的角色不再被推荐为「还没聊过」',
+  rec2.every((p) => p.c.name !== '丙角色' || p.why !== '还没聊过'),
+  rec2.map((p) => p.c.name + ':' + p.why).join(', '));
+
+/* 卡包导入：用假的 fetch 返回一个卡包，验证标签/类型保留 + 重复导入跳过 */
+const realFetch = window.fetch;
+window.fetch = async (input) => {
+  const url = String(input);
+  if (url.indexOf('packs/index.json') >= 0) {
+    return new globalThis.Response(JSON.stringify({
+      packs: [{ file: 'pack-test.json', name: '测试卡包', count: 2, tags: ['恋爱'], emoji: '📦', desc: '测试用' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  if (url.indexOf('pack-test.json') >= 0) {
+    return new globalThis.Response(JSON.stringify({
+      spec: 'fy_pack_v1', name: '测试卡包', license: 'CC0-1.0', count: 2,
+      cards: [cA, cB].map((c) => window.FYCards.toCardV2(Object.assign({}, c, { name: c.name + '·包' }))),
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  return realFetch(input);
+};
+const before = S.store.listCharacters().length;
+const r1 = await window.FYApp.importPackFile('pack-test.json', '测试卡包');
+check('卡包导入：新增 2 张', r1.added === 2 && r1.skipped === 0, JSON.stringify(r1));
+const added = S.store.listCharacters().filter((c) => /·包$/.test(c.name));
+check('导入的卡保留了标签与类型',
+  added.length === 2 && added.every((c) => (c.tags || []).length > 0),
+  added.map((c) => c.name + '[' + (c.tags || []).join(',') + ']').join(' | '));
+const r2 = await window.FYApp.importPackFile('pack-test.json', '测试卡包');
+check('重复导入只跳过不重复建卡', r2.added === 0 && r2.skipped === 2, JSON.stringify(r2));
+check('角色总数正确（原 4 + 新增 2）', S.store.listCharacters().length === before + 2,
+  before + ' → ' + S.store.listCharacters().length);
+window.fetch = realFetch;
+
+/* 留一个带分类的角色给后面的卡包集成测试用；其余清理 */
+[cA, cB, cC, cD].forEach((c) => catStore.deleteCharacter(c.id));
+S.store.listCharacters().filter((c) => /·包$/.test(c.name)).forEach((c) => catStore.deleteCharacter(c.id));
+catStore.flushNow();
+await sleep(200);
+
+console.log('\n【21】内置卡包（随 APK 发布）真实性校验');
+if (!PACKS_READY) {
+  console.log('  ⏭  跳过：没有 app/assets/ui/packs/index.json（先跑 python3 tools/build-pack-index.py）');
+} else {
+const idxRes = await window.fetch('packs/index.json');
+const idx = await idxRes.json();
+check('卡包目录存在并列出 16 个分类包', (idx.packs || []).length === 16,
+  '包数=' + (idx.packs || []).length);
+const sumCount = (idx.packs || []).reduce((a, p) => a + p.count, 0);
+check('目录声明的总卡数与逐包相加一致', sumCount === idx.total && idx.total === 160,
+  'total=' + idx.total + ' sum=' + sumCount);
+check('每个包都标了许可与分类标签',
+  (idx.packs || []).every((p) => p.license && (p.tags || []).length > 0),
+  (idx.packs || []).map((p) => p.slug + ':' + p.license).slice(0, 3).join(' '));
+check('目录里有剧情卡统计', (idx.packs || []).every((p) => typeof p.story === 'number'),
+  '剧情卡合计=' + (idx.packs || []).reduce((a, p) => a + p.story, 0));
+
+const beforeNames = {};
+S.store.listCharacters().forEach((c) => { beforeNames[c.name] = 1; });
+const target = (idx.packs || []).find((p) => p.slug === 'mystery');
+const imp = await window.FYApp.importPackFile(target.file, target.name);
+check('真实卡包能一键导入（悬疑推理 10 张）', imp.added === 10,
+  JSON.stringify(imp));
+const newCards = S.store.listCharacters().filter((c) => !beforeNames[c.name]);
+check('导入的卡带分类标签', newCards.every((c) => (c.tags || []).indexOf('悬疑推理') >= 0),
+  newCards.map((c) => c.name + '[' + (c.tags || []).join(',') + ']').join(' | ').slice(0, 90));
+check('导入的剧情卡被正确识别（kind=story / plot）',
+  newCards.filter((c) => c.kind === 'story').length === 3
+  && newCards.filter((c) => c.kind === 'story').every((c) => c.plot === true),
+  '剧情卡=' + newCards.filter((c) => c.kind === 'story').length);
+check('导入的卡人设与开场白完整落地',
+  newCards.every((c) => c.persona.length >= 60 && c.greeting.length >= 20
+    && /\/no_think/.test(c.systemPrompt)),
+  '最短人设=' + Math.min.apply(null, newCards.map((c) => c.persona.length)));
+
+/* 清理导入的卡 */
+newCards.forEach((c) => S.store.deleteCharacter(c.id));
+S.store.flushNow();
+await sleep(200);
+check('清理后角色数回到导入前', S.store.listCharacters().length === Object.keys(beforeNames).length,
+  S.store.listCharacters().length + ' vs ' + Object.keys(beforeNames).length);
+}
 
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);

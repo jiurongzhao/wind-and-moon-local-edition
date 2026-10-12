@@ -32,6 +32,12 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
 
+      - name: 生成内置卡包资源（cards/ → app/assets/ui/packs/）
+        run: python3 tools/build-pack-index.py
+
+      - name: 校验全部卡包（结构/长度/重名/标签）
+        run: python3 tools/check-cards.py --all --stats
+
       - name: 前端集成测试（jsdom）
         working-directory: tests
         run: node ui.test.mjs

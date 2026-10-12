@@ -46,14 +46,16 @@
         post_history_instructions: '',
         alternate_greetings: [],
         character_book: null,
-        tags: [],
+        tags: Array.isArray(p.tags) ? p.tags.slice(0, 6) : [],
         creator: '风月·本地版',
         character_version: '1.0',
         extensions: {
           fy: {
             avatar: str(p.avatar, '🙂'),
             tagline: str(p.tagline),
-            temperature: typeof p.temperature === 'number' ? p.temperature : 0.85
+            temperature: typeof p.temperature === 'number' ? p.temperature : 0.85,
+            kind: p.kind === 'story' ? 'story' : 'character',
+            plot: !!p.plot
           }
         }
       }
@@ -78,8 +80,22 @@
       greeting = str(d.alternate_greetings[0]);
     }
 
+    /* 标签：标准字段是 data.tags（数组）；也兼容字符串写法 */
+    var rawTags = d.tags;
+    var tags = [];
+    if (Array.isArray(rawTags)) tags = rawTags;
+    else if (typeof rawTags === 'string') tags = rawTags.split(/[,,、|/]/);
+    tags = tags.map(function (t) { return String(t).trim(); })
+      .filter(function (t) { return t && t.length <= 12; }).slice(0, 6);
+    /* 类型：优先看扩展字段，其次看有没有 scenario（有世界观的多半是剧情卡） */
+    var kind = ext.kind === 'story' ? 'story' : (ext.kind === 'character' ? 'character'
+      : (str(d.scenario).trim().length >= 30 ? 'story' : 'character'));
+
     return {
       name: name,
+      tags: tags,
+      kind: kind,
+      plot: ext.plot === true || kind === 'story',
       avatar: str(ext.avatar || d.avatar || '', '🙂').slice(0, 8) || '🙂',
       tagline: str(ext.tagline || personality).slice(0, 60),
       persona: persona,
@@ -106,6 +122,7 @@
     var list;
     if (Array.isArray(obj)) list = obj;
     else if (Array.isArray(obj.characters)) list = obj.characters;
+    else if (Array.isArray(obj.cards)) list = obj.cards;      // 本项目的卡包格式 fy_pack_v1
     else if (obj.card && typeof obj.card === 'object') list = [obj.card];
     else list = [obj];
 
@@ -118,6 +135,19 @@
     return out;
   }
 
+  /** 解析卡包（fy_pack_v1）或普通卡数组，返回 {packName, license, cards} */
+  function parsePack(text) {
+    var t = str(text).replace(/^\uFEFF/, '').trim();
+    var obj = JSON.parse(t);
+    var isPack = obj && obj.spec === 'fy_pack_v1';
+    return {
+      packName: isPack ? str(obj.name, '未命名卡包') : '',
+      license: isPack ? str(obj.license) : '',
+      note: isPack ? str(obj.note) : '',
+      cards: parseCards(t)
+    };
+  }
+
   /** 文件名：角色名 + .json，去掉文件名里不安全的字符 */
   function fileNameFor(c) {
     var n = str(c && c.name, 'character').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
@@ -128,6 +158,7 @@
     toCardV2: toCardV2,
     fromCard: fromCard,
     parseCards: parseCards,
+    parsePack: parsePack,
     fileNameFor: fileNameFor
   };
 })(typeof window !== 'undefined' ? window : this);

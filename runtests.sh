@@ -13,6 +13,11 @@ ROOT="$PWD"
 QUICK=0
 [ "${1:-}" = "--quick" ] && QUICK=1
 
+# 卡包从 cards/ 同步到 App 资源（前端测试会读取 packs/index.json）
+if ls "$ROOT"/cards/pack-*.json >/dev/null 2>&1; then
+  python3 "$ROOT/tools/build-pack-index.py" >/dev/null 2>&1 || true
+fi
+
 pass=0; fail=0
 step() { echo; echo "════════ $* ════════"; }
 ok()   { echo "  → 通过"; pass=$((pass+1)); }

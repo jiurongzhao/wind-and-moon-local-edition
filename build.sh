@@ -79,6 +79,11 @@ fi
 rm -rf "$BUILD"
 mkdir -p "$BUILD"/{classes,dex,res,gen,apk}
 
+# 卡包：cards/ 是唯一数据源，构建时同步进 App 资源（必须在 aapt2 之前！）
+if ls "$ROOT"/cards/pack-*.json >/dev/null 2>&1; then
+  python3 "$ROOT/tools/build-pack-index.py" | tail -1
+fi
+
 echo "[1/6] 编译资源 (aapt2 compile)"
 aapt2 compile --dir "$APP/res" -o "$BUILD/res/res.zip"
 

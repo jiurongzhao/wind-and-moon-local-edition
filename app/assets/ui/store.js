@@ -439,6 +439,13 @@
       examples: toStr(p.examples, ''),
       systemPrompt: toStr(p.systemPrompt, '') || DEFAULT_SYSTEM_PROMPT,
       temperature: clamp(toNum(p.temperature, 0.85), 0, 2),
+      /* 分类与类型：
+         tags  —— 分类标签（角色页用来筛选；chara_card_v2 的标准字段）
+         kind  —— character=角色卡 / story=剧情卡（剧情卡自带世界观，开局就进剧情模式）
+         plot  —— 打开这个角色的会话时是否默认开启剧情模式 */
+      tags: Array.isArray(p.tags) ? p.tags.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 6) : [],
+      kind: (p.kind === 'story') ? 'story' : 'character',
+      plot: !!p.plot,
       createdAt: toNum(p.createdAt, t),
       updatedAt: toNum(p.updatedAt, t),
       builtin: !!p.builtin
