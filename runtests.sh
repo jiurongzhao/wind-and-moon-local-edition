@@ -48,6 +48,13 @@ step "1.7/5 大卡库分片用 App 解析器自检（没有 cards/library/ 就�
 (cd "$ROOT/tests" && timeout 600 node library-pack.test.mjs 2>&1 | tail -5)
 [ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
 
+# ---------------------------------------------------------------- 1.8 卡库端到端
+# 需要本地 http 镜像（见 tests/library-e2e.test.mjs 头部注释）；镜像没起就自跳过。
+# 想连 32000 张一起量： FULL=1 node tests/library-e2e.test.mjs
+step "1.8/5 在线卡库端到端（真目录 + 真分片；没起本地镜像就跳过）"
+(cd "$ROOT/tests" && timeout 900 node library-e2e.test.mjs 2>&1 | tail -5)
+[ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+
 # ---------------------------------------------------------------- 2 & 3. Java
 step "2/5 编译 JVM 测试桩"
 rm -rf build/jvmtest && mkdir -p build/jvmtest

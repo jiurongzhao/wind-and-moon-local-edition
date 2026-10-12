@@ -100,7 +100,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 外部模型代理 | ✅ 15 项 JVM 实跑（假上游）：路由拼接、body 逐字节转发、key 注入、**SSE 实时透传**、502 快速失败 |
 | 内置卡包 | ✅ 16 个分类 / 160 张原创卡（CC0），随 APK 发布，有发布前真实性校验 |
 | **在线卡库** | ✅ **16 类 ×（1000 角色卡 + 1000 剧情卡）= 32000 张**（CC0），由 `tools/gen-cards.py` 从叙事母题素材库组合生成；发布闸门 `check-cards.py` **32000 张全过**、App 解析器全量自检全过；每类约 6MB，按需下载不进 APK |
-| `/fetch` 下载代理 | ✅ **26 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
+| `/fetch` 下载代理 | ✅ **27 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
 | 创作者工具 | ✅ 16 分类 × 3 个人设骨架 + 每类写作要点（全部原创 CC0）；七维质量评分（维度口径借鉴 CC-BY-4.0 的 SPB-2603，判定逻辑自研）；AI 辅助扩写走同一条流式通道；`tools/check-creator.py` 校验三份模板 JSON 的对齐关系 |
 | 联网灵感面板 | ✅ 全部端点都用 curl 实测过 CORS：`api.chub.ai`（只取名字与 topics 标签，按 `nsfw_image` 过滤）、`api.github.com`（仓库元数据 + 许可证）、`datasets-server.huggingface.co`（字段结构）。**运行时即时拉取，不打包任何第三方内容** |
 | 性能实测脚本 | ✅ `tests/bench-flags.mjs`（启动参数 A/B）、`tests/bench-prefix.mjs`（前缀复用）、`tests/bench-db.mjs`（数据库真实规模） |

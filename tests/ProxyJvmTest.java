@@ -312,6 +312,19 @@ public class ProxyJvmTest {
         check("chunked 响应边读边数、超上限 → 413",
                 bigChunk.startsWith("HTTP/1.1 413"), bigChunk.split("\r\n")[0]);
 
+        /* 生产构造器（2 参 → allowLoopbackHttp=false）必须连回环明文都拒掉：
+           上面那些回环用例能过，全靠"测试放行"这个开关，别把边界放宽到发布版。
+           dev 构建（MainActivity 用 isDevBuild() 传 true）才允许，用于本地镜像联调。 */
+        AssetServer prod = new AssetServer(new AssetManager(assetsDir), ctx);
+        int prodPort = prod.start();
+        String prodLoop = raw("GET",
+                "http://127.0.0.1:" + prodPort + "/fetch?url="
+                        + enc("http://127.0.0.1:" + upPort + "/lib/pack.json"), null, null);
+        check("生产构造器（不放行回环）拒绝 http://127.0.0.1 的 /fetch",
+                prodLoop.startsWith("HTTP/1.1 400") && prodLoop.contains("只允许 https"),
+                prodLoop.split("\r\n")[0]);
+        prod.stop();
+
         upstream.stop(0);
         server.stop();
 

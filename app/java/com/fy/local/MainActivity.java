@@ -149,7 +149,10 @@ public class MainActivity extends Activity {
         setContentView(web);
 
         try {
-            server = new AssetServer(getAssets(), getApplicationContext());
+            /* dev 构建额外放行 http://127.0.0.1 的 /fetch（本地镜像联调用）；
+               发布版 devBuild=false，仍然只允许 https 外域。 */
+            server = new AssetServer(getAssets(), getApplicationContext(),
+                    AssetServer.DEFAULT_MAX_FETCH_BYTES, devBuild);
             int port = server.start();
             web.loadUrl("http://127.0.0.1:" + port + "/index.html");
             Log.i(TAG, "已加载前端 http://127.0.0.1:" + port + "/index.html");

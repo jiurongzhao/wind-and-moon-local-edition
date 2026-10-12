@@ -737,7 +737,16 @@ def load_banks(rng, only=None):
 
 
 def builtin_names():
+    """内置 160 张 + App 启动时种入的 4 个预设——两边的名字都不能再用。
+    预设名不在 cards/pack-*.json 里，只写在 app.js（id: 'preset_xxx', name: '…'），
+    上一版就漏了它，结果卡库里生成了一个「拾光」，导入时被按名跳过，32000 张少 1 张。"""
     out = set()
+    try:
+        src = open(os.path.join(ROOT, 'app', 'assets', 'ui', 'app.js'), encoding='utf-8').read()
+        for m in re.finditer(r"id:\s*'preset_[a-z0-9]+'\s*,\s*name:\s*'([^']+)'", src):
+            out.add(m.group(1))
+    except Exception:
+        pass
     for f in glob.glob(BUILTIN_GLOB):
         try:
             with open(f, encoding='utf-8') as fh:
