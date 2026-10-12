@@ -48,9 +48,10 @@
           <div class="banner-icon">📦</div>
           <div class="banner-body">
             <div class="banner-title">还没有可用的模型</div>
-            <div class="banner-text">风月完全离线运行，需要先导入或下载一个 GGUF 模型。</div>
+            <div class="banner-text">推荐直接用 <b>DeepSeek</b>：填个 API Key 就能聊，不占手机内存、速度也快；
+              想完全离线再下载本地模型（0.5B，秒回）。</div>
           </div>
-          <button class="btn btn-primary btn-sm" id="btnGoSetup">去设置</button>
+          <button class="btn btn-primary btn-sm" id="btnGoSetup">用 DeepSeek</button>
         </div>
 
         <div class="row gap" style="margin-top:10px">
@@ -194,9 +195,9 @@
             <div class="field">
               <label class="label">服务商预设（一键填地址）</label>
               <select class="input" id="selPreset">
+                <option value="deepseek">DeepSeek（推荐）</option>
                 <option value="">自定义 / 手动填</option>
                 <option value="ark">火山方舟 · 豆包</option>
-                <option value="deepseek">DeepSeek</option>
                 <option value="dashscope">通义千问（兼容模式）</option>
                 <option value="zhipu">智谱 GLM</option>
                 <option value="moonshot">月之暗面 Kimi</option>

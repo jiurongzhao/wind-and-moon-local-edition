@@ -123,15 +123,12 @@ public class ModelStore {
         顺序和说明按实测来：这台机器上 3B + 内存锁定（默认开）是速度与质量的平衡点。 */
     public JSONArray downloadSources() {
         JSONArray arr = new JSONArray();
-        addSource(arr, "Qwen2.5-3B-Instruct（推荐 · 2.1GB）",
-                "https://www.modelscope.cn/models/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/master/qwen2.5-3b-instruct-q4_k_m.gguf",
-                "2.10 GB", "实测约 9 字/秒，速度与质量的平衡点");
-        addSource(arr, "Qwen3-4B（质量更好 · 2.5GB）",
-                "https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf",
-                "2.50 GB", "实测约 6 字/秒，需要 4GB 以上空闲内存");
-        addSource(arr, "Qwen2.5-0.5B-Instruct（极速 · 0.5GB）",
+        /* 只留一个最小的本地模型当"离线备选"。
+           默认路径已经改成云端（DeepSeek 等）：本机 CPU 跑 3B/4B 又慢又吃内存，
+           不如直接填个 API Key。想完全离线时再下载这个 0.5B，秒回但智力一般。 */
+        addSource(arr, "Qwen2.5-0.5B-Instruct（离线备选 · 0.49GB）",
                 "https://www.modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-                "0.49 GB", "实测约 48 字/秒，秒回，智力一般");
+                "0.49 GB", "唯一内置的本地模型：完全离线、秒回，适合不想联网/没 Key 时用");
         return arr;
     }
 

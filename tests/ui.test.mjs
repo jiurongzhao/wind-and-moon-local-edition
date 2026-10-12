@@ -1179,6 +1179,49 @@ check('8 个可选主题色全部满足正文对比度 ≥4.5:1（气泡文字�
 S.settings = S.store.saveSettings({ appearance: 'dark', theme: '#7c5cff', bgPattern: true });
 window.FYApp.applyAppearance();
 
+console.log('\n【27】默认模型来源 = DeepSeek（不再默认推荐千问）');
+const P2 = window.FYApp.PROVIDER_PRESETS;
+check('默认预设是 deepseek', window.FYApp.DEFAULT_PRESET === 'deepseek', String(window.FYApp.DEFAULT_PRESET));
+check('预设下拉里 DeepSeek 排第一',
+  doc.querySelector('#selPreset option').value === 'deepseek',
+  doc.querySelector('#selPreset option').value + ' / ' + doc.querySelector('#selPreset option').textContent);
+check('DeepSeek 预设带默认模型名 deepseek-chat',
+  P2.deepseek.model === 'deepseek-chat', String(P2.deepseek.model));
+check('预设能按地址反查（带不带尾斜杠都认）',
+  window.FYApp.presetKeyFor('https://api.deepseek.com/v1') === 'deepseek'
+  && window.FYApp.presetKeyFor('https://api.deepseek.com/v1/') === 'deepseek'
+  && window.FYApp.presetKeyFor('http://192.168.1.5:11434/v1') === 'ollama',
+  window.FYApp.presetKeyFor('https://api.deepseek.com/v1/') + ',' + window.FYApp.presetKeyFor('http://192.168.1.5:11434/v1'));
+
+/* 第一次打开外部服务表单：应该已经按 DeepSeek 填好 */
+S.provider = { mode: 'remote', baseUrl: '', model: '', hasKey: false, ready: false };
+$('setRemoteBase').value = '';
+$('selRemoteModel').value = '';
+window.FYApp.renderProviderUI();
+check('首次打开即预填 DeepSeek 地址（不用自己去查 base url）',
+  $('setRemoteBase').value === 'https://api.deepseek.com/v1', $('setRemoteBase').value);
+check('顺带把默认模型名填成 deepseek-chat', $('selRemoteModel').value === 'deepseek-chat',
+  $('selRemoteModel').value);
+check('下拉同步选中 DeepSeek', $('selPreset').value === 'deepseek', $('selPreset').value);
+
+/* 已经填过自定义地址时不能被覆盖 */
+$('setRemoteBase').value = 'http://192.168.1.9:1234/v1';
+$('selRemoteModel').value = 'my-local-model';
+S.provider = { mode: 'remote', baseUrl: 'http://192.168.1.9:1234/v1', model: 'my-local-model', hasKey: false, ready: true };
+window.FYApp.renderProviderUI();
+check('已有自定义配置不会被默认预设覆盖',
+  $('setRemoteBase').value === 'http://192.168.1.9:1234/v1' && $('selRemoteModel').value === 'my-local-model',
+  $('setRemoteBase').value + ' | ' + $('selRemoteModel').value);
+
+/* 内置下载源只剩一个离线备选（Java 侧已改，这里校验前端展示逻辑不依赖它） */
+check('引导横幅文案改成推荐 DeepSeek',
+  /DeepSeek/.test(doc.getElementById('setupBanner').textContent)
+  && /离线/.test(doc.getElementById('setupBanner').textContent),
+  doc.getElementById('setupBanner').textContent.replace(/\s+/g, ' ').slice(0, 60));
+
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+window.FYApp.renderProviderUI();
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

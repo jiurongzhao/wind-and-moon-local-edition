@@ -576,7 +576,19 @@
     var ps = PROVIDER_PRESETS[key];
     if (!ps) return;
     $('setRemoteBase').value = ps.url;
+    if (ps.model && !$('selRemoteModel').value.trim()) $('selRemoteModel').value = ps.model;
+    $('selRemoteModel').placeholder = ps.model
+      ? ('例如 ' + ps.model) : '例如 doubao-seed-1-6-250615 或 ep-2025xxxx-xxxxx';
     $('providerStatus').textContent = ps.name + '：' + ps.hint;
+  }
+
+  /** 当前地址对应的预设 key（用于把下拉恢复到正确选项） */
+  function presetKeyFor(url) {
+    var u = String(url || '').replace(/\/+$/, '');
+    for (var k in PROVIDER_PRESETS) {
+      if (PROVIDER_PRESETS[k].url.replace(/\/+$/, '') === u) return k;
+    }
+    return '';
   }
 
   function renderProviderUI() {
@@ -589,6 +601,14 @@
     /* 模型名：可手填的输入框 + datalist 候选（拉不到列表也能用） */
     if (p.model) $('selRemoteModel').value = p.model;
     $('remoteModelList').innerHTML = '';
+    /* 首次打开外部服务表单：直接按默认预设（DeepSeek）把地址填好，
+       省得用户自己去查 base url；下拉也同步选中 */
+    var key = presetKeyFor(p.baseUrl || $('setRemoteBase').value);
+    if (!key && !(p.baseUrl || '').trim()) {
+      key = DEFAULT_PRESET;
+      if (!(p.model || '').trim()) applyPreset(key);
+    }
+    $('selPreset').value = key;
     if (p.mode === 'remote' && p.ready) {
       $('providerStatus').textContent = '已启用外部服务：' + p.baseUrl + ' · 模型 ' + p.model
         + (p.hasKey ? ' · 带 API Key' : ' · 无 Key');
@@ -1228,11 +1248,16 @@
   /* 常见 OpenAI 兼容服务商预设：一键把 base url 填好。
      豆包（火山方舟）的模型名要填「接入点 ID（ep-…）」或模型名，且方舟不提供 /models 列表，
      所以模型名必须允许手填 —— 见下面的 datalist 输入框。 */
+  /* 默认推荐 DeepSeek：便宜、够聪明、OpenAI 兼容、填个 Key 就能用，
+     比让用户先下 2GB 模型再等 CPU 慢慢推要省事得多。 */
+  var DEFAULT_PRESET = 'deepseek';
+
   var PROVIDER_PRESETS = {
+    deepseek:  { name: 'DeepSeek（默认推荐）', url: 'https://api.deepseek.com/v1',
+                 model: 'deepseek-chat',
+                 hint: '到 platform.deepseek.com 建一个 API Key 填进来即可；模型名默认 deepseek-chat（也可填 deepseek-reasoner）' },
     ark:       { name: '火山方舟 · 豆包', url: 'https://ark.cn-beijing.volces.com/api/v3',
                  hint: '到火山方舟控制台创建推理接入点，模型名填 ep-… 或 doubao-…；该服务不返回模型列表，手填即可' },
-    deepseek:  { name: 'DeepSeek', url: 'https://api.deepseek.com/v1',
-                 hint: '模型名填 deepseek-chat 或 deepseek-reasoner' },
     dashscope: { name: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
                  hint: '模型名填 qwen-plus / qwen-max / qwen-turbo 等' },
     zhipu:     { name: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4',
@@ -2935,7 +2960,17 @@
       if (!bridgeAlive()) { toast('网页预览模式不能选文件', 'warn'); return; }
       fyCall('pickBackupFile', []);
     };
-    $('btnGoSetup').onclick = function () { switchView('settings'); };
+    $('btnGoSetup').onclick = function () {
+      switchView('settings');
+      /* 首次引导直接落到「外部服务 + DeepSeek」这条最省事的路上 */
+      try {
+        $('selProviderMode').value = 'remote';
+        $('remoteBox').hidden = false;
+        $('selPreset').value = DEFAULT_PRESET;
+        applyPreset(DEFAULT_PRESET);
+        $('setRemoteBase').focus();
+      } catch (e) {}
+    };
     $('btnCharSheetClose').onclick = $('btnCharCancel').onclick = function () { closeSheet($('charSheetMask')); };
     $('btnCharSave').onclick = saveCharSheet;
     $('btnCharDelete').onclick = function () {
@@ -3347,7 +3382,9 @@
     isRemote: isRemote,
     renderProviderUI: renderProviderUI,
     applyPreset: applyPreset,
+    presetKeyFor: presetKeyFor,
     PROVIDER_PRESETS: PROVIDER_PRESETS,
+    DEFAULT_PRESET: DEFAULT_PRESET,
     renderCharCats: renderCharCats,
     openSoloChat: openSoloChat,
     recommendPicks: recommendPicks,

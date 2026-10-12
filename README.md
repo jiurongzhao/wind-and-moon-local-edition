@@ -20,7 +20,15 @@
 ## 快速开始
 
 **装现成的**：到 [发行版](../../releases) 下载 `fy.apk`（约 13MB），手机上点开安装
-（需要允许「安装未知来源应用」）。首次启动后到 **设置 → 模型** 下载或导入一个 GGUF 模型即可开聊。
+（需要允许「安装未知来源应用」）。
+
+首次启动后选一条路即可：
+
+| 路径 | 适合 | 怎么弄 |
+|---|---|---|
+| **云端 API（默认推荐 DeepSeek）** | 想省事、手机内存小、要更好的输出质量 | 设置 → 模型来源 → 外部服务，已预填 DeepSeek，填个 API Key 就能聊 |
+| **本地模型（完全离线）** | 不想联网、不想花 API 钱 | 设置 → 模型，下载内置的 0.5B（约 0.5GB），或粘任意 GGUF 直链 |
+| **局域网自建** | 有电脑/VPS 想跑大模型 | 填 `http://电脑IP:11434/v1`（Ollama / LM Studio / llama.cpp server） |
 
 **自己构建**（Termux 或任意 Linux，不需要 Android Studio / Gradle / NDK）：
 
@@ -242,7 +250,7 @@ pkg install x11-repo && pkg install chromium   # 一次性
 | 模式 | 说明 | 典型填法 |
 |---|---|---|
 | **内置引擎** | 默认。模型跑在手机本地（llama.cpp + GGUF），完全离线 | 从内置源下载，或「自定义下载源」粘任意直链 |
-| **外部服务** | OpenAI 兼容接口。既覆盖**局域网自建**（不要 key），也覆盖**云端 API**（要 key） | 预设一键填：**豆包（火山方舟）** · DeepSeek · 通义千问 · 智谱 GLM · Kimi · OpenAI · Ollama / LM Studio / llama.cpp server |
+| **外部服务** | OpenAI 兼容接口。既覆盖**局域网自建**（不要 key），也覆盖**云端 API**（要 key） | 预设一键填，**默认 DeepSeek**：DeepSeek · 豆包（火山方舟）· 通义千问 · 智谱 GLM · Kimi · OpenAI · Ollama / LM Studio / llama.cpp server |
 
 > 模型名支持**手填**（不是只读下拉）—— 因为像火山方舟这类服务不提供 `/models` 列表，
 > 需要自己填接入点 ID（`ep-…`）或模型名。
