@@ -54,8 +54,38 @@ const t0 = Date.now();
 let total = 0, bad = 0;
 const kindSeen = { character: 0, story: 0 };
 
+/* v2 目录才有 topics / keywords：有目录就按目录的 spec 决定要不要卡这一层 */
+const INDEX = path.join(LIB, 'index.json');
+let SPEC = 'fy_library_v1';
+if (fs.existsSync(INDEX)) {
+  try { SPEC = JSON.parse(fs.readFileSync(INDEX, 'utf8')).spec || SPEC; } catch (e) { /* 交给下面报错 */ }
+}
+const V2 = SPEC === 'fy_library_v2';
+let v2Packs = 0, v2BadField = 0, v2TopicMismatch = 0;
+const allTopics = new Set();
+
 for (const f of files) {
   const pack = JSON.parse(fs.readFileSync(path.join(LIB, f), 'utf8'));
+  if (V2) {
+    const topics = Array.isArray(pack.topics) ? pack.topics : [];
+    const kws = Array.isArray(pack.keywords) ? pack.keywords : [];
+    if (!topics.length || !kws.length) { v2BadField++; failures.push(`${f}: v2 分片缺 topics/keywords`); }
+    else v2Packs++;
+    topics.forEach((t) => allTopics.add(t));
+    const tset0 = new Set(topics);
+    for (const k of kws) {
+      const s = String(k);
+      if (tset0.has(s)) continue;              // 主题标签可以长，场景词要短
+      if (s.length < 2 || s.length > 12) {
+        v2BadField++; failures.push(`${f}: 场景关键词长度异常 ${JSON.stringify(k)}`); break;
+      }
+    }
+    const tset = new Set(topics);
+    for (const c of pack.cards) {
+      const t = (((c.data || {}).extensions || {}).fy || {}).topic || '';
+      if (t && !tset.has(t)) { v2TopicMismatch++; break; }
+    }
+  }
   let parsed;
   try {
     parsed = FYCards.parsePack(JSON.stringify(pack));
@@ -103,6 +133,18 @@ console.log(`  角色卡 ${kindSeen.character} 张 / 剧情卡 ${kindSeen.story}
 check('所有分片都能被 App 解析且字段完整', bad === 0, bad ? `${bad} 张有问题` : '');
 check('角色卡与剧情卡数量都大于 0', kindSeen.character > 0 && kindSeen.story > 0);
 check(`单张解析开销 < 0.5ms（实测 ${(ms / Math.max(1, total)).toFixed(3)}ms）`, ms / Math.max(1, total) < 0.5);
+if (V2) {
+  check(`v2 目录：每个分片都有 topics 与 keywords（${v2Packs}/${files.length}）`,
+    v2BadField === 0 && v2Packs === files.length,
+    `坏字段 ${v2BadField} 个`);
+  check(`v2 目录：每张卡的主题都在它所在分片的 topics 里（不一致 ${v2TopicMismatch} 片）`,
+    v2TopicMismatch === 0);
+  check(`v2 目录：主题总数 > 100（实际 ${allTopics.size}）`, allTopics.size > 100,
+    '主题太少说明分片没有按主题打包');
+  console.log(`  v2：${v2Packs} 片 / ${allTopics.size} 个主题 / 片均 ${(total / Math.max(1, files.length)).toFixed(0)} 张`);
+} else {
+  console.log('  （v1 目录：跳过分片主题校验）');
+}
 
 console.log(`\n结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.slice(0, 12).forEach((x) => console.log('  · ' + x)); }

@@ -182,9 +182,11 @@
     } else if (view === 'ref') {
       App.switchView('characters');
       App.openRefSheet();
-    } else if (view === 'library') {
-      /* 在线卡库面板：把目录流（/fetch?url=…）用假目录截住，
-         并假装其中两片已经导入过，这样截图里能同时看到「已导入 / 未下载 / 全部下载」。 */
+    } else if (view === 'library' || view === 'library-search') {
+      /* 在线卡库面板（v2）：把目录流（/fetch?url=…）用假目录截住。
+         每「分类 × 类型」切成 4 片主题片，带 topics / keywords，
+         并假装其中两片已经导入过 —— 截图里能同时看到「已导入 / 未下载 / 全部下载」。
+         view=library-search 会顺手在搜索框里打一个词，截"只下某一片"那张。 */
       App.switchView('characters');
       var cats = [
         ['daily-healing', '日常治愈', '🌤'], ['romance', '恋爱', '💗'],
@@ -196,19 +198,39 @@
         ['apocalypse', '末世生存', '☢️'], ['cyberpunk', '赛博朋克', '🌃'],
         ['mythology', '神话志怪', '🐚'], ['comfort', '情感树洞', '🫂'],
       ];
+      var topics = {
+        'mystery': [['画像师', '私下接活的调查员', '法医', '殡葬用品店店主'], ['不在场证明的时间表', '一笔一笔合法的清算', '遗言的两层意思']],
+        'wuxia': [['摆渡的瞎子', '贩马客', '山门伙夫', '狱卒'], ['三件信物', '旧约到期', '同一个人，两个门派的名分']],
+        'romance': [['旧照片修复师', '医院陪护', '花店店主', '殡仪馆化妆师'], ['先婚后爱', '童年之约过期', '异地恋']],
+      };
       var packs = [];
       cats.forEach(function (c) {
         ['character', 'story'].forEach(function (k) {
-          packs.push({
-            file: c[0] + '-' + k + '-1.json', slug: c[0], tag: c[1], emoji: c[2],
-            kind: k, part: 1, parts: 1, count: 1000, bytes: 3100000, sha256: '',
-          });
+          var sample = (topics[c[0]] || [[], []])[k === 'character' ? 0 : 1];
+          for (var i = 1; i <= 4; i++) {
+            var t0 = sample[(i - 1) % Math.max(1, sample.length)] || c[1];
+            var t1 = sample[i % Math.max(1, sample.length)] || t0;
+            var kw = [t0];
+            if (t1 !== t0) kw.push(t1);
+            ['解剖室', '旧档案', '值班表', '断桥', '备用钥匙', '一封没寄出的信']
+              .slice(i - 1, i + 2).forEach(function (w) { if (kw.indexOf(w) < 0) kw.push(w); });
+            packs.push({
+              file: c[0] + '-' + k + '-' + i + '.json', slug: c[0], tag: c[1], emoji: c[2],
+              kind: k, part: i, parts: 4, count: 248, bytes: 1230000, sha256: '',
+              topic: t0 + (i < 4 ? ' 等 6 个主题' : ''),
+              topics: [t0, t1], keywords: kw,
+            });
+          }
         });
       });
       var catalog = {
-        spec: 'fy_library_v1', total: 32000, baseUrl: 'https://example.invalid/library/',
+        spec: 'fy_library_v2', chunk: 250, total: 32000, baseUrl: 'https://example.invalid/library/',
         categories: cats.map(function (c) {
-          return { slug: c[0], tag: c[1], emoji: c[2], character: 1000, story: 1000 };
+          var sample = (topics[c[0]] || [[''], ['']]);
+          return {
+            slug: c[0], tag: c[1], emoji: c[2], character: 1000, story: 1000,
+            topics: sample[0].slice(0, 3).concat(sample[1].slice(0, 2)),
+          };
         }),
         packs: packs,
       };
@@ -222,13 +244,24 @@
         return realFetch.apply(window, arguments);
       };
       var imported = {};
-      imported['mystery-character-1.json'] = { count: 1000, ts: Date.now() };
-      imported['romance-story-1.json'] = { count: 1000, ts: Date.now() };
+      imported['mystery-character-1.json'] = { count: 248, ts: Date.now() };
+      imported['romance-story-2.json'] = { count: 250, ts: Date.now() };
       App.state.settings = App.state.store.saveSettings({
         libCatalogUrl: 'https://example.invalid/library/index.json',
         libraryImported: imported,
       });
       App.openLibrarySheet();
+      if (view === 'library-search') {
+        var tries = 0;
+        var t = setInterval(function () {
+          var box = document.getElementById('libSearch');
+          if (box && App.libSearchPacks) {
+            box.value = '画像师';
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+            clearInterval(t);
+          } else if (++tries > 40) { clearInterval(t); }
+        }, 50);
+      }
     } else if (view === 'sheet') {
       App.switchView('characters');
       var first = App.state.store.listCharacters()[0];

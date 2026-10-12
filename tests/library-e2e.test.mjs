@@ -129,6 +129,35 @@ check('目录拉取成功并渲染出 32 组（分类 × 类型）', opened && r
 check('面板显示的目录总数与目录一致（32000）', /32000/.test($('libStatus') ? $('libStatus').textContent : '') ||
   /32000/.test($('libMask').textContent), ($('libStatus') || {}).textContent);
 
+/* ---- v2：按主题关键词只下载"某一个分类的一部分" ---- */
+const partRow = App.libRows().find((r) => (r.packs || []).length >= 2
+  && !(r.slug === 'mystery' && r.kind === 'character'));
+check('v2 目录：一个「分类 × 类型」被切成多个主题片',
+  !!partRow && partRow.packs.length >= 2,
+  partRow ? `${partRow.tag}/${partRow.kind} ${partRow.packs.length} 片` : 'none');
+const topicWord = (partRow.packs[0].topics || [])[0] || (partRow.packs[0].keywords || [])[0] || '';
+const hits = App.libSearchPacks(topicWord);
+check(`v2 目录：搜主题「${topicWord}」只命中部分片（${hits.length}/${partRow.packs.length}）`,
+  hits.length > 0 && hits.length < partRow.packs.length,
+  hits.map((p) => p.file).join(', '));
+const beforePart = S.characters.length;
+const wantPart = hits.reduce((a, p) => a + (Number(p.count) || 0), 0);
+let partRes = { added: 0 };
+for (let guard = 0; guard < 3; guard++) {
+  try { partRes = await App.importLibraryPacks(hits); break; } catch (e) { await sleep(300); }
+}
+check(`v2 目录：只下载命中的分片（+${partRes.added} 张，整组是 ${partRow.total} 张）`,
+  partRes.added === wantPart && partRes.added > 0 && partRes.added < partRow.total,
+  `新增 ${partRes.added} / 期望 ${wantPart} / 整组 ${partRow.total}`);
+check('v2 目录：只有命中的分片进了 libraryImported',
+  hits.every((p) => S.settings.libraryImported[p.file])
+  && partRow.packs.filter((p) => hits.indexOf(p) < 0)
+    .every((p) => !S.settings.libraryImported[p.file]),
+  Object.keys(S.settings.libraryImported || {}).length + ' 片已记录');
+const partSample = S.characters.find((c) => (c.tags || []).indexOf(partRow.tag) >= 0);
+check('v2 目录：部分下载的卡字段完整', !!(partSample && partSample.persona && partSample.greeting),
+  partSample ? `${partSample.name} / ${partSample.persona.length}字` : 'none');
+
 /* 真的下载并导入一行（悬疑推理 · 角色卡，1000 张 / 2.8MB） */
 const t0 = Date.now();
 const row = App.libRows().find((r) => r.slug === 'mystery' && r.kind === 'character');

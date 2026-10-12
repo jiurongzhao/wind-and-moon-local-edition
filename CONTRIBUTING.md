@@ -88,7 +88,9 @@ node bench-db.mjs 2000 3                                        # 数据库真�
 | 界面结构（视图与弹层的骨架） | `app/assets/ui/index.html` |
 | 界面图标（自绘 SVG sprite） | `index.html` 顶部的 `.sprite` 里加 `<symbol id="i-xxx">`，JS 里用 `iconEl('xxx')` |
 | 界面逻辑 / 提示词 / 流式解析 | `app/assets/ui/app.js` |
-| 在线卡库（目录 `fy_library_v1` / 分片下载 / 导入 / 幂等） | `app/assets/ui/app.js` 的「在线卡库」段 + `index.html` 的 `#libMask` |
+| 在线卡库（目录 `fy_library_v2` / 按主题分片 / 关键词只下某一片 / 幂等） | `app/assets/ui/app.js` 的「在线卡库」段 + `index.html` 的 `#libMask` |
+| 卡库生成线与发布闸门 | `tools/gen-cards.py`（按主题打包）、`tools/check-cards.py --strict`、`tools/check-library.py`、`tools/publish-cards.sh`；格式见 `docs/library-catalog.md` |
+| 卡库素材库（16 类母题 / 公版登记 / do_not） | `cards/banks/<分类>.json`，闸门 `tools/check-banks.py` |
 | 角色列表窗口化渲染（一次 60 张 + 滚动追加） | `app.js` 的 `renderCharacters` / `loadMoreCharacters` + `index.html` 的 `#charMore` |
 | 数据模型与存储（四个后端） | `app/assets/ui/store.js`（批量写入用 `saveCharacters`，一次事务只 flush 一次） |
 | 角色卡格式（chara_card_v2） | `app/assets/ui/cards.js` |
