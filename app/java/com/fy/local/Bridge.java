@@ -144,6 +144,13 @@ public class Bridge {
         return new JSONArray(host.engine().tailLog(200)).toString();
     }
 
+    /** 保存一段文本到 Download（对话导出用）：name 建议带扩展名，如 林夏-对话.md */
+    @JavascriptInterface
+    public String saveText(String name, String text) {
+        String n = (name == null || name.trim().isEmpty()) ? "fy-对话.md" : name.trim();
+        return CardIO.saveText(host, n, text == null ? "" : text, ".md", "text/markdown; charset=utf-8");
+    }
+
     // ---------- 模型来源（内置引擎 / 外部 OpenAI 兼容服务） ----------
 
     /** 当前配置（**不含 key**，只告诉前端有没有配） */

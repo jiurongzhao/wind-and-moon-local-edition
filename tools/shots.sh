@@ -86,6 +86,9 @@ shot 04-characters-light "view=characters&theme=light"
 shot 05-packs        "view=packs"
 shot 06-recommend    "view=rec"
 shot 07-settings     "view=settings"
+shot 08-onboard      "view=onboard"
+shot 09-backend      "view=backend"
+shot 10-slash        "view=slash"
 
 echo
 echo "✅ 完成：$OUT"

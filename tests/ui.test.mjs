@@ -1222,6 +1222,143 @@ check('引导横幅文案改成推荐 DeepSeek',
 S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
 window.FYApp.renderProviderUI();
 
+console.log('\n【28】新增：首次引导 / 顶栏切换 / 斜杠指令 / 导出对话 / 字号 / 收藏 / 续写');
+
+/* ---- 首次引导三选一 ---- */
+S.models = [];
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+S.settings = S.store.saveSettings({ onboarded: false });
+window.FYApp.maybeShowOnboarding();
+check('没有模型也没配外部服务时，弹出三选一引导',
+  doc.getElementById('onboardMask').hidden === false);
+window.FYApp.finishOnboarding('cloud');
+check('选「DeepSeek」后：标记已引导 + 预填地址与模型名',
+  S.store.getSettings().onboarded === true
+  && doc.getElementById('setRemoteBase').value === 'https://api.deepseek.com/v1'
+  && doc.getElementById('selRemoteModel').value === 'deepseek-chat'
+  && doc.getElementById('selProviderMode').value === 'remote',
+  doc.getElementById('setRemoteBase').value + ' | ' + doc.getElementById('selRemoteModel').value);
+check('引导面板已关闭', doc.getElementById('onboardMask').hidden === true);
+S.settings = S.store.saveSettings({ onboarded: true });
+window.FYApp.maybeShowOnboarding();
+check('已引导过就不再打扰', doc.getElementById('onboardMask').hidden === true);
+
+/* ---- 顶栏快速切换 ---- */
+S.models = [{ name: 'qwen2.5-0.5b-instruct-q4_k_m.gguf', sizeBytes: 491400032 }];
+S.settings = S.store.saveSettings({ model: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' });
+S.provider = { mode: 'remote', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: true, ready: true };
+window.FYApp.openBackendSheet();
+const backendRows = Array.from(doc.querySelectorAll('#backendList .model-row .model-name')).map((n) => n.textContent.trim());
+check('切换面板列出「内置引擎」与「外部服务」',
+  backendRows.some((t) => /内置引擎/.test(t)) && backendRows.some((t) => /外部服务/.test(t)),
+  backendRows.join(' | ').slice(0, 90));
+check('切换面板列出本机模型', backendRows.some((t) => /qwen2\.5-0\.5b/.test(t)), backendRows.join(' | ').slice(0, 90));
+check('状态行显示当前用的是外部服务与模型名',
+  /deepseek-chat/.test(doc.getElementById('backendStatus').textContent),
+  doc.getElementById('backendStatus').textContent.slice(0, 70));
+doc.getElementById('backendMask').hidden = true;
+
+/* ---- 斜杠指令 ---- */
+check('输入 /继 能匹配到 /继续',
+  window.FYApp.slashMatches('/继').some((c) => c.cmd === '/继续'),
+  JSON.stringify(window.FYApp.slashMatches('/继').map((c) => c.cmd)));
+check('不以 / 开头不匹配', window.FYApp.slashMatches('你好').length === 0);
+const helpRan = window.FYApp.tryRunSlash('/帮助');
+check('执行 /帮助 后输入框被清空', helpRan === true && doc.getElementById('input').value === '',
+  'returned=' + helpRan + ' value=[' + doc.getElementById('input').value + ']');
+check('未知指令不会误发消息', window.FYApp.tryRunSlash('/不存在') === false);
+
+/* ---- 导出对话 ---- */
+const expSess = S.store.saveSession({ title: '导出测试', characterIds: [S.store.listCharacters()[0].id], mode: 'solo', plot: true });
+S.store.addMessage({ sessionId: expSess.id, role: 'user', content: '你好呀', ts: Date.now() - 2000 });
+S.store.addMessage({ sessionId: expSess.id, role: 'assistant', speakerName: '林夏', content: '嗯，我在。', ts: Date.now() - 1000 });
+const mdText = window.FYApp.chatToMarkdown(expSess, S.store.listMessages(expSess.id));
+check('Markdown 含标题/角色/正文与说话人',
+  /# 导出测试/.test(mdText) && /你好呀/.test(mdText) && /嗯，我在。/.test(mdText)
+  && /\*\*我\*\*/.test(mdText) && /\*\*林夏\*\*/.test(mdText),
+  mdText.split('\n').slice(0, 3).join(' / '));
+const realSave = window.FY.saveText;
+let savedName = '', savedText = '';
+window.FY.saveText = (n, t) => { savedName = n; savedText = t; return JSON.stringify({ ok: true, path: '/Download/' + n }); };
+window.FYApp.state.session = expSess;
+window.FYApp.state.messages = S.store.listMessages(expSess.id);
+window.FYApp.exportChatMarkdown();
+await sleep(60);
+check('导出会调用原生保存，文件名是 .md 且内容完整',
+  /\.md$/.test(savedName) && /你好呀/.test(savedText),
+  savedName + ' (' + savedText.length + ' 字)');
+window.FY.saveText = realSave;
+S.store.deleteSession(expSess.id);
+
+/* ---- 正文字号 ---- */
+window.FYApp.applyFontScale.call(null);
+S.settings = S.store.saveSettings({ fontScale: 1.25 });
+window.FYApp.applyFontScale();
+check('字号倍率写进 CSS 变量',
+  doc.documentElement.style.getPropertyValue('--fs-scale') === '1.25',
+  doc.documentElement.style.getPropertyValue('--fs-scale'));
+S.settings = S.store.saveSettings({ fontScale: 1 });
+window.FYApp.applyFontScale();
+check('字号设置能落盘', S.store.getSettings().fontScale === 1, String(S.store.getSettings().fontScale));
+
+/* ---- 收藏 ---- */
+const favChar = S.store.listCharacters()[0];
+S.store.saveCharacter(Object.assign({}, favChar, { fav: true }));
+S.characters = S.store.listCharacters();
+S.charCount = -1;
+window.FYApp.renderCharCats();
+const favChip = Array.from(doc.querySelectorAll('#charCats .chip')).map((c) => c.textContent);
+check('有收藏后出现「⭐ 收藏」筛选项', favChip.some((t) => /收藏/.test(t)), favChip.join(' | ').slice(0, 80));
+S.charCat = '⭐ 收藏';
+window.FYApp.renderCharacters();
+check('「⭐ 收藏」只显示收藏的角色',
+  doc.querySelectorAll('#charGrid .char-card').length === 1,
+  String(doc.querySelectorAll('#charGrid .char-card').length));
+S.charCat = 'all';
+S.store.saveCharacter(Object.assign({}, favChar, { fav: false }));
+S.characters = S.store.listCharacters();
+S.charCount = -1;
+window.FYApp.renderCharCats();
+window.FYApp.renderCharacters();
+
+/* ---- 续写：并进原消息，不新增一条 ---- */
+check('续写去重：模型重复的尾巴会被裁掉',
+  window.FYApp.mergeContinuation('我今天很累。', '我今天很累。不过还好。') === '不过还好。',
+  window.FYApp.mergeContinuation('我今天很累。', '我今天很累。不过还好。'));
+check('续写去重：没有重复就原样追加',
+  window.FYApp.mergeContinuation('今天很累。', '你怎么看？') === '你怎么看？',
+  window.FYApp.mergeContinuation('今天很累。', '你怎么看？'));
+
+const cc = S.store.listCharacters()[0];
+window.FYApp.openSoloChat(cc.id, '');
+S.provider = { mode: 'remote', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: true, ready: true };
+S.engineState = Object.assign({}, S.engineState, { state: 'stopped', port: 0 });
+S.store.addMessage({ sessionId: S.session.id, role: 'assistant', speakerName: cc.name, content: '外面下雨了。', ts: Date.now() + 1000 });
+S.messages = S.store.listMessages(S.session.id);
+window.FYApp.renderMessages();
+const beforeCount = S.messages.length;
+const cap2 = [];
+const realFetch4 = window.fetch;
+window.fetch = async (url, opts) => {
+  cap2.push({ url: String(url), body: opts && opts.body });
+  return sseResponse(['data: {"choices":[{"delta":{"content":"我"}}]}' + '\n\n',
+    'data: {"choices":[{"delta":{"content":"去收衣服。"}}]}' + '\n\n', 'data: [DONE]' + '\n\n']);
+};
+window.FYApp.continueLast();
+await until(() => S.generating !== true && cap2.length > 0, 9000);
+const afterMsgs = S.store.listMessages(S.session.id);
+const lastMsg = afterMsgs[afterMsgs.length - 1];
+check('续写不新增消息条数', afterMsgs.length === beforeCount,
+  beforeCount + ' → ' + afterMsgs.length);
+check('续写内容并进原消息（原文保留 + 新内容追加）',
+  lastMsg && lastMsg.role === 'assistant' && /外面下雨了。/.test(lastMsg.content) && /我去收衣服。/.test(lastMsg.content),
+  lastMsg ? lastMsg.content : 'none');
+check('续写请求里带了"接着写"的指示（不依赖各家私有参数）',
+  cap2.length > 0 && /继续往下写/.test(String(cap2[0].body)),
+  String(cap2[0] && cap2[0].body).slice(-80));
+window.fetch = realFetch4;
+S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

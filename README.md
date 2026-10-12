@@ -13,7 +13,8 @@
 角色卡导入导出（SillyTavern chara_card_v2，.json / .png 都吃）· 整库备份/恢复
 多存储后端（IndexedDB / SQLite / localStorage / 内存，可一键迁移）· 跨会话聊天记录搜索
 内置 160 张原创卡（16 个分类，角色卡 + 剧情卡）· 分类筛选 / 搜索 / 智能推荐 / 卡包一键导入
-模型来源自由选：内置引擎（本地 GGUF）/ 粘贴链接下载任意模型 / 连局域网自建或云端 OpenAI 兼容服务
+模型来源自由选（**默认 DeepSeek**）：内置引擎（本地 GGUF）/ 粘贴链接下载任意模型 / 连局域网自建或云端 OpenAI 兼容服务
+首次启动三选一 · 顶栏一键切换模型来源 · 斜杠指令（/继续 /重写 /摘要 /导出 /清空）· 对话导出 Markdown · 正文字号 · 角色收藏
 深色 / 浅色 / 跟随系统三档外观 · 手写 Material 3 风格设计系统（无任何外部素材）
 ```
 
@@ -58,7 +59,11 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 <td width="33%"><img src="docs/shots/05-packs.png" alt="内置卡包"><br><sub>内置卡包 · 16 类 160 张一键导入</sub></td>
 </tr>
 <tr>
+<td width="33%"><img src="docs/shots/08-onboard.png" alt="首次引导"><br><sub>首次启动三选一：云端 / 本地 / 局域网</sub></td>
+<td width="33%"><img src="docs/shots/09-backend.png" alt="切换模型来源"><br><sub>顶栏一键切换模型来源</sub></td>
 <td width="33%"><img src="docs/shots/04-characters-light.png" alt="浅色主题"><br><sub>浅色主题（也可跟随系统）</sub></td>
+</tr>
+<tr>
 <td width="33%"><img src="docs/shots/06-recommend.png" alt="智能推荐"><br><sub>智能推荐 · 还没聊过的优先</sub></td>
 <td width="33%"><img src="docs/shots/07-settings.png" alt="设置页"><br><sub>设置 · 引擎 / 模型来源 / 存储后端</sub></td>
 </tr>

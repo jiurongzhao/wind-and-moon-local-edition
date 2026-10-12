@@ -192,6 +192,11 @@
       log('mock: 打开角色卡选择器（浏览器模式没有真文件选择器）');
       return j({ ok: true, message: '模拟环境' });
     },
+    saveText: function (name, text) {
+      try { console.log('[mock] 保存文本', name, (text || '').length, '字'); } catch (e) {}
+      return j({ ok: true, path: '/storage/emulated/0/Download/' + name });
+    },
+
     /* 模型来源（浏览器预览：只有本地模拟，外部服务走不通） */
     getProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },
     setProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },

@@ -73,15 +73,38 @@ public class CardIO {
         return "{\"ok\":" + ok + ",\"path\":" + org.json.JSONObject.quote(path == null ? "" : path) + "}";
     }
 
+    /** 把任意文本写到 Download（导出对话用）。ext 形如 .md / .txt */
+    public static String saveText(Context ctx, String fileName, String text, String ext, String mime) {
+        String name = sanitizeAs(fileName, ext);
+        String path = null;
+        try {
+            if (Build.VERSION.SDK_INT >= 29) path = saveViaMediaStore(ctx, name, text, mime);
+        } catch (Throwable t) {
+            Log.w(TAG, "MediaStore 写入失败，退回应用外部目录", t);
+        }
+        if (path == null) path = saveViaFile(ctx, name, text);
+        boolean ok = path != null;
+        Log.i(TAG, "文本 " + (ok ? "已导出 " + path : "导出失败"));
+        return "{\"ok\":" + ok + ",\"path\":" + org.json.JSONObject.quote(path == null ? "" : path) + "}";
+    }
+
     private static String sanitize(String fileName) {
+        return sanitizeAs(fileName, ".json");
+    }
+
+    private static String sanitizeAs(String fileName, String ext) {
         String n = fileName == null ? "" : fileName.trim();
-        if (n.isEmpty()) n = "character-card.json";
+        if (n.isEmpty()) n = "fy-export" + ext;
         n = n.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
-        if (!n.toLowerCase().endsWith(".json")) n = n + ".json";
-        return n.length() > 80 ? n.substring(0, 76) + ".json" : n;
+        if (!n.toLowerCase().endsWith(ext)) n = n + ext;
+        return n.length() > 80 ? n.substring(0, 80 - ext.length()) + ext : n;
     }
 
     private static String saveViaMediaStore(Context ctx, String name, String json) throws Exception {
+        return saveViaMediaStore(ctx, name, json, "application/json");
+    }
+
+    private static String saveViaMediaStore(Context ctx, String name, String text, String mime) throws Exception {
         ContentResolver cr = ctx.getContentResolver();
         Uri collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
         try (Cursor c = cr.query(collection, new String[]{MediaStore.MediaColumns._ID},
@@ -95,13 +118,13 @@ public class CardIO {
         }
         ContentValues v = new ContentValues();
         v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-        v.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
+        v.put(MediaStore.MediaColumns.MIME_TYPE, mime == null ? "application/json" : mime);
         v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
         Uri item = cr.insert(collection, v);
         if (item == null) return null;
         try (OutputStream os = cr.openOutputStream(item)) {
             if (os == null) return null;
-            os.write(json.getBytes(StandardCharsets.UTF_8));
+            os.write(text.getBytes(StandardCharsets.UTF_8));
             os.flush();
         }
         return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)

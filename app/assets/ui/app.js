@@ -118,7 +118,7 @@
     'listDownloadSources', 'downloadModel',
     'pickCharacterCard', 'saveCharacterCard',
     'pickBackupFile', 'saveBackup',
-    'dbLoadAll', 'dbApply', 'dbSearch', 'dbStats', 'dbWipe',
+    'dbLoadAll', 'dbApply', 'dbSearch', 'dbStats', 'dbWipe', 'saveText',
     'getProvider', 'setProvider', 'testProvider',
     'speak', 'stopSpeak', 'startListening', 'stopListening',
     'keepAwake', 'log', 'exportDiagnostics'
@@ -338,9 +338,11 @@
      导入别人写的卡时标签会一起进来；没有标签的卡归到「未分类」。 */
 
   var CAT_OTHER = '未分类';
+  var CAT_FAV = '⭐ 收藏';
 
   function allCategories() {
     var seen = {}, out = [];
+    if (S.characters.some(function (c) { return c.fav; })) { out.push(CAT_FAV); seen[CAT_FAV] = 1; }
     S.characters.forEach(function (c) {
       var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
       tags.forEach(function (t) { if (!seen[t]) { seen[t] = 1; out.push(t); } });
@@ -350,6 +352,7 @@
 
   function countByCat(cat) {
     if (cat === 'all') return S.characters.length;
+    if (cat === CAT_FAV) return S.characters.filter(function (c) { return c.fav; }).length;
     return S.characters.filter(function (c) {
       var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
       return tags.indexOf(cat) >= 0;
@@ -358,8 +361,12 @@
 
   function charMatches(c) {
     if (S.charCat && S.charCat !== 'all') {
-      var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
-      if (tags.indexOf(S.charCat) < 0) return false;
+      if (S.charCat === CAT_FAV) {
+        if (!c.fav) return false;
+      } else {
+        var tags = (c.tags && c.tags.length) ? c.tags : [CAT_OTHER];
+        if (tags.indexOf(S.charCat) < 0) return false;
+      }
     }
     var q = (S.charQuery || '').trim().toLowerCase();
     if (!q) return true;
@@ -393,6 +400,7 @@
     S.charCount = S.characters.length;
 
     var shown = S.characters.filter(charMatches);
+    shown.sort(function (a, b) { return (b.fav ? 1 : 0) - (a.fav ? 1 : 0); });   /* 收藏的排前面 */
     $('charCount').textContent = (shown.length === S.characters.length)
       ? ('共 ' + S.characters.length + ' 位角色')
       : ('共 ' + S.characters.length + ' 位角色，筛出 ' + shown.length + ' 位');
@@ -427,6 +435,18 @@
       temp.title = '采样温度：越高越天马行空，越低越稳定';
       meta.appendChild(temp);
       card.appendChild(meta);
+
+      var fav = el('button', 'char-fav', c.fav ? '⭐' : '☆');
+      fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
+      fav.onclick = function (ev) {
+        ev.stopPropagation();
+        S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
+        S.characters = S.store.listCharacters();
+        S.charCount = -1;
+        renderCharCats();
+        renderCharacters();
+      };
+      card.appendChild(fav);
 
       var edit = el('button', 'char-edit', '✏️');
       edit.title = '编辑角色';
@@ -555,6 +575,267 @@
     renderChatHeader();
     renderMessages();
     return true;
+  }
+
+  /* ==========================================================================
+   * 首次引导（三选一）
+   * 风月本身不含模型，新用户第一件事必须选来源。给三条清晰的路，选完自动跳到对应位置，
+   * 不让人在设置页里自己找。
+   * ======================================================================== */
+
+  function maybeShowOnboarding() {
+    if (!S.settings || S.settings.onboarded) return;
+    if (providerReady() || S.models.length) return;   // 已经能用，就别打扰
+    openSheet($('onboardMask'));
+  }
+
+  function finishOnboarding(pick) {
+    S.settings = S.store.saveSettings({ onboarded: true });
+    closeSheet($('onboardMask'));
+    if (pick === 'cloud') {
+      switchView('settings');
+      $('selProviderMode').value = 'remote';
+      $('remoteBox').hidden = false;
+      $('selPreset').value = DEFAULT_PRESET;
+      $('selRemoteModel').value = '';        /* 明确选了服务商，模型名按该预设重置 */
+      applyPreset(DEFAULT_PRESET);
+      /* 同步 S.provider：否则 renderProviderUI 会按旧配置把模式拨回「内置引擎」 */
+      S.provider = Object.assign({}, provider(), { mode: 'remote' });
+      renderProviderUI();
+      toast('已选好 DeepSeek：把 API Key 粘进来即可', 'ok', 3600);
+    } else if (pick === 'local') {
+      switchView('settings');
+      toast('到「模型管理」下载内置的 0.5B（约 0.5GB）', 'ok', 3600);
+    } else if (pick === 'lan') {
+      switchView('settings');
+      $('selProviderMode').value = 'remote';
+      $('remoteBox').hidden = false;
+      $('selPreset').value = 'ollama';
+      $('selRemoteModel').value = '';
+      applyPreset('ollama');
+      S.provider = Object.assign({}, provider(), { mode: 'remote' });
+      renderProviderUI();
+      toast('把地址里的 IP 换成你电脑的即可', 'ok', 3600);
+    }
+  }
+
+  /* ==========================================================================
+   * 顶栏快速切换模型来源
+   * 换模型不该每次都钻进设置页；顶栏那颗状态胶囊现在点开就是切换面板。
+   * ======================================================================== */
+
+  function openBackendSheet() {
+    openSheet($('backendMask'));
+    renderBackendSheet();
+  }
+
+  function renderBackendSheet() {
+    var list = $('backendList');
+    var st = $('backendStatus');
+    var p = provider();
+    list.innerHTML = '';
+    st.textContent = isRemote()
+      ? ('当前：外部服务 · ' + (p.model || '（未选模型）') + ' @ ' + p.baseUrl)
+      : ('当前：内置引擎 · ' + (S.settings.model || '（未选模型）'));
+
+    /* 本地引擎 */
+    var rowL = el('div', 'model-row' + (!isRemote() ? ' on' : ''));
+    var colL = el('div', 'grow');
+    colL.appendChild(el('div', 'model-name', '📱 内置引擎（本地 GGUF · 离线）'));
+    colL.appendChild(el('div', 'model-size', S.models.length
+      ? ('本机有 ' + S.models.length + ' 个模型，点右侧切换/启动')
+      : '本机还没有模型；到设置里下载 0.5B 或导入任意 GGUF'));
+    rowL.appendChild(colL);
+    var bL = el('button', 'btn btn-xs', isRemote() ? '切回' : '重启');
+    bL.onclick = function () {
+      S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+      try { fyCall('setProvider', [JSON.stringify({ mode: 'local', baseUrl: '', apiKey: '', model: '' })]); } catch (e) {}
+      var m = S.settings.model || (S.models[0] && S.models[0].name);
+      if (m) startEngine(m);
+      toast('已切回内置引擎' + (m ? '：' + m : ''), 'ok', 2600);
+      renderBackendSheet();
+    };
+    rowL.appendChild(bL);
+    list.appendChild(rowL);
+
+    /* 本机模型逐个列出（点了直接启动） */
+    (S.models || []).forEach(function (m) {
+      var row = el('div', 'model-row' + (!isRemote() && S.settings.model === m.name ? ' on' : ''));
+      var col = el('div', 'grow');
+      col.appendChild(el('div', 'model-name', '   ' + m.name));
+      col.appendChild(el('div', 'model-size', fmtSize(m.sizeBytes)));
+      row.appendChild(col);
+      var b = el('button', 'btn btn-xs', (!isRemote() && S.settings.model === m.name && engineReady()) ? '使用中' : '启动');
+      b.onclick = function () {
+        S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+        try { fyCall('setProvider', [JSON.stringify({ mode: 'local', baseUrl: '', apiKey: '', model: '' })]); } catch (e) {}
+        startEngine(m.name);
+        toast('正在启动 ' + m.name, 'ok', 2600);
+      };
+      row.appendChild(b);
+      list.appendChild(row);
+    });
+
+    /* 外部服务 */
+    var rowR = el('div', 'model-row' + (isRemote() ? ' on' : ''));
+    var colR = el('div', 'grow');
+    colR.appendChild(el('div', 'model-name', '☁️ 外部服务（DeepSeek / 豆包 / 局域网…）'));
+    colR.appendChild(el('div', 'model-size', p.baseUrl
+      ? ((p.model || '（未选模型）') + ' @ ' + p.baseUrl + (p.hasKey ? ' · 带 Key' : ''))
+      : '还没配置：去设置里选个服务商，填地址（和 Key）即可'));
+    rowR.appendChild(colR);
+    var bR = el('button', 'btn btn-xs', isRemote() ? '使用中' : (p.ready ? '启用' : '去配置'));
+    bR.onclick = function () {
+      if (p.ready && p.baseUrl) {
+        S.provider = p;
+        toast('已切到外部服务：' + (p.model || ''), 'ok', 2600);
+        closeSheet($('backendMask'));
+        return;
+      }
+      closeSheet($('backendMask'));
+      switchView('settings');
+      $('selProviderMode').value = 'remote';
+      $('remoteBox').hidden = false;
+      $('selPreset').value = DEFAULT_PRESET;
+      applyPreset(DEFAULT_PRESET);
+    };
+    rowR.appendChild(bR);
+    list.appendChild(rowR);
+  }
+
+  /* ==========================================================================
+   * 斜杠快捷指令（/继续 /重写 /摘要 /导出 /清空）
+   * 参考常见网页版聊天工具的"命令面板"思路，但只做真正用得上的几条。
+   * ======================================================================== */
+
+  var SLASH = [
+    { cmd: '/继续', hint: '让角色接着上一条继续说', run: function () { continueLast(); } },
+    { cmd: '/重写', hint: '重新生成上一条回复', run: function () { regenerateLast(); } },
+    { cmd: '/摘要', hint: '把较早的对话压缩成长期记忆', run: function () { compressMemory(true); } },
+    { cmd: '/导出', hint: '把这段对话存成 Markdown 到 Download', run: function () { exportChatMarkdown(); } },
+    { cmd: '/清空', hint: '清空当前会话的消息（不可撤销）', run: clearCurrentSession },
+    { cmd: '/帮助', hint: '看看都有哪些指令', run: showSlashHelp }
+  ];
+
+  function slashMatches(text) {
+    var t = String(text || '');
+    if (t.charAt(0) !== '/') return [];
+    return SLASH.filter(function (c) { return c.cmd.indexOf(t.split(' ')[0]) === 0; });
+  }
+
+  function renderSlashBar() {
+    var bar = $('slashBar');
+    var inp = $('input');
+    var list = slashMatches(inp ? inp.value : '');
+    if (!list.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+    bar.innerHTML = '';
+    list.forEach(function (c) {
+      var b = el('button', 'chip', c.cmd + '  ' + c.hint);
+      b.onclick = function () {
+        inp.value = c.cmd;
+        autoGrowInput();
+        bar.hidden = true;
+      };
+      bar.appendChild(b);
+    });
+    bar.hidden = false;
+  }
+
+  /** 输入的是整条指令（可以带参数）就直接执行，不发给模型 */
+  function tryRunSlash(text) {
+    var t = String(text || '').trim();
+    if (t.charAt(0) !== '/') return false;
+    var head = t.split(/\s+/)[0];
+    for (var i = 0; i < SLASH.length; i++) {
+      if (SLASH[i].cmd === head) {
+        $('input').value = '';
+        autoGrowInput();
+        $('slashBar').hidden = true;
+        SLASH[i].run(t.slice(head.length).trim());
+        return true;
+      }
+    }
+    toast('没有这条指令，输入 /帮助 看看', 'warn', 2200);
+    return false;
+  }
+
+  function showSlashHelp() {
+    openActions('斜杠指令', SLASH.map(function (c) {
+      return { icon: '›', label: c.cmd + ' — ' + c.hint, run: function () { c.run(); } };
+    }));
+  }
+
+  /** 继续生成：接着最后一条助手消息往下写（追加而不是新发一条） */
+  function continueLast() {
+    if (!S.session) { toast('先选一个角色', 'warn'); return; }
+    if (!providerReady()) { toast(isRemote() ? '外部模型未配置好' : '引擎未就绪', 'warn'); return; }
+    var msgs = S.messages || [];
+    var last = null;
+    for (var i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === 'assistant') { last = msgs[i]; break; } }
+    if (!last) { toast('还没有可继续的回复', 'warn'); return; }
+    continueFromMessage(last);
+  }
+
+  function regenerateLast() {
+    var msgs = S.messages || [];
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') { regenerateFrom(msgs[i].id); return; }
+    }
+    toast('还没有可重写的回复', 'warn');
+  }
+
+  function clearCurrentSession() {
+    if (!S.session) { toast('先选一个角色', 'warn'); return; }
+    confirmAction('清空这段对话', '会删掉当前会话的全部消息（角色和设置不受影响）。', '清空', function () {
+      S.store.clearSessionMessages(S.session.id);
+      S.messages = S.store.listMessages(S.session.id);
+      S.lastOptions = [];
+      renderMessages();
+      renderOptionsBar();
+      toast('已清空', 'ok');
+    });
+  }
+
+  /* ==========================================================================
+   * 导出对话为 Markdown
+   * ======================================================================== */
+
+  function chatToMarkdown(session, messages) {
+    var chars = (session.characterIds || []).map(charById).filter(Boolean);
+    var out = [];
+    out.push('# ' + (session.title || '对话'));
+    out.push('');
+    out.push('- 时间：' + new Date().toLocaleString('zh-CN'));
+    out.push('- 角色：' + (chars.length ? chars.map(function (c) { return c.name; }).join('、') : '（已删除）'));
+    out.push('- 模式：' + (session.mode === 'group' ? '群聊' : '单聊') + (session.plot ? ' · 剧情模式' : ''));
+    out.push('- 消息数：' + messages.length);
+    out.push('');
+    out.push('---');
+    out.push('');
+    messages.forEach(function (m) {
+      var who = m.role === 'user' ? '我' : (m.speakerName || (chars[0] && chars[0].name) || '角色');
+      var when = m.ts ? new Date(m.ts).toLocaleString('zh-CN') : '';
+      out.push('**' + who + '**' + (when ? '  ·  ' + when : ''));
+      out.push('');
+      out.push(String(m.content || '').trim());
+      out.push('');
+    });
+    out.push('---');
+    out.push('');
+    out.push('_由 风月·本地版 导出_');
+    return out.join('\n');
+  }
+
+  function exportChatMarkdown() {
+    if (!S.session) { toast('先选一个角色', 'warn'); return; }
+    var msgs = S.messages || S.store.listMessages(S.session.id);
+    if (!msgs.length) { toast('这段对话还是空的', 'warn'); return; }
+    var md = chatToMarkdown(S.session, msgs);
+    var name = (S.session.title || '对话').replace(/[\\/:*?"<>|]/g, '_') + '-对话.md';
+    var r = asObj(fyCall('saveText', [name, md]));
+    if (r && r.ok) toast('已导出到 Download：' + name, 'ok', 4000);
+    else toast('导出失败' + (r && r.path ? '（' + r.path + '）' : ''), 'err', 3600);
+    fyLog('导出对话：' + name + ' ' + md.length + ' 字');
   }
 
   /* ---------- 模型来源 / 自定义下载 ---------- */
@@ -1693,6 +1974,26 @@
   }
 
   /** 生成一次回复（内部统一入口：流式 + 增量渲染 + 落库） */
+  var continueTargetId = null;      /* 非空表示这一轮是「续写」：结果并进原消息而不是新开一条 */
+
+  /** 把续写结果并进原文：模型常会把上一句尾巴重复一遍，这里按最长衔接片段裁掉 */
+  function mergeContinuation(base, add) {
+    var a = String(add || '');
+    if (!base || !a) return a;
+    var max = Math.min(40, base.length, a.length);
+    for (var n = max; n >= 6; n--) {
+      if (base.slice(base.length - n) === a.slice(0, n)) return a.slice(n).replace(/^\s+/, '');
+    }
+    return a.replace(/^\s+/, '');
+  }
+
+  function continueFromMessage(msg) {
+    if (S.generating) { toast('正在生成中…', 'warn'); return; }
+    if (!msg) return;
+    continueTargetId = msg.id;
+    runGeneration();
+  }
+
   function runGeneration() {
     if (S.generating) { toast('正在生成中…', 'warn'); return; }
     if (!S.session) return;
@@ -1705,13 +2006,20 @@
     }
 
     var speaker = pickSpeaker();
-    var msg = S.store.addMessage({
-      sessionId: S.session.id, role: 'assistant', content: '',
-      characterId: speaker ? speaker.id : '',
-      speakerName: speaker ? speaker.name : '',
-      speakerAvatar: speaker ? speaker.avatar : ''
-    });
-    S.messages.push(msg);
+    var contTarget = continueTargetId ? S.store.getMessage(continueTargetId) : null;
+    if (continueTargetId && !contTarget) continueTargetId = null;
+    var msg;
+    if (contTarget) {
+      msg = contTarget;            /* 续写：复用原消息，不新增 */
+    } else {
+      msg = S.store.addMessage({
+        sessionId: S.session.id, role: 'assistant', content: '',
+        characterId: speaker ? speaker.id : '',
+        speakerName: speaker ? speaker.name : '',
+        speakerAvatar: speaker ? speaker.avatar : ''
+      });
+      S.messages.push(msg);
+    }
 
     S.generating = true;
     S.abort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -1728,10 +2036,11 @@
     var bubble = node ? node.querySelector('.bubble') : null;
     if (bubble) bubble.classList.add('streaming');
 
+    var paintPrefix = contTarget ? (contTarget.content || '') : '';
     function paint() {
       var split = splitThinking(raw);
       var ex = extractOptions(stripPromptLeak(split.content));
-      if (bubble) bubble.textContent = ex.content;
+      if (bubble) bubble.textContent = paintPrefix + ex.content;
       scrollMessagesToBottom(false);
     }
 
@@ -1748,6 +2057,14 @@
     }
 
     var body = buildRequestBody(speaker);
+    if (contTarget) {
+      /* 通用做法：不依赖各家私有参数，直接加一句"接着写"的指示；
+         生成结果稍后并进原消息（各家 API 对 assistant 预填充支持不一） */
+      body.messages = body.messages.concat([{
+        role: 'user',
+        content: '（继续往下写：直接从下一句接着写，不要重复已经出现过的内容，不要重新问候，不要重述设定）'
+      }]);
+    }
     /* 记下"我们估的 token 数"，等引擎回传 timings.prompt_n 时用来校正估算系数 */
     S.lastEstimate = body.messages.reduce(function (a, m) {
       return a + FYStore.estimateTokens(m.content || '') + 6;
@@ -1796,13 +2113,27 @@
       fyLog('生成失败 ' + (err && err.message || err));
     }
 
-    var last = S.messages[S.messages.length - 1];
-    if (last && last.role === 'assistant') {
-      var saved = S.store.updateMessage({
-        id: last.id, content: content, thinking: split.thinking,
+    if (continueTargetId) {
+      /* 续写：把新内容并进原消息 */
+      var tgt = S.store.getMessage(continueTargetId);
+      var merged = tgt ? ((tgt.content || '') + mergeContinuation(tgt.content || '', content)) : content;
+      var savedC = S.store.updateMessage({
+        id: continueTargetId, content: merged, thinking: (tgt && tgt.thinking) || split.thinking,
         options: ex.options, aborted: !!aborted, error: !!(err && !aborted && !content)
       });
-      S.messages[S.messages.length - 1] = saved;
+      for (var mi = 0; mi < S.messages.length; mi++) {
+        if (S.messages[mi].id === continueTargetId) { S.messages[mi] = savedC; break; }
+      }
+      continueTargetId = null;
+    } else {
+      var last = S.messages[S.messages.length - 1];
+      if (last && last.role === 'assistant') {
+        var saved = S.store.updateMessage({
+          id: last.id, content: content, thinking: split.thinking,
+          options: ex.options, aborted: !!aborted, error: !!(err && !aborted && !content)
+        });
+        S.messages[S.messages.length - 1] = saved;
+      }
     }
     S.lastOptions = ex.options || [];
     renderMessages();
@@ -2198,7 +2529,15 @@
     return false;
   }
 
+  /** 正文字号倍率（只影响阅读区，不动徽标这类小字） */
+  function applyFontScale() {
+    var v = Number((S.settings && S.settings.fontScale) || 1);
+    if (!(v > 0.5 && v < 2)) v = 1;
+    document.documentElement.style.setProperty('--fs-scale', String(v));
+  }
+
   function applyAppearance() {
+    applyFontScale();
     var light = isLightAppearance();
     var el = document.documentElement;
     if (light) el.setAttribute('data-theme', 'light');
@@ -2855,6 +3194,8 @@
       var sources = fyCall('listDownloadSources', [], true);
       S.downloads = Array.isArray(sources) ? sources : [];
       fyLog('前端启动完成：存储=' + S.engine + '，角色=' + S.characters.length + '，模型=' + S.models.length);
+      /* 新用户（没有模型、也没配好外部服务）→ 弹一次三选一引导 */
+      setTimeout(maybeShowOnboarding, 400);
 
       switchView(S.session ? 'chat' : 'characters');
       $('boot').classList.add('hide');
@@ -2901,7 +3242,13 @@
     /* 顶栏 */
     $('btnBack').onclick = function () { switchView('characters'); };
     $('btnTopMenu').onclick = function () { topMenuActions(); };
-    $('enginePill').onclick = function () { switchView('settings'); };
+    $('enginePill').onclick = openBackendSheet;      /* 顶栏点一下就能换模型来源 */
+    $('btnBackendClose').onclick = function () { closeSheet($('backendMask')); };
+    $('btnBackendSettings').onclick = function () { closeSheet($('backendMask')); switchView('settings'); };
+    $('btnOnboardClose').onclick = function () { finishOnboarding('skip'); };
+    $('obCloud').onclick = function () { finishOnboarding('cloud'); };
+    $('obLocal').onclick = function () { finishOnboarding('local'); };
+    $('obLan').onclick = function () { finishOnboarding('lan'); };
 
     /* 角色页 */
     $('btnNewChar').onclick = function () { openCharSheet(null); };
@@ -3014,9 +3361,11 @@
     ta.addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229) {
         ev.preventDefault();
-        sendUserMessage();
+        if (!tryRunSlash(this.value)) sendUserMessage();   /* 以 / 开头且是已知指令 → 执行，不发模型 */
       }
     });
+    $('input').addEventListener('input', renderSlashBar);
+    $('input').addEventListener('blur', function () { setTimeout(function () { $('slashBar').hidden = true; }, 150); });
     $('btnMic').onclick = toggleListening;
 
     /* 动作面板 */
@@ -3062,6 +3411,11 @@
     $('setGpu').onchange = saveNumSetting('gpuLayers');
 
     /* 设置页：模型 */
+    $('setFontScale').onchange = function () {
+      S.settings = S.store.saveSettings({ fontScale: Number(this.value) || 1 });
+      applyFontScale();
+      toast('字号已调整', 'ok', 1500);
+    };
     $('setBgPattern').onchange = function () {
       S.settings = S.store.saveSettings({ bgPattern: this.checked });
       applyAppearance();
@@ -3277,6 +3631,8 @@
   function chatMenuActions() {
     if (!S.session) { toast('先选一个角色', 'warn'); return; }
     var acts = [
+      { icon: '⏩', label: '继续生成（接着上一条往下写）', run: continueLast },
+      { icon: '📤', label: '导出这段对话（Markdown → Download）', run: exportChatMarkdown },
       { icon: '🧠', label: '长期记忆（查看/编辑/压缩）', run: openMemorySheet },
       { icon: '✏️', label: '重命名会话', run: function () {
         var v = global.prompt('会话名称：', S.session.title || '');
@@ -3369,6 +3725,7 @@
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,
     renderCharacters: renderCharacters,
+    renderMessages: renderMessages,
     renderOptionsBar: renderOptionsBar,
     applyAppearance: applyAppearance,
     luminance: luminance,
@@ -3376,6 +3733,18 @@
     pickOnAccent: pickOnAccent,
     isLightAppearance: isLightAppearance,
     mixHex: mixHex,
+    continueLast: continueLast,
+    continueFromMessage: continueFromMessage,
+    mergeContinuation: mergeContinuation,
+    exportChatMarkdown: exportChatMarkdown,
+    chatToMarkdown: chatToMarkdown,
+    slashMatches: slashMatches,
+    tryRunSlash: tryRunSlash,
+    finishOnboarding: finishOnboarding,
+    maybeShowOnboarding: maybeShowOnboarding,
+    openBackendSheet: openBackendSheet,
+    renderBackendSheet: renderBackendSheet,
+    applyFontScale: applyFontScale,
     modelNameFromUrl: modelNameFromUrl,
     apiTarget: apiTarget,
     providerReady: providerReady,

@@ -443,6 +443,7 @@
          tags  —— 分类标签（角色页用来筛选；chara_card_v2 的标准字段）
          kind  —— character=角色卡 / story=剧情卡（剧情卡自带世界观，开局就进剧情模式）
          plot  —— 打开这个角色的会话时是否默认开启剧情模式 */
+      fav: !!p.fav,                  /* 收藏（角色页可筛"只看收藏"） */
       tags: Array.isArray(p.tags) ? p.tags.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 6) : [],
       kind: (p.kind === 'story') ? 'story' : 'character',
       plot: !!p.plot,
@@ -533,6 +534,8 @@
     theme: '#7c5cff',
     appearance: 'dark',      /* dark | light | auto（跟随系统） */
     bgPattern: true,         /* 背景图案（星野/点阵）开关 */
+    fontScale: 1,            /* 正文字号倍率（0.9 / 1 / 1.12 / 1.25） */
+    onboarded: false,        /* 是否走过首次引导（三选一） */
     lastModel: ''
   };
 
@@ -868,6 +871,19 @@
       save();
       return true;
     }
+    /** 按 id 取一条消息（续写要用） */
+    function getMessage(id) {
+      var m = msgById[id];
+      return m ? copy(m) : null;
+    }
+
+    /** 清空某个会话的全部消息（保留会话本身） */
+    function clearSessionMessages(sessionId) {
+      var arr = (msgIndex[sessionId] || []).slice();
+      for (var i = 0; i < arr.length; i++) deleteMessage(arr[i].id);
+      return arr.length;
+    }
+
     function deleteMessagesFrom(sessionId, fromTs) {
       var arr = msgIndex[sessionId] || [];
       var gone = [];
@@ -1109,6 +1125,7 @@
       getActiveSessionId: getActiveSessionId, setActiveSessionId: setActiveSessionId,
       /* 消息 */
       listMessages: listMessages, countMessages: countMessages, lastMessage: lastMessage,
+      getMessage: getMessage, clearSessionMessages: clearSessionMessages,
       addMessage: addMessage, updateMessage: updateMessage, deleteMessage: deleteMessage,
       deleteMessagesFrom: deleteMessagesFrom,
       /* 记忆 */

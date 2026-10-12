@@ -101,6 +101,7 @@
   --safe-t: env(safe-area-inset-top, 0px);
   --topbar-h: 56px;
   --tabbar-h: 58px;
+  --fs-scale: 1;               /* 正文字号倍率（设置里可调） */
   --app-h: 100vh;              /* JS 覆盖为真实可视高度 */
   --kb: 0px;                   /* 软键盘高度 */
 }
@@ -169,7 +170,7 @@ html, body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.62 system-ui, -apple-system, "MiSans", "HarmonyOS Sans SC",
+  font: calc(15px * var(--fs-scale, 1))/1.62 system-ui, -apple-system, "MiSans", "HarmonyOS Sans SC",
         "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeSpeed;
@@ -599,6 +600,13 @@ select.input option { background: var(--surface-2); color: var(--text); }
   min-height: 34px;
 }
 .char-meta { font-size: 11px; color: var(--text-3); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.char-fav {
+  position: absolute; left: 6px; top: 6px;
+  width: 30px; height: 30px; border-radius: var(--r-full);
+  background: transparent; border: 0; color: var(--muted); font-size: 15px;
+  transition: background var(--dur-2) var(--ease-std), transform var(--dur-1) var(--ease-std);
+}
+.char-fav:active { background: var(--surface-3); transform: scale(.9); }
 .char-edit {
   position: absolute; right: 6px; top: 6px;
   width: 30px; height: 30px; border-radius: var(--r-full);
@@ -664,7 +672,7 @@ select.input option { background: var(--surface-2); color: var(--text); }
   border: 1px solid var(--line-soft);
   border-radius: var(--r-lg) var(--r-lg) var(--r-lg) 6px;
   padding: 10px 13px;
-  font-size: 14.5px;
+  font-size: .97em;                  /* 跟随正文字号倍率 */
   line-height: 1.72;                 /* 中文正文行距放宽一点更好读 */
   word-break: break-word;
   white-space: pre-wrap;
@@ -740,7 +748,7 @@ select.input option { background: var(--surface-2); color: var(--text); }
   color: var(--text);
   border-radius: var(--r-md);
   padding: 10px 12px;
-  font-size: 13.5px;
+  font-size: .9em;
   line-height: 1.5;
   transition: transform var(--dur-1) var(--ease-std), background var(--dur-2) var(--ease-std);
 }
@@ -782,6 +790,23 @@ select.input option { background: var(--surface-2); color: var(--text); }
 }
 .composer-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .composer-input::placeholder { color: var(--muted); }
+
+/* 斜杠指令提示条：在输入框上方飘一条 */
+.slash-bar {
+  position: absolute;
+  left: 10px; right: 10px;
+  bottom: calc(100% + 6px);
+  display: flex; gap: 6px; overflow-x: auto;
+  padding: 7px 8px;
+  background: color-mix(in srgb, var(--surface-4) 96%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  scrollbar-width: none;
+}
+.slash-bar::-webkit-scrollbar { display: none; }
+.slash-bar .chip { flex: 0 0 auto; font-size: 12px; }
+.composer { position: relative; }
 
 /* 键盘弹起（JS 打标）：去掉安全区占位，避免双重留白 */
 .app.kb-open .composer { padding-bottom: 9px; }

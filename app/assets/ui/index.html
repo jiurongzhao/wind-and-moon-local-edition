@@ -100,7 +100,8 @@
 
       <div class="composer" id="composer">
         <button class="icon-btn round" id="btnMic" aria-label="语音输入">🎤</button>
-        <div class="composer-input-wrap">
+        <div class="slash-bar" id="slashBar" hidden></div>
+      <div class="composer-input-wrap">
           <textarea id="input" class="composer-input" rows="1" placeholder="说点什么…"></textarea>
         </div>
         <button class="icon-btn round primary" id="btnSend" aria-label="发送">➤</button>
@@ -314,6 +315,15 @@
             </select>
           </div>
           <div class="field">
+            <label class="label">正文字号</label>
+            <select class="input" id="setFontScale">
+              <option value="0.9">小</option>
+              <option value="1">标准</option>
+              <option value="1.12">大</option>
+              <option value="1.25">特大</option>
+            </select>
+          </div>
+          <div class="field">
             <label class="label">主题色</label>
             <div class="swatches" id="swatches"></div>
           </div>
@@ -479,6 +489,62 @@
       <span class="grow"></span>
       <button class="btn" id="btnCharCancel">取消</button>
       <button class="btn btn-primary" id="btnCharSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 首次引导（三选一） ======================= -->
+<div class="sheet-mask" id="onboardMask" hidden>
+  <div class="sheet" id="onboardSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">先选一种「模型来源」</div>
+      <button class="icon-btn" id="btnOnboardClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted xs" style="margin-bottom:10px">
+        风月本身不含模型。三条路任选其一，之后随时能在「设置 → 模型来源」里换。
+      </div>
+      <div class="model-list">
+        <div class="model-row" id="obCloud" style="cursor:pointer">
+          <div class="grow">
+            <div class="model-name">☁️ 用 DeepSeek（推荐）</div>
+            <div class="model-size">填个 API Key 就能聊：不占手机内存、速度快、比手机能跑的本地模型聪明。<br>地址和模型名我已预填好，你只要贴 Key。</div>
+          </div>
+          <span class="badge accent">推荐</span>
+        </div>
+        <div class="model-row" id="obLocal" style="cursor:pointer">
+          <div class="grow">
+            <div class="model-name">📱 下载本地模型（完全离线）</div>
+            <div class="model-size">内置 0.5B（约 0.5GB）：不联网、不上传、秒回，智力一般。<br>适合不想花钱 / 不想联网的时候。</div>
+          </div>
+        </div>
+        <div class="model-row" id="obLan" style="cursor:pointer">
+          <div class="grow">
+            <div class="model-name">🖥 连电脑或 VPS 上的服务</div>
+            <div class="model-size">Ollama / LM Studio / llama.cpp server，OpenAI 兼容接口。<br>手机当一个"遥控器"，算力用大机器。</div>
+          </div>
+        </div>
+      </div>
+      <div class="muted xs" style="margin-top:10px">这些都能随时改，先随便选一个就行。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 切换模型来源（顶栏快速切换） ======================= -->
+<div class="sheet-mask" id="backendMask" hidden>
+  <div class="sheet compact" id="backendSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">切换模型来源</div>
+      <button class="icon-btn" id="btnBackendClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted xs" id="backendStatus">—</div>
+      <div class="model-list" id="backendList"></div>
+      <div class="row gap wrap" style="margin-top:8px">
+        <button class="btn btn-sm" id="btnBackendSettings">去设置里细调</button>
+      </div>
     </div>
   </div>
 </div>

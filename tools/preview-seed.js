@@ -109,6 +109,26 @@
       App.openSearchSheet();
       document.getElementById('searchInput').value = '书';
       App.runSearch();
+    } else if (view === 'onboard') {
+      App.switchView('characters');
+      try {
+        App.state.settings = App.store.saveSettings({ onboarded: false });
+        /* 截图要看到引导：把"已经有模型/已配好服务"这两个条件按新用户状态摆好 */
+        App.state.models = [];
+        App.state.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
+        App.state.engineState = Object.assign({}, App.state.engineState, { state: 'stopped', port: 0 });
+      } catch (e) {}
+      App.maybeShowOnboarding ? App.maybeShowOnboarding() : null;
+      /* 预览里 bootstrap 会把模型列表再填回来，所以直接强制显示这次引导，专门给它截图 */
+      document.getElementById('onboardMask').hidden = false;
+    } else if (view === 'backend') {
+      App.switchView('chat');
+      App.openBackendSheet ? App.openBackendSheet() : null;
+    } else if (view === 'slash') {
+      App.switchView('chat');
+      var inp = document.getElementById('input');
+      inp.value = '/';
+      inp.dispatchEvent(new Event('input'));
     } else if (view === 'sheet') {
       App.switchView('characters');
       var first = App.state.store.listCharacters()[0];
