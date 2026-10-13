@@ -76,6 +76,16 @@ public class Bridge {
             o.put("nativeDir", host.getApplicationInfo().nativeLibraryDir);
             o.put("modelDir", host.models().dir().getAbsolutePath());
             o.put("engineProbe", host.engine().getProbeResult());
+            // 进程内（JNI）引擎：装没装、起没起、加载多久、后端是什么。
+            // 这些都是"真机上出问题时要第一眼看的东西"，所以放进 appInfo 而不是埋在日志里。
+            try {
+                o.put("nativeLoaded", NativeEngine.isLoaded());
+                o.put("nativeState", host.natState());
+                o.put("nativeLoadMs", host.natLoadMs());
+                o.put("nativeSystem", NativeEngine.nativeSystemInfo().trim().replace('\n', ' '));
+            } catch (Throwable t) {
+                o.put("nativeError", String.valueOf(t));
+            }
             // 内存信息：模型大小和可用内存的关系直接决定速度。
             // 实测同一台机器：0.5B（0.5GB）稳 48 tok/s；4B（2.4GB）在内存吃紧时掉到 1.1 tok/s。
             try {
@@ -105,15 +115,28 @@ public class Bridge {
 
     @JavascriptInterface
     public String engineStatus() {
-        Engine e = host.engine();
         try {
             JSONObject o = new JSONObject();
+            // 进程内引擎在跑（或正在起）就报它；否则报子进程那套 —— 两边的 state 取值一样
+            if (host.natActive() || "loading".equals(host.natState())) {
+                o.put("state", host.natState());
+                o.put("port", 0);
+                o.put("model", host.natModel());
+                o.put("message", host.natMessage());
+                o.put("lastError", "error".equals(host.natState()) ? host.natMessage() : "");
+                o.put("launchStrategy", "jni");
+                o.put("native", true);
+                o.put("loadMs", host.natLoadMs());
+                return o.toString();
+            }
+            Engine e = host.engine();
             o.put("state", e.getState());
             o.put("port", e.getPort());
             o.put("model", e.getCurrentModel());
             o.put("message", e.getMessage());
             o.put("lastError", e.getLastError());
             o.put("launchStrategy", e.getLaunchStrategy());
+            o.put("native", false);
             return o.toString();
         } catch (Exception ex) {
             return fail(String.valueOf(ex));
@@ -140,6 +163,43 @@ public class Bridge {
             // 前端按机型内存决定默认值，这里只负责透传。
             String loadMode = o.optString("loadMode", "");
             host.engine().setLoadMode(loadMode);
+
+            /* engineMode=jni（默认）走进程内引擎；=server 用老的 llama-server 子进程。
+               jni 起不来会自动回退 server，所以默认值可以放心激进。 */
+            if (!"server".equals(o.optString("engineMode", "jni"))) {
+                // 换模型期间绝不能有生成在跑：C 侧 free 掉 context 而推理线程还在用它 = 崩
+                if (host.nativeGenerating()) return fail("正在生成，先停止再换模型");
+                final String m = model;
+                final String abs = new java.io.File(host.models().dir(), model).getAbsolutePath();
+                final int c = ctx, th = threads, gl = gpuLayers;
+                final boolean mlock = "mlock".equals(loadMode);
+                host.nativePush("loading", "正在把模型装进进程内引擎…", m, -1);
+                new Thread(() -> {
+                    long ms = -1;
+                    try {
+                        // 先收掉可能还在跑的旧引擎：一个占着 3.5GB 的残留会让新模型加载慢一个数量级
+                        host.engine().stop();
+                        NativeEngine.unload();
+                        ms = NativeEngine.load(abs, c, th, mlock);
+                    } catch (Throwable t) {
+                        // .so 加载失败（缺库 / ABI 不符）会在这里抛，别让线程就这么死掉
+                        Log.w(TAG, "进程内引擎加载异常", t);
+                        ms = -1;
+                    }
+                    if (ms >= 0) {
+                        host.nativePush("ready", "进程内引擎就绪（加载 " + ms + "ms）", m, ms);
+                    } else {
+                        /* 回退：先把原生状态清干净（否则 engineStatus 会一直报 loading，
+                           前端就看不到子进程引擎的真实状态了），再照旧起 llama-server。
+                           提示走"只推事件"那条，别把 natState 又设回 loading。 */
+                        host.nativeReset();
+                        host.pushEngineEvent("loading", "进程内引擎起不来，改用子进程引擎重试…", m, false);
+                        host.engine().start(m, c, th, gl, host.models().dir().getAbsolutePath());
+                    }
+                }, "fy-native-load").start();
+                return ok("已开始启动（进程内引擎）");
+            }
+
             host.engine().start(model, ctx, threads, gpuLayers,
                     host.models().dir().getAbsolutePath());
             return ok("已开始启动");
@@ -150,8 +210,77 @@ public class Bridge {
 
     @JavascriptInterface
     public String engineStop() {
+        boolean wasNative = host.natActive() || "loading".equals(host.natState());
+        host.shutdownNativeEngine();
+        if (wasNative) host.nativePush("stopped", "已手动停止", null, -1);
         host.engine().stop();
         return ok("已停止");
+    }
+
+    // ---------- 进程内引擎的对话（不走 HTTP） ----------
+
+    /**
+     * 一轮对话：messages 交给进程内引擎，原生侧套模型自带模板并流式回调。
+     *
+     * 立即返回 {ok, id}；token 通过 gen 事件推回来：
+     *   {id, state:"delta", delta:"…"} / {id, state:"done", stats:{…}} / {id, state:"error", message:"…"}
+     * 事件带 id 是为了让前端能丢掉"上一轮迟到的尾巴"（停止/重开时会发生）。
+     */
+    @JavascriptInterface
+    public String chat(String messagesJson, String optsJson) {
+        try {
+            if (!NativeEngine.isLoaded()) return fail("进程内引擎还没就绪");
+        } catch (Throwable t) {
+            // 类初始化失败（.so 没打进去 / ABI 不符）也走这条，别把异常甩给 WebView
+            return fail("进程内引擎不可用: " + t);
+        }
+        try {
+            JSONArray arr = new JSONArray(messagesJson == null ? "[]" : messagesJson);
+            int n = arr.length();
+            if (n <= 0) return fail("没有可发送的消息");
+            final String[] flat = new String[n * 2];
+            for (int i = 0; i < n; i++) {
+                JSONObject m = arr.optJSONObject(i);
+                flat[i * 2] = m == null ? "user" : m.optString("role", "user");
+                flat[i * 2 + 1] = m == null ? "" : m.optString("content", "");
+            }
+            JSONObject o = new JSONObject(optsJson == null || optsJson.isEmpty() ? "{}" : optsJson);
+            final int pin = Math.max(0, o.optInt("pinMessages", 1));
+            final int maxTokens = Math.max(1, o.optInt("maxTokens", 512));
+            final float temp = (float) o.optDouble("temperature", 0.8);
+            final int topK = o.optInt("topK", 40);
+            final float topP = (float) o.optDouble("topP", 0.95);
+            final int seed = o.optInt("seed", 0);
+
+            final String id = host.beginNativeGen();
+            if (id == null) return fail("上一轮还在生成，稍等一下");
+            new Thread(() -> {
+                try {
+                    String stats = NativeEngine.chat(flat, pin, maxTokens, temp, topK, topP, seed);
+                    host.finishNativeGen(stats);
+                } catch (Throwable t) {
+                    Log.w(TAG, "原生生成失败", t);
+                    host.failNativeGen(String.valueOf(t));
+                }
+            }, "fy-native-chat").start();
+
+            JSONObject r = new JSONObject();
+            r.put("ok", true);
+            r.put("id", id);
+            return r.toString();
+        } catch (Exception e) {
+            return fail("chat 参数错误: " + e);
+        }
+    }
+
+    /** 停止当前这一轮原生生成（点了"停止"时调）。 */
+    @JavascriptInterface
+    public String chatStop() {
+        try {
+            NativeEngine.stop();
+        } catch (Throwable ignored) {
+        }
+        return ok("已请求停止");
     }
 
     @JavascriptInterface

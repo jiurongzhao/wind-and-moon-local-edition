@@ -8,9 +8,11 @@
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `FY.appInfo()` | — | `{version, abi, sdk, model, filesDir, nativeDir, modelDir}` | 设备与路径信息 |
-| `FY.engineStatus()` | — | `{state, port, model, message, lastError}` | `state`: `stopped`/`starting`/`ready`/`error` |
-| `FY.engineStart(optsJson)` | JSON 字符串 `{model, ctx, threads, gpuLayers, port}` | `{ok, message}` | 异步启动，进度通过事件推送 |
-| `FY.engineStop()` | — | `{ok}` | 停止本地推理服务 |
+| `FY.engineStatus()` | — | `{state, port, model, message, lastError, launchStrategy, native}` | `state`: `stopped`/`starting`/`loading`/`ready`/`error`；`native:true` = 进程内（JNI）引擎，此时 `port` 为 0 |
+| `FY.engineStart(optsJson)` | JSON 字符串 `{model, ctx, threads, gpuLayers, loadMode, engineMode}` | `{ok, message}` | 异步启动，进度通过事件推送；`engineMode: "jni"`（默认）走进程内引擎，`"server"` 走 llama-server 子进程 |
+| `FY.engineStop()` | — | `{ok}` | 停止推理（两种引擎都停） |
+| `FY.chat(messagesJson, optsJson)` | `[{role,content},…]`、`{pinMessages, maxTokens, temperature, topK, topP, seed, id}` | `{ok, id}` | **进程内引擎专用**：套模型自带模板后流式生成，token 走 `gen` 事件；没有 HTTP、没有端口 |
+| `FY.chatStop()` | — | `{ok}` | 停止当前这一轮生成 |
 | `FY.listModels()` | — | `[{name, sizeBytes, path, installed}]` | 扫描模型目录 |
 | `FY.deleteModel(name)` | 文件名 | `{ok, message}` | 删除模型 |
 | `FY.importModel(uri)` | 内容 URI（来自文件选择器） | `{ok, name, message}` | 复制外部模型到模型目录 |
@@ -49,9 +51,22 @@ window.fyEvent = function (name, payloadJson) { /* ... */ }
 | `card` | `{ok, name, json, message}` | 角色卡文件读取结果；`json` 是卡片文本（PNG 里的 `chara` 块已在 Java 侧解出），字段映射交给前端 `cards.js` |
 | `stt` | `{text, final}` | 语音识别中间/最终结果 |
 | `tts` | `{state}` | `start`/`done`/`error` |
-| `log` | `{line}` | 引擎 stdout 日志行（调试面板用） |
+| `log` | `{lines:[…]}`（兼容老的 `{line}`） | 引擎 stdout 日志行（调试面板用；按 150ms / 64 行合批） |
+| `gen` | `{id, state, delta, stats, message}` | 进程内引擎的流式 token：`delta`（一次一小批）→ `done`（`stats` 带 `gen/reused/prompt/cache/prefillMs/firstMs/totalMs`）或 `error` |
 
-## 3. 本地推理 API（前端直接调用，不经过 Java）
+## 3. 本地推理 API
+
+内置引擎有两套实现，用哪套由 `engineStatus().native` 决定（前端已收口在 `streamChat()` /
+`postJson()` 里，业务代码不用分叉）：
+
+|  | 进程内（`native: true`，默认） | 子进程（`native: false`） |
+|---|---|---|
+| 入口 | `FY.chat()`，token 走 `gen` 事件 | `POST http://127.0.0.1:<port>/v1/chat/completions` |
+| 对话模板 | 模型 GGUF 里自带那份，由 C 侧 `llama_chat_apply_template` 套 | llama-server 套 |
+| 静态前缀 | 常驻 KV；历史变长只丢前缀之后的一段 | 靠服务端自己的前缀缓存 |
+| 进程 / 端口 | 无子进程、无端口 | 一个 `libfy_llama_server.so` 子进程 + 端口 |
+
+### 3.0 子进程那条路（`native: false`）
 
 引擎就绪后，前端直接对本地端口发 HTTP 请求（llama-server 的 OpenAI 兼容接口）：
 

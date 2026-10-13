@@ -5,6 +5,7 @@
 #   2. Engine.java JVM 实跑     （自检 + 状态机 + 真实推理 + 停止）—— 会真起 llama-server
 #   3. AssetServer.java JVM 实跑（路由/MIME/404/并发/只监听回环）
 #   4. 下载与断点续传实测        （打真实 ModelScope，逐字节比对）
+#   3.7 NativeEngine.java 实跑   （JNI 直连 libllama：加载 / 静态前缀常驻 / 前缀复用 / 溢出）
 #
 # 用法: ./runtests.sh [--quick]     --quick 跳过会起引擎和联网的那两个
 set -u
@@ -72,7 +73,7 @@ rm -rf build/jvmtest && mkdir -p build/jvmtest
 # 源文件自动发现：以前这里是 14 行手写清单，加一个测试桩就得回来改脚本（漏改就是"莫名编译失败"）。
 # 路径里没有空格，所以靠 shell 分词展开是有意的。
 STUB_SRC=$(find tests/jvmstub -name '*.java' | sort | tr '\n' ' ')
-APP_SRC="app/java/com/fy/local/Engine.java app/java/com/fy/local/AssetServer.java app/java/com/fy/local/PngCardText.java app/java/com/fy/local/Providers.java"
+APP_SRC="app/java/com/fy/local/Engine.java app/java/com/fy/local/AssetServer.java app/java/com/fy/local/PngCardText.java app/java/com/fy/local/Providers.java app/java/com/fy/local/NativeEngine.java"
 TEST_SRC=$(find tests -maxdepth 1 -name '*JvmTest.java' | sort | tr '\n' ' ')
 # shellcheck disable=SC2086
 javac -nowarn -encoding UTF-8 -d build/jvmtest $STUB_SRC $APP_SRC $TEST_SRC > build/javac.log 2>&1
@@ -96,6 +97,21 @@ step "3.6/5 Engine 孤儿进程清理 JVM 实跑（真起进程、真杀进程�
 timeout 120 java -cp build/jvmtest EngineReapJvmTest 2>&1 | tail -14
 reap_rc=${PIPESTATUS[0]}
 if [ "$reap_rc" = "0" ]; then ok; else bad "$reap_rc"; fi
+
+step "3.7/5 原生引擎 JNI 直连 JVM 实跑（真加载 0.5B，重点验前缀复用）"
+# 新引擎的验收：不开子进程、不开端口，libllama 直接链进 JVM。
+# LD_LIBRARY_PATH 让 libfy_engine.so 找到同目录的 libllama/libggml；
+# GGML_BACKEND_PATH 让 ggml 去那个目录注册 CPU 后端（App 里靠同一目录 + $ORIGIN）。
+NATIVE_DIR="$ROOT/native"
+MODEL_05="$ROOT/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+if [ -f "$MODEL_05" ] && [ -f "$NATIVE_DIR/libfy_engine.so" ]; then
+  LD_LIBRARY_PATH="$NATIVE_DIR" GGML_BACKEND_PATH="$NATIVE_DIR" \
+    timeout 600 java -Djava.library.path="$NATIVE_DIR" -cp build/jvmtest NativeEngineJvmTest 2>&1 | tail -10
+  native_rc=${PIPESTATUS[0]}
+  if [ "$native_rc" = "0" ]; then ok; else bad "$native_rc"; fi
+else
+  echo "  跳过：缺 $MODEL_05 或 $NATIVE_DIR/libfy_engine.so（先 tools/fetch-deps.sh + ./jni/build.sh）"
+fi
 
 step "4/5 外部模型代理 JVM 实跑（假上游 + SSE 透传）"
 timeout 180 java -cp build/jvmtest ProxyJvmTest > build/proxy-test.log 2>&1

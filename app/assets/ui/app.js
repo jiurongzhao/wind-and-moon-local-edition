@@ -150,6 +150,7 @@
   /** 契约里允许的所有 FY 方法（自查脚本也会比对这张表） */
   var FY_METHODS = [
     'appInfo', 'engineStatus', 'engineStart', 'engineStop',
+    'chat', 'chatStop',
     'listModels', 'deleteModel', 'pickModelFile', 'importModel',
     'listDownloadSources', 'downloadModel',
     'pickCharacterCard', 'saveCharacterCard',
@@ -3671,13 +3672,113 @@
     return body;
   }
 
+  /* ---------- 进程内引擎（JNI）：不经过 HTTP ----------
+     和 llama-server 那条路的区别：没有端口、没有 SSE，token 由原生侧合批后
+     用 gen 事件推上来。好处是静态前缀（人设/世界书）真的常驻 KV，
+     不用每轮把整段 prompt 重新 prefill 一遍。 */
+
+  /** 当前这一轮原生生成。同一时刻只允许一轮（App 侧本来就有 generating 闸门）。 */
+  var nativeGen = null;
+
+  function nativeReady() {
+    return !isRemote() && !!(S.engineState && S.engineState.native) && engineReady();
+  }
+
+  /** 把聊天请求体翻译成原生侧的采样参数（字段名对齐，不传 JSON 里的 OpenAI 那套）。 */
+  function nativeOpts(body) {
+    return {
+      /* 静态前缀 = 前几条 message。默认 1 条 system —— 人设+世界书都在里面。 */
+      pinMessages: body.pinMessages === undefined ? 1 : Number(body.pinMessages),
+      maxTokens: Number(body.max_tokens) || 512,
+      temperature: body.temperature === undefined ? 0.8 : Number(body.temperature),
+      topK: body.top_k === undefined ? 40 : Number(body.top_k),
+      topP: body.top_p === undefined ? 0.95 : Number(body.top_p),
+      seed: Number(body.seed) || 0
+    };
+  }
+
+  /**
+   * 走进程内引擎跑一轮，返回 {text, stats}。
+   *
+   * 原生侧同一时刻只接一轮（llama_context 不可重入），所以这里排成一条链：
+   * 记忆压缩撞上正文生成时是排队，而不是两边一起进去把引擎搞崩。
+   *
+   * @param {Array}  messages [{role, content}]
+   * @param {object} body     原始请求体（取采样参数）
+   * @param {function} onDelta (累积文本) => void
+   * @param {AbortSignal} signal
+   */
+  var nativeQueue = Promise.resolve();
+
+  function nativeComplete(messages, body, onDelta, signal) {
+    var run = function () {
+      return new Promise(function (resolve, reject) {
+        var req = nativeOpts(body || {});
+        var token = 'g' + Date.now() + '-' + Math.floor(Math.random() * 10000);
+        var g = { id: token, acc: '', onDelta: onDelta || null, settled: false };
+        g.settle = function (err, stats) {
+          if (g.settled) return;
+          g.settled = true;
+          if (nativeGen === g) nativeGen = null;
+          if (err) { reject(err); return; }
+          /* 「停止生成」要和 HTTP 那条路表现一致：抛 AbortError，上层才会把这条消息标成中断 */
+          if (signal && signal.aborted) {
+            var ae = new Error('aborted');
+            ae.name = 'AbortError';
+            reject(ae);
+            return;
+          }
+          /* 真实 token 数照样喂给估算校正（HTTP 那条路是从 SSE 的 timings 里取的） */
+          if (stats && stats.prompt) S.lastTimings = { prompt_n: stats.prompt, predicted_n: stats.gen };
+          resolve({ text: g.acc, stats: stats || {} });
+        };
+        nativeGen = g;
+
+        var ack = asObj(fyCall('chat', [JSON.stringify(messages), JSON.stringify(req)]));
+        if (!ack || ack.ok !== true) {
+          g.settle(new Error((ack && ack.message) || '进程内引擎拒绝了这次生成'));
+          return;
+        }
+        g.id = ack.id || token;
+
+        if (signal) {
+          var onAbort = function () { fyCall('chatStop', [], true); };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort);
+        }
+      });
+    };
+    var p = nativeQueue.then(run, run);
+    nativeQueue = p.then(function () {}, function () {});
+    return p;
+  }
+
+  /** gen 事件：把原生侧推上来的 token 拼起来（见 handleEvent） */
+  function nativeGenEvent(p) {
+    var g = nativeGen;
+    if (!g || (p.id && p.id !== g.id)) return;
+    if (p.state === 'delta') {
+      g.acc += (p.delta || '');
+      if (g.onDelta) g.onDelta(g.acc);
+    } else if (p.state === 'done') {
+      g.settle(null, p.stats);
+    } else if (p.state === 'error') {
+      g.settle(new Error(p.message || '进程内引擎出错'));
+    }
+  }
+
   /**
    * 向本地 llama-server 发起流式请求。
+   *
+   * 进程内引擎可用时改走 JNI（没有端口、没有 SSE），否则还是 HTTP。
    * @param {object} body 请求体
    * @param {function} onDelta (累积文本) => void
    * @param {AbortSignal} signal
    */
   function streamChat(body, onDelta, signal) {
+    if (nativeReady()) {
+      return nativeComplete(body.messages || [], body, onDelta, signal);
+    }
     var base;
     try { base = apiTarget(); } catch (e) { return Promise.reject(e); }
     applyRemoteModel(body);
@@ -4212,8 +4313,19 @@
     });
   }
 
-  /** 非流式 POST（记忆压缩 / 连通性测试用） */
+  /** 非流式 POST（记忆压缩 / 连通性测试用）。进程内引擎可用时走 JNI。 */
   function postJson(body) {
+    if (nativeReady()) {
+      /* 拼一个和 OpenAI 兼容响应同形的壳：调用方读的是 choices[0].message.content，
+         这样两条路（HTTP / 进程内）在上层完全一样，调用点一行都不用改。 */
+      return nativeComplete(body.messages || [], body, null, null).then(function (r) {
+        return {
+          choices: [{ index: 0, message: { role: 'assistant', content: r.text }, finish_reason: 'stop' }],
+          timings: { prompt_n: r.stats.prompt, predicted_n: r.stats.gen },
+          __native: true
+        };
+      });
+    }
     var base;
     try { base = apiTarget(); } catch (e) { return Promise.reject(e); }
     applyRemoteModel(body);
@@ -4633,7 +4745,10 @@
       threads: Number(S.settings.threads) || 0,
       gpuLayers: Number(S.settings.gpuLayers) || 0,
       // 把模型锁进内存能显著提速（实测 3B 翻倍），加载失败时原生层会自动回退
-      loadMode: S.settings.mlock === false ? '' : 'mlock'
+      loadMode: S.settings.mlock === false ? '' : 'mlock',
+      /* jni（默认）：模型装进本进程，静态前缀能常驻 KV，改一句模板不用重编；
+         server：老的 llama-server 子进程。jni 起不来原生侧会自动回退 server。 */
+      engineMode: S.settings.engineMode === 'server' ? 'server' : 'jni'
     };
     var r = fyCall('engineStart', [JSON.stringify(opts)]);
     toast((r && r.message) || '正在启动引擎…', r && r.ok ? 'ok' : 'warn', 2400);
@@ -4663,7 +4778,10 @@
     var es = $('setEngineState');
     if (es) es.textContent = txt + (S.engineState.model ? '（' + S.engineState.model + '）' : '');
     var ep = $('setEnginePort');
-    if (ep) ep.textContent = S.engineState.port ? ('端口 ' + S.engineState.port) : '';
+    if (ep) {
+      ep.textContent = S.engineState.native ? '进程内引擎（JNI）'
+        : (S.engineState.port ? ('端口 ' + S.engineState.port) : '');
+    }
     var em = $('setEngineMsg');
     if (em) em.textContent = S.engineState.lastError || S.engineState.message || '—';
 
@@ -4819,7 +4937,11 @@
   function handleEvent(name, p) {
     switch (name) {
       case 'engine': {
-        S.engineState = Object.assign({}, S.engineState, { state: p.state || S.engineState.state, message: p.message || '' });
+        S.engineState = Object.assign({}, S.engineState, {
+          state: p.state || S.engineState.state,
+          message: p.message || '',
+          native: !!p.native
+        });
         if (p.state === 'ready' || p.state === 'stopped') {
           var st = fyCall('engineStatus', [], true);
           if (st && st.port) S.engineState.port = st.port;
@@ -4828,6 +4950,11 @@
         if (p.state === 'ready') toast('引擎就绪，可以聊了', 'ok', 2400);
         if (p.state === 'error') toast('引擎出错：' + (p.message || '未知'), 'err', 3600);
         updateEngineUI();
+        break;
+      }
+      case 'gen': {
+        /* 进程内引擎的流式 token（原生侧已经按 24 字 / 60ms 合过批） */
+        nativeGenEvent(p);
         break;
       }
       case 'download': {

@@ -57,6 +57,27 @@ public class MainActivity extends Activity {
     /** 推理期间的 CPU 唤醒锁（见 keepScreenOn） */
     private android.os.PowerManager.WakeLock inferWake;
 
+    /* ---------- 进程内（JNI）引擎 ----------
+     *
+     * 和 Engine.java（fork llama-server + localhost HTTP）互为备份。
+     * 进程内没有子进程、没有端口、没有 /health 轮询，KV 缓存归自己管，
+     * 所以"静态前缀常驻"是可以保证的，而不是求服务端命中。
+     * state 取值刻意和子进程那套一样，前端不用分叉。
+     */
+    private volatile String natState = "stopped";
+    private volatile String natMessage = "";
+    private volatile String natModel = "";
+    private volatile long natLoadMs = -1;
+    private volatile boolean natActive = false;
+
+    /** 流式输出的合批缓冲（理由同引擎日志：逐 token 走一次 evaluateJavascript 会把 WebView 拖卡）。 */
+    private final StringBuilder genBuf = new StringBuilder();
+    private long genLastFlush = 0;
+    private volatile String genId = "";
+    /** 同一时刻只允许一轮原生生成：llama_context 不是可重入的，并发进去就是崩。 */
+    private final java.util.concurrent.atomic.AtomicBoolean nativeBusy =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -102,6 +123,26 @@ public class MainActivity extends Activity {
         // 启动就自检一次引擎（跑 --version，不加载模型），结果写进日志和 appInfo，
         // 万一真机上拉不起来，调试页能直接看到断在哪一步。
         engine.selfCheck();
+
+        /* 进程内引擎的流式回调：token 由 C 侧直接回调到 Java（不经过 HTTP、不经过子进程），
+           这里只做合批与转发。onDone 不发事件 —— 统计信息由发起生成的那次 Bridge 调用统一收口，
+           否则完成信号会来两次。
+           整段包在 try 里：万一 .so 没打进来，加载失败也不该让 App 起不来（engineStatus
+           报 native:false，前端自动走子进程那条路）。 */
+        try {
+            NativeEngine.setListener(new NativeEngine.Listener() {
+                @Override
+                public void onToken(String piece) {
+                    onNativeToken(piece);
+                }
+
+                @Override
+                public void onDone(String stats) {
+                }
+            });
+        } catch (Throwable t) {
+            Log.w(TAG, "进程内引擎不可用，将使用子进程引擎", t);
+        }
 
         // 调试构建才自动把诊断报告写到 Download/（这样即使 adb 掉线也能读到内部情况）。
         // 发布版不自动落盘任何设备信息，用户要反馈时在调试页点「导出诊断」即可。
@@ -242,6 +283,184 @@ public class MainActivity extends Activity {
 
     public AssetServer assetServer() {
         return server;
+    }
+
+    // ---------- 进程内（JNI）引擎：状态与流式转发 ----------
+
+    public String natState() {
+        return natState;
+    }
+
+    public String natMessage() {
+        return natMessage;
+    }
+
+    public String natModel() {
+        return natModel;
+    }
+
+    public long natLoadMs() {
+        return natLoadMs;
+    }
+
+    public boolean natActive() {
+        return natActive;
+    }
+
+    /** 有没有一轮原生生成正在跑（llama_context 不可重入，换模型前要问一句）。 */
+    public boolean nativeGenerating() {
+        return nativeBusy.get();
+    }
+
+    /**
+     * 放弃进程内引擎（回退子进程时用）。
+     * 只清状态、不推事件：回退时推一条"已停止"会让前端先闪一下 stopped，
+     * 子进程引擎紧接着又会推 starting —— 白闪一次。
+     */
+    public void nativeReset() {
+        natState = "stopped";
+        natMessage = "";
+        natActive = false;
+    }
+
+    /**
+     * 停止并释放进程内引擎。
+     *
+     * 不能 stop() 完立刻 unload()：如果还有一轮生成在跑，free 掉 context 而推理线程还在用它 = 崩。
+     * stop() 之后那一轮最多再走一两个 token 就退出，所以等它退干净（最多 5 秒）再释放；
+     * 释放放后台线程，别卡住调用方（可能是 onDestroy，也可能是点"停止引擎"）。
+     */
+    public void shutdownNativeEngine() {
+        try {
+            NativeEngine.stop();
+        } catch (Throwable ignored) {
+            // .so 没装进来时 stop() 就会抛；这时候也没什么可释放的
+        }
+        new Thread(() -> {
+            for (int i = 0; i < 100 && nativeBusy.get(); i++) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            try {
+                NativeEngine.unload();
+            } catch (Throwable ignored) {
+            }
+        }, "fy-native-unload").start();
+    }
+
+    /**
+     * 只往前端推一条引擎状态事件，**不动**原生状态机。
+     *
+     * 回退子进程时的提示必须走这条：如果用 nativePush("loading", …) 顺手把 natState 也设成
+     * loading，engineStatus() 就会一直报原生状态，前端永远看不到子进程引擎的真实状态
+     * （真机上踩过一次：引擎明明已经用子进程起来了，状态栏还停在进程内引擎的 loading）。
+     */
+    public void pushEngineEvent(String state, String message, String model, boolean isNative) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("state", state);
+            o.put("message", message == null ? "" : message);
+            o.put("model", model == null ? "" : model);
+            o.put("port", 0);
+            o.put("native", isNative);
+        } catch (Exception ignored) {
+        }
+        pushEvent("engine", o);
+        syncEngineService(state, message);
+    }
+
+    /** 推一条原生引擎状态（会更新状态机）。事件形状和 Engine.Listener.onState 那套一致，前端不用分叉。 */
+    public void nativePush(String state, String message, String model, long loadMs) {
+        natState = state;
+        natMessage = message == null ? "" : message;
+        if (model != null && !model.isEmpty()) natModel = model;
+        if (loadMs >= 0) natLoadMs = loadMs;
+        if ("ready".equals(state)) natActive = true;
+        if ("stopped".equals(state) || "error".equals(state)) natActive = false;
+        pushEngineEvent(state, natMessage, natModel, true);
+        if (isDevBuild() && ("ready".equals(state) || "error".equals(state))) writeDiagnostics();
+    }
+
+    /** 开一轮原生生成：抢到"生成中"这把锁才返回 id，否则返回 null（调用方应当拒绝这次请求）。 */
+    public String beginNativeGen() {
+        if (!nativeBusy.compareAndSet(false, true)) return null;
+        synchronized (genBuf) {
+            genBuf.setLength(0);
+        }
+        genLastFlush = 0;
+        genId = "g" + System.currentTimeMillis();
+        return genId;
+    }
+
+    /** 放开"生成中"锁。 */
+    public void endNativeGen() {
+        nativeBusy.set(false);
+    }
+
+    /** 原生侧每出一个 token 调一次（在推理线程上，所以只碰锁和 pushEvent）。 */
+    private void onNativeToken(String piece) {
+        synchronized (genBuf) {
+            genBuf.append(piece);
+        }
+        flushNativeGen(false);
+    }
+
+    /** 把攒着的 token 合批推给前端。force=true 用于一轮结束时把尾巴推干净。 */
+    public void flushNativeGen(boolean force) {
+        String out = null;
+        synchronized (genBuf) {
+            if (genBuf.length() > 0) {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (force || genBuf.length() >= 24 || now - genLastFlush >= 60) {
+                    out = genBuf.toString();
+                    genBuf.setLength(0);
+                    genLastFlush = now;
+                }
+            }
+        }
+        if (out == null) return;
+        JSONObject o = new JSONObject();
+        try {
+            o.put("id", genId);
+            o.put("state", "delta");
+            o.put("delta", out);
+        } catch (Exception ignored) {
+        }
+        pushEvent("gen", o);
+    }
+
+    /** 一轮生成正常结束：把尾巴推干净，再发 done（带统计）。 */
+    public void finishNativeGen(String statsJson) {
+        flushNativeGen(true);
+        boolean err = statsJson != null && statsJson.contains("\"error\"");
+        JSONObject o = new JSONObject();
+        try {
+            o.put("id", genId);
+            o.put("state", err ? "error" : "done");
+            if (err) o.put("message", statsJson);
+            else o.put("stats", new JSONObject(statsJson == null || statsJson.isEmpty() ? "{}" : statsJson));
+        } catch (Exception ignored) {
+        }
+        pushEvent("gen", o);
+        endNativeGen();
+    }
+
+    /** 一轮生成以异常告终（nativeChat 抛出来，或者压根没起来）。 */
+    public void failNativeGen(String message) {
+        flushNativeGen(true);
+        JSONObject o = new JSONObject();
+        try {
+            o.put("id", genId);
+            o.put("state", "error");
+            o.put("message", message == null ? "未知错误" : message);
+        } catch (Exception ignored) {
+        }
+        pushEvent("gen", o);
+        endNativeGen();
     }
 
     /** 把「自检 + 引擎状态 + 日志 + 模型列表」写成 txt 落到 Download/（后台线程）。 */
@@ -527,6 +746,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        try {
+            shutdownNativeEngine();
+        } catch (Throwable ignored) {
+        }
         try {
             if (engine != null) engine.stop();
         } catch (Exception ignored) {

@@ -7,8 +7,8 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
-[![tests](https://img.shields.io/badge/tests-414%20passing-success.svg)](runtests.sh)
-[![apk](https://img.shields.io/badge/APK-13.4%20MB-blue.svg)](../../releases)
+[![tests](https://img.shields.io/badge/tests-421%20passing-success.svg)](runtests.sh)
+[![apk](https://img.shields.io/badge/APK-13.8%20MB-blue.svg)](../../releases)
 
 **下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
 **镜像** → [GitHub](https://github.com/jiurongzhao/wind-and-moon-local-edition) · [Gitee](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
@@ -20,13 +20,13 @@
 | | |
 |---|---|
 | 🔒 **真 · 离线** | 引擎是 llama.cpp 官方 Android arm64 预编译库，内置进 APK；模型放本地。**飞行模式照样聊**，对话永远不出这台手机 |
-| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文） |
+| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文）。v1.7 起默认**进程内引擎**（JNI 直连 libllama）：人设/世界书编译成 KV 里的常驻前缀，第二轮起只 decode 新增的几个 token |
 | 🎭 **32000 张原创卡** | 16 类 ×（1000 角色卡 + 1000 剧情卡），全部 **CC0**，**按需下载不进 APK**；还能按关键词只下命中那一片 |
 | ✍️ **创作者工具** | 16 类模板 + 48 个人设骨架 + **七维质量评分** + 用你配好的模型做 AI 辅助扩写 + 联网灵感面板 |
 | 🔁 **模型来源随便换** | 本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
 | 🎨 **界面是自己画的** | 手写 Material 3 风格设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，**零外部素材、零字体文件** |
 | 📦 **只有 13MB** | 引擎从 276MB strip 到 27MB 再压进 APK；32000 张卡库走发行版附件，不撑大安装包 |
-| 🧪 **414 项测试** | 前端 jsdom + JVM 真跑引擎 / 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
+| 🧪 **421 项测试** | 前端 jsdom + JVM 真跑引擎（含进程内 JNI 引擎）/ 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
 
 ## 🚀 快速开始
 
@@ -115,8 +115,9 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.8 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **414 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像） |
+| 前端功能（jsdom 集成测试） | ✅ **421 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像/进程内引擎流式） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
+| `NativeEngine.java` 真跑（JVM + 真 libllama） | ✅ **27 项通过**：加载耗时、静态前缀写进 KV、**第二轮复用整段前缀**、换人设旧缓存失效、模型自带对话模板（ChatML）、小 ctx 必然溢出时 context-shift 不崩、**生成中途能真停下** |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
 | `AssetServer.java` 真跑（JVM） | ✅ **17 项通过**：路由/MIME/query/404/并发/只监听回环不暴露局域网 |
@@ -194,13 +195,15 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 
 | 需求 | 做法 |
 |---|---|
-| 真·单机 | llama.cpp 官方 **Android arm64 预编译** `llama-server` 内置进 APK，模型放本地 |
-| 不装 NDK / 不交叉编译 | 二进制改名成 `libfy_llama_server.so` 放进 `jniLibs`，装完在 `nativeLibraryDir` 里 exec |
-| APK 不臃肿 | 只留 server 需要的库 + `strip@@：引擎 276MB → **27MB**，APK 13MB |
-| 前端体验好 | WebView + 本地 http 资源服务器（真实 origin），前端用 IndexedDB + `fetch` 直连推理端口 |
-| 全程 Termux 内构建 | `javac` → `d8` → `aapt2` → 自写 `packapk.py`（代替 zipalign）→ `apksigner` |
+| 真·单机 | llama.cpp 官方 **Android arm64 预编译**库内置进 APK，模型放本地 |
+| 不装 NDK / 不交叉编译 | 引擎桥用 Termux 自带 clang 直接编（默认 target 就是 `aarch64-linux-android24`）；老的 `llama-server` 二进制改名成 `libfy_llama_server.so` 放进 `jniLibs` 作为回退 |
+| 人设不用每轮重算 | 默认走**进程内引擎**：libllama 直接链进 App，静态前缀（人设 / 世界书）编译进 KV 常驻，第二轮起只 decode 增量 |
+| APK 不臃肿 | 只留推理需要的库 + `strip`：引擎 276MB → **27MB**，APK 13MB |
+| 前端体验好 | WebView + 本地 http 资源服务器（真实 origin）；进程内引擎走 `window.FY.chat()` + `gen` 事件，子进程回退时才 `fetch` 直连推理端口 |
+| 全程 Termux 内构建 | `clang` → `javac` → `d8` → `aapt2` → 自写 `packapk.py`（代替 zipalign）→ `apksigner` |
 
-关键结论都有实证，见 [docs/engine-exec.md](docs/engine-exec.md)（SELinux 策略依据、页对齐、GPU 结论）。
+关键结论都有实证，见 [docs/native-engine.md](docs/native-engine.md)（进程内引擎为什么值得做、前缀怎么钉住）、
+[docs/engine-exec.md](docs/engine-exec.md)（SELinux 策略依据、页对齐、GPU 结论）。
 
 ```
 ~/2/fy/
@@ -212,12 +215,13 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 │   ├── packapk.py        # 打包 + zipalign 对齐（Termux 没有 zipalign）
 │   └── checkapk.py       # APK 硬性要求校验（对齐/清单/引擎文件）
 ├── tests/
-│   ├── ui.test.mjs              # 前端 jsdom 集成测试（411 项）
+│   ├── ui.test.mjs              # 前端 jsdom 集成测试（421 项）
 │   ├── e2e-real.mjs             # 真实前端 + 真实 4B 模型端到端（角色扮演/剧情/记忆）
 │   ├── probe-speed.mjs          # 量化预填充 vs 生成耗时（定位多轮变慢）
 │   ├── probe-plot.mjs           # 剧情选项成功率统计
 │   ├── probe-prompts.mjs        # prompt 合规性对照实验
 │   ├── EngineJvmTest.java       # Engine.java 真跑：自检/状态机/推理/停止（14 项）
+│   ├── NativeEngineJvmTest.java # 进程内引擎真跑：前缀常驻/复用/换人设/溢出/停止（27 项）
 │   ├── AssetServerJvmTest.java  # AssetServer.java 真跑：路由/MIME/404/并发/回环（17 项）
 │   ├── CardIOJvmTest.java       # PNG 角色卡解析真跑：tEXt/zTXt/iTXt（6 项）
 │   ├── DownloadResumeTest.java  # 下载与断点续传实测（逐字节比对）
@@ -229,6 +233,7 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 │   │   ├── MainActivity.java   # 组装 + 生命周期 + 事件推送到前端
 │   │   ├── AssetServer.java    # 本地静态资源服务器（给 WebView 一个真 origin）
 │   │   ├── Engine.java         # llama-server 子进程管理 + 状态机 + exec 回退 + 启动自检
+│   │   ├── NativeEngine.java   # 进程内引擎门面（JNI 直连 libllama；JNI 回调流式吐 token）
 │   │   ├── Bridge.java         # window.FY 原生桥
 │   │   ├── ModelStore.java     # 模型 列表/导入/下载(断点续传)/删除
 │   │   ├── Diag.java           # 诊断报告落盘到 Download（无需 adb 的反馈通道）
@@ -238,12 +243,14 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 │   │   └── Speech.java         # 系统 TTS + 语音识别
 │   ├── assets/ui/              # 前端（index/style/app/store/cards/mock/presets/avatar）
 │   └── res/values/strings.xml
-├── native/               # 要打进 APK 的引擎文件（engine/payload 的副本）
+├── jni/                  # 进程内引擎的 C 源码 + 用 Termux clang 编 .so 的脚本
+├── native/               # 要打进 APK 的引擎文件（engine/payload 的副本 + 编出来的 libfy_engine.so）
 ├── engine/               # llama.cpp 二进制（下载/解包/strip 的中间产物）
 ├── models/               # 本地 GGUF
 ├── sdk/android-36/       # android.jar（javac / d8 用）
 ├── docs/
 │   ├── bridge-api.md     # JS ↔ Java 接口契约
+│   ├── native-engine.md  # 进程内引擎（JNI 直连 libllama）的设计与实测
 │   ├── engine-exec.md    # 「为什么能 exec APK 里的二进制」证据链
 │   └── user-guide.md     # 使用说明（装/选模型/玩法/排错）
 └── fy.apk                # 构建产物（同时会拷一份到 Download/fy.apk）

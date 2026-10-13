@@ -31,8 +31,8 @@ TARGET_SDK=35
 # ⚠️ 注意：aapt2 的 --version-code/--version-name 只在 AndroidManifest.xml
 # **没有**声明版本号时才生效（官方文档原话 "if none is present"）。
 # 所以版本号以 app/AndroidManifest.xml 为准，这里的值只用于构建后比对自检。
-VER_CODE=14
-VER_NAME="1.6.3"
+VER_CODE=15
+VER_NAME="1.7.0"
 
 MODE="release"
 [ "${1:-}" = "--debug" ] && MODE="debug"
@@ -81,6 +81,22 @@ fi
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD"/{classes,dex,res,gen,apk}
+
+# 原生引擎桥（jni/fy_engine.c → native/libfy_engine.so）随构建重建，
+# 免得出现"改了 C 忘了编，APK 里还是上一版引擎"这种要靠真机才发现的事。
+echo "[0/6] 编译原生引擎桥 (jni/build.sh)"
+if command -v clang >/dev/null 2>&1 && [ -f "$ROOT/engine/snap/llama-b11552/include/llama.h" ]; then
+  "$ROOT/jni/build.sh"
+else
+  # 只装了预编译引擎、没有 clang/头文件的场合：用现成的 .so，但不能没有
+  if [ ! -f "$NATIVE/libfy_engine.so" ]; then
+    echo "❌ 缺少 $NATIVE/libfy_engine.so" >&2
+    echo "   根因：既不能编（缺 clang 或 engine/snap/.../include/llama.h），也没有现成的产物" >&2
+    echo "   先跑 tools/fetch-deps.sh，或装 clang 后跑 ./jni/build.sh" >&2
+    exit 1
+  fi
+  echo "  ⚠️  跳过编译（缺 clang 或 llama.h），沿用现有 libfy_engine.so"
+fi
 
 # 卡包：cards/ 是唯一数据源，构建时同步进 App 资源（必须在 aapt2 之前！）
 if ls "$ROOT"/cards/pack-*.json >/dev/null 2>&1; then

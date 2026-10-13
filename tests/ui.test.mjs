@@ -2204,6 +2204,77 @@ S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;
 $('libMask').hidden = true;
 
+console.log('\n【39】进程内引擎（JNI）：本地聊天不再走 HTTP');
+/* 背景：v1.7.0 起本地推理默认在进程内跑（libllama 直接链进 App 进程），
+   没有端口、没有 SSE，token 走 gen 事件。这里把桥假装成「进程内引擎就绪」，
+   真发一轮消息，验证：请求确实给了 FY.chat、messages 原样过去、
+   token 事件能拼成完整回复、静态前缀默认 pin 住 system。 */
+const realEngineStatus = window.FY.engineStatus;
+const realChat = window.FY.chat;
+const realChatStop = window.FY.chatStop;
+const realFyLog = window.FY.log;
+const nativeLogs = [];
+window.FY.log = function (m) { nativeLogs.push(String(m)); return realFyLog.apply(window.FY, arguments); };
+let nativeReq = null;
+window.FY.engineStatus = () => JSON.stringify({
+  state: 'ready', port: 0, model: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  message: '进程内引擎就绪', lastError: '', launchStrategy: 'jni', native: true
+});
+window.FY.chat = function (msgsJson, optsJson) {
+  nativeReq = { msgs: JSON.parse(msgsJson), opts: JSON.parse(optsJson) };
+  const id = 'g-test-1';
+  const full = '（把灯调暗了些）那就先别说话，坐一会儿。';
+  const parts = full.match(/.{1,6}/g);
+  let i = 0;
+  const tick = function () {
+    if (i < parts.length) {
+      window.fyEvent('gen', JSON.stringify({ id, state: 'delta', delta: parts[i++] }));
+      setTimeout(tick, 5);
+    } else {
+      /* prompt 故意报成"估算值的 5 倍"：这样 token 估算校正一定会触发（否则日志断言会飘） */
+      const est = Number(S.lastEstimate) || 100;
+      window.fyEvent('gen', JSON.stringify({
+        id, state: 'done',
+        stats: { gen: 18, reused: est, prompt: est * 5, cache: est * 5 + 18,
+                 prefillMs: 12, firstMs: 30, totalMs: 900 }
+      }));
+    }
+  };
+  setTimeout(tick, 5);
+  return JSON.stringify({ ok: true, id });
+};
+window.FY.chatStop = function () { return JSON.stringify({ ok: true }); };
+
+S.engineState = {
+  state: 'ready', port: 0, model: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  message: '进程内引擎就绪', lastError: '', native: true
+};
+const nativeBefore = new Set(S.messages.map(m => m.id));
+window.FYApp.sendUserMessage('在吗');
+const nativeOk = await until(() => S.messages.some(m =>
+  !nativeBefore.has(m.id) && m.role === 'assistant'
+  && (m.content || '').indexOf('先别说话') >= 0), 15000);
+check('进程内引擎：一轮对话走的是 FY.chat（不是 HTTP）', !!nativeReq,
+  'nativeReq=' + (nativeReq ? 'ok' : 'null'));
+check('进程内引擎：messages 原样递给了原生侧（含 system）',
+  !!(nativeReq && nativeReq.msgs.length >= 2 && nativeReq.msgs[0].role === 'system'),
+  nativeReq ? nativeReq.msgs.length + ' 条' : '');
+check('进程内引擎：静态前缀默认 pin 1 条 system',
+  !!(nativeReq && nativeReq.opts.pinMessages === 1), nativeReq && JSON.stringify(nativeReq.opts));
+check('进程内引擎：gen 事件拼成完整回复', nativeOk,
+  nativeOk ? '' : JSON.stringify((S.messages.slice(-1)[0] || {}).content).slice(0, 120));
+check('进程内引擎：流式结束后 generating 复位', await until(() => S.generating !== true, 5000),
+  'generating=' + S.generating);
+check('进程内引擎：真实 prompt token 数进了估算校正日志',
+  nativeLogs.some(l => /token 估算校正/.test(l)),
+  JSON.stringify(nativeLogs.slice(-3)));
+
+window.FY.engineStatus = realEngineStatus;
+window.FY.chat = realChat;
+window.FY.chatStop = realChatStop;
+window.FY.log = realFyLog;
+S.engineState = { state: 'ready', port: 5599, model: 'Qwen3-4B-Q4_K_M.gguf', message: 'ok', lastError: '' };
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }
