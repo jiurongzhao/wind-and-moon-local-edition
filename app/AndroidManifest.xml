@@ -11,8 +11,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.fy.local"
-    android:versionCode="12"
-    android:versionName="1.6.1">
+    android:versionCode="13"
+    android:versionName="1.6.2">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
 

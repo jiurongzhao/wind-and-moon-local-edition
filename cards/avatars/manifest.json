@@ -1,0 +1,394 @@
+{
+ "apocalypse|character|水站看表的": {
+  "file": "cards/avatars/apocalypse/character-000.webp",
+  "bytes": 7452,
+  "sha256": "a5dc3666e90f454d",
+  "topic": "水站看表的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "campus|character|校门口的文具店老板": {
+  "file": "cards/avatars/campus/character-001.webp",
+  "bytes": 8096,
+  "sha256": "27cb4e62a457dba4",
+  "topic": "校门口的文具店老板",
+  "slug": "campus",
+  "kind": "character"
+ },
+ "comedy|character|外卖骑手": {
+  "file": "cards/avatars/comedy/character-002.webp",
+  "bytes": 9600,
+  "sha256": "063e5aba3b9c02ee",
+  "topic": "外卖骑手",
+  "slug": "comedy",
+  "kind": "character"
+ },
+ "comfort|character|心理援助热线志愿者": {
+  "file": "cards/avatars/comfort/character-003.webp",
+  "bytes": 5312,
+  "sha256": "f0e3668ffd6d6899",
+  "topic": "心理援助热线志愿者",
+  "slug": "comfort",
+  "kind": "character"
+ },
+ "cyberpunk|character|义体儿童的陪读员": {
+  "file": "cards/avatars/cyberpunk/character-004.webp",
+  "bytes": 9532,
+  "sha256": "094b95f89cfde6e6",
+  "topic": "义体儿童的陪读员",
+  "slug": "cyberpunk",
+  "kind": "character"
+ },
+ "daily-healing|character|24小时自习室的看店人": {
+  "file": "cards/avatars/daily-healing/character-005.webp",
+  "bytes": 5632,
+  "sha256": "4d574c12cc811458",
+  "topic": "24小时自习室的看店人",
+  "slug": "daily-healing",
+  "kind": "character"
+ },
+ "fantasy|character|符文学者": {
+  "file": "cards/avatars/fantasy/character-006.webp",
+  "bytes": 7076,
+  "sha256": "55f639894642c048",
+  "topic": "符文学者",
+  "slug": "fantasy",
+  "kind": "character"
+ },
+ "history|character|船户": {
+  "file": "cards/avatars/history/character-007.webp",
+  "bytes": 5468,
+  "sha256": "6caedc1edadc6b68",
+  "topic": "船户",
+  "slug": "history",
+  "kind": "character"
+ },
+ "horror|character|纸扎铺的手艺人": {
+  "file": "cards/avatars/horror/character-008.webp",
+  "bytes": 4626,
+  "sha256": "0f437a102c057ef1",
+  "topic": "纸扎铺的手艺人",
+  "slug": "horror",
+  "kind": "character"
+ },
+ "mystery|character|画像师": {
+  "file": "cards/avatars/mystery/character-009.webp",
+  "bytes": 5888,
+  "sha256": "302d8a03ed671089",
+  "topic": "画像师",
+  "slug": "mystery",
+  "kind": "character"
+ },
+ "mythology|character|刻碑的石匠": {
+  "file": "cards/avatars/mythology/character-010.webp",
+  "bytes": 7214,
+  "sha256": "b9317e4e0ae7f0f7",
+  "topic": "刻碑的石匠",
+  "slug": "mythology",
+  "kind": "character"
+ },
+ "romance|character|旧照片修复师": {
+  "file": "cards/avatars/romance/character-011.webp",
+  "bytes": 6542,
+  "sha256": "a467ed3b089aaa87",
+  "topic": "旧照片修复师",
+  "slug": "romance",
+  "kind": "character"
+ },
+ "scifi|character|记忆备份托管员": {
+  "file": "cards/avatars/scifi/character-012.webp",
+  "bytes": 10314,
+  "sha256": "a667f8abd34b4089",
+  "topic": "记忆备份托管员",
+  "slug": "scifi",
+  "kind": "character"
+ },
+ "supernatural|character|老照相馆的暗房师傅": {
+  "file": "cards/avatars/supernatural/character-013.webp",
+  "bytes": 5410,
+  "sha256": "b01151cb347fd19d",
+  "topic": "老照相馆的暗房师傅",
+  "slug": "supernatural",
+  "kind": "character"
+ },
+ "workplace|character|夜班保洁": {
+  "file": "cards/avatars/workplace/character-014.webp",
+  "bytes": 5454,
+  "sha256": "84635925fc013306",
+  "topic": "夜班保洁",
+  "slug": "workplace",
+  "kind": "character"
+ },
+ "wuxia|character|摆渡的瞎子": {
+  "file": "cards/avatars/wuxia/character-015.webp",
+  "bytes": 6024,
+  "sha256": "64746555b88470f4",
+  "topic": "摆渡的瞎子",
+  "slug": "wuxia",
+  "kind": "character"
+ },
+ "apocalypse|character|药贩子": {
+  "file": "cards/avatars/apocalypse/character-001.webp",
+  "bytes": 8578,
+  "sha256": "688d31d878166335",
+  "topic": "药贩子",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|搜刮者": {
+  "file": "cards/avatars/apocalypse/character-002.webp",
+  "bytes": 9060,
+  "sha256": "5e71121b9aa4e064",
+  "topic": "搜刮者",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|关卡头目": {
+  "file": "cards/avatars/apocalypse/character-003.webp",
+  "bytes": 8626,
+  "sha256": "2cb32ed0b2cfaa33",
+  "topic": "关卡头目",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|煮盐的": {
+  "file": "cards/avatars/apocalypse/character-004.webp",
+  "bytes": 6496,
+  "sha256": "d6bec51c4445f5ea",
+  "topic": "煮盐的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|修水管的老工人": {
+  "file": "cards/avatars/apocalypse/character-005.webp",
+  "bytes": 10090,
+  "sha256": "efd95b8511fc50cf",
+  "topic": "修水管的老工人",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|会修发电机的": {
+  "file": "cards/avatars/apocalypse/character-006.webp",
+  "bytes": 9754,
+  "sha256": "f7041ff91677854e",
+  "topic": "会修发电机的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|屋顶看水的": {
+  "file": "cards/avatars/apocalypse/character-007.webp",
+  "bytes": 7918,
+  "sha256": "e09f015582c66777",
+  "topic": "屋顶看水的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|种仓看门的": {
+  "file": "cards/avatars/apocalypse/character-008.webp",
+  "bytes": 7178,
+  "sha256": "831c425f27cc1984",
+  "topic": "种仓看门的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|测水的人": {
+  "file": "cards/avatars/apocalypse/character-009.webp",
+  "bytes": 7678,
+  "sha256": "6ce354b29b120248",
+  "topic": "测水的人",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|井盖下的独居者": {
+  "file": "cards/avatars/apocalypse/character-010.webp",
+  "bytes": 8850,
+  "sha256": "dd737d04bae4b2e2",
+  "topic": "井盖下的独居者",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|加油站守着的": {
+  "file": "cards/avatars/apocalypse/character-011.webp",
+  "bytes": 8450,
+  "sha256": "b5f555b2540e7837",
+  "topic": "加油站守着的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|兽医": {
+  "file": "cards/avatars/apocalypse/character-012.webp",
+  "bytes": 7904,
+  "sha256": "48522a0a02f09083",
+  "topic": "兽医",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|守电话亭的": {
+  "file": "cards/avatars/apocalypse/character-013.webp",
+  "bytes": 8634,
+  "sha256": "dbbc05aaaf282a1b",
+  "topic": "守电话亭的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|粮站化验员": {
+  "file": "cards/avatars/apocalypse/character-014.webp",
+  "bytes": 8770,
+  "sha256": "6d89d2fde51108bc",
+  "topic": "粮站化验员",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|教会避难所的执事": {
+  "file": "cards/avatars/apocalypse/character-015.webp",
+  "bytes": 8076,
+  "sha256": "94c5deb814c9fac0",
+  "topic": "教会避难所的执事",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|变电站值班的": {
+  "file": "cards/avatars/apocalypse/character-016.webp",
+  "bytes": 9056,
+  "sha256": "5888bbe761ed84c1",
+  "topic": "变电站值班的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|缝补的人": {
+  "file": "cards/avatars/apocalypse/character-017.webp",
+  "bytes": 8402,
+  "sha256": "235ac477e5b71b8c",
+  "topic": "缝补的人",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|巡逻队长": {
+  "file": "cards/avatars/apocalypse/character-018.webp",
+  "bytes": 8670,
+  "sha256": "c1ed4270a59cda17",
+  "topic": "巡逻队长",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|摆渡人": {
+  "file": "cards/avatars/apocalypse/character-019.webp",
+  "bytes": 8636,
+  "sha256": "ed3e14bccd321215",
+  "topic": "摆渡人",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|无线电爱好者": {
+  "file": "cards/avatars/apocalypse/character-020.webp",
+  "bytes": 9646,
+  "sha256": "01aeb117846e27a4",
+  "topic": "无线电爱好者",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|养殖棚的饲养员": {
+  "file": "cards/avatars/apocalypse/character-021.webp",
+  "bytes": 8880,
+  "sha256": "c9c06db723ba8049",
+  "topic": "养殖棚的饲养员",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|粮仓把头": {
+  "file": "cards/avatars/apocalypse/character-022.webp",
+  "bytes": 8296,
+  "sha256": "5ee450c952cf1403",
+  "topic": "粮仓把头",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|柴油保管员": {
+  "file": "cards/avatars/apocalypse/character-023.webp",
+  "bytes": 9048,
+  "sha256": "e4e89143385f1567",
+  "topic": "柴油保管员",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|旧书摊主": {
+  "file": "cards/avatars/apocalypse/character-024.webp",
+  "bytes": 7836,
+  "sha256": "b7a3f1bf7b2a38bd",
+  "topic": "旧书摊主",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|掮客": {
+  "file": "cards/avatars/apocalypse/character-025.webp",
+  "bytes": 8032,
+  "sha256": "4e149c5a8187961b",
+  "topic": "掮客",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|拾荒的孩子头": {
+  "file": "cards/avatars/apocalypse/character-026.webp",
+  "bytes": 8546,
+  "sha256": "881dd1b2edd25917",
+  "topic": "拾荒的孩子头",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|避难所管理员": {
+  "file": "cards/avatars/apocalypse/character-027.webp",
+  "bytes": 8914,
+  "sha256": "f7f62d2b9fbea843",
+  "topic": "避难所管理员",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|殡葬工": {
+  "file": "cards/avatars/apocalypse/character-028.webp",
+  "bytes": 9546,
+  "sha256": "098191a3f61abb2e",
+  "topic": "殡葬工",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|卖情报的": {
+  "file": "cards/avatars/apocalypse/character-029.webp",
+  "bytes": 7636,
+  "sha256": "681a0f6b2e1358d9",
+  "topic": "卖情报的",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|前护士": {
+  "file": "cards/avatars/apocalypse/character-030.webp",
+  "bytes": 6974,
+  "sha256": "fb6391af5bd93299",
+  "topic": "前护士",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "apocalypse|character|罐头厂车间主任": {
+  "file": "cards/avatars/apocalypse/character-031.webp",
+  "bytes": 8488,
+  "sha256": "d31fe71d0dcf5373",
+  "topic": "罐头厂车间主任",
+  "slug": "apocalypse",
+  "kind": "character"
+ },
+ "campus|character|领操的": {
+  "file": "cards/avatars/campus/character-033.webp",
+  "bytes": 5598,
+  "sha256": "4bbf1aafc2c70f24",
+  "topic": "领操的",
+  "slug": "campus",
+  "kind": "character"
+ },
+ "campus|character|宿舍长": {
+  "file": "cards/avatars/campus/character-034.webp",
+  "bytes": 6596,
+  "sha256": "2c79e5723267beed",
+  "topic": "宿舍长",
+  "slug": "campus",
+  "kind": "character"
+ }
+}

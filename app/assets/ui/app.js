@@ -262,7 +262,8 @@
       if (!a) return;
       var b = el('button', 'act-btn' + (a.danger ? ' danger' : ''));
       var tile = el('span', 'act-ico');
-      tile.appendChild(iconNode(a.icon, ''));
+      if (a.avatarCard) fillAvatar(tile, a.avatarCard, 30);
+      else tile.appendChild(iconNode(a.icon, ''));
       b.appendChild(tile);
       b.appendChild(el('span', 'act-label', a.label));
       b.onclick = function () {
@@ -447,11 +448,122 @@
      一次性建 32000 个 DOM 节点会让中低端机直接卡死（WebView 建节点是同步的）。 */
   var CHAR_PAGE = 60;
 
+  /* 立绘包索引（app/assets/ui/avatars/index.json）。没有它、或没匹配到，就退回程序化头像。 */
+  var avatarIndex = null;
+
+  /** 异步拉立绘索引；拉不到也不影响启动（纯程序化图标） */
+  function loadAvatarIndex() {
+    if (typeof global.fetch !== 'function') return Promise.resolve(null);
+    return global.fetch('avatars/index.json').then(function (r) {
+      return (r && r.ok) ? r.json() : null;
+    }).then(function (j) {
+      if (j && j.byTopic) { avatarIndex = j; fyLog('立绘包已就绪：' + j.count + ' 张'); }
+      return avatarIndex;
+    }).catch(function () { return null; });
+  }
+
+  /** 精确命中：这张卡的"分类|类型|主题"有没有对应的立绘（先不管归属） */
+  function avatarImageForRaw(card) {
+    if (!avatarIndex || !card) return '';
+    var tag = (Array.isArray(card.tags) && card.tags[0]) || '';
+    var kind = card.kind === 'story' ? 'story' : 'character';
+    if (!tag || !card.topic) return '';
+    return avatarIndex.byTopic[tag + '|' + kind + '|' + card.topic] || '';
+  }
+
+  /* 一张立绘只允许一张卡用。
+     同一主题下按 hash(名字+id) 最小的那张当"主人"，其余同主题的卡一律回程序化图标——
+     否则一个主题几十张卡会共用同一张脸。 */
+  var avatarOwners = {};        // 立绘路径 -> { id, h }
+  var avatarOwnerList = null;   // 上一次计算的角色数组（换引用就重算）
+
+  function ensureAvatarOwners() {
+    var list = S.characters && S.characters.length !== undefined
+      ? S.characters
+      : ((S.store && S.store.listCharacters) ? S.store.listCharacters() : []);
+    if (list === avatarOwnerList) return;
+    avatarOwnerList = list;
+    avatarOwners = {};
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      var src = avatarImageForRaw(c);
+      if (!src) continue;
+      var h = (global.FYAvatar && global.FYAvatar.hash32)
+        ? global.FYAvatar.hash32((c.name || '') + '|' + c.id) : 0;
+      var cur = avatarOwners[src];
+      if (!cur || h < cur.h) avatarOwners[src] = { id: c.id, h: h };
+    }
+  }
+
+  /**
+   * 这张卡该用哪张立绘：
+   *   精确命中、并且它正是这个主题里抽中的那张 → 用立绘；
+   *   否则（没对应图 / 同主题已经归别的卡了 / 旧卡没 topic）→ 回程序化图标。
+   */
+  function avatarImageFor(card) {
+    var src = avatarImageForRaw(card || {});
+    if (!src) return '';
+    ensureAvatarOwners();
+    var o = avatarOwners[src];
+    return (o && card && o.id === card.id) ? src : '';
+  }
+
+  /**
+   * 把角色头像画进节点，优先级：立绘图 → 程序化图标 → emoji。
+   * 立绘外面套一圈分类配色的内描边（--av-ac）当装饰；图挂了当场退回程序化，不留白块。
+   */
+  function fillAvatar(node, card, size) {
+    if (!node) return node;
+    var c = card || {};
+    /* 描边色和程序化图标同源（都带逐卡色相偏移），同一分类里也不会撞色 */
+    if (global.FYAvatar) {
+      var ac = global.FYAvatar.accentOf ? global.FYAvatar.accentOf(c)
+        : (global.FYAvatar.themeOf ? global.FYAvatar.themeOf(c).ac : '');
+      if (ac) node.style.setProperty('--av-ac', ac);
+    }
+    var src = avatarImageFor(c);
+    if (src) {
+      node.classList.add('has-img');
+      node.innerHTML = '';
+      var img = document.createElement('img');
+      img.className = 'av-img';
+      img.alt = '';
+      img.loading = 'lazy';
+      /* 同一主题的多张卡本来会共用同一张立绘：按卡名哈希做逐卡的取景/缩放/镜像，
+         一屏里就不会出现两张一模一样的立绘 */
+      var h = (global.FYAvatar && global.FYAvatar.hash32)
+        ? global.FYAvatar.hash32((c.name || '') + '|' + (c.topic || '') + '|' + src) : 0;
+      var zoom = 1 + ((h % 100) / 100) * 0.3;          /* 1.00 ~ 1.30 */
+      var ox = 26 + ((h >>> 7) % 48);                  /* 26% ~ 74% */
+      var oy = 20 + ((h >>> 13) % 44);                 /* 20% ~ 64% */
+      var flip = ((h >>> 3) & 1) ? -1 : 1;
+      img.style.setProperty('--av-zoom', zoom.toFixed(3));
+      img.style.setProperty('--av-ox', ox + '%');
+      img.style.setProperty('--av-oy', oy + '%');
+      img.style.setProperty('--av-flip', String(flip));
+      img.onerror = function () {
+        node.classList.remove('has-img');
+        node.innerHTML = '';
+        if (global.FYAvatar) global.FYAvatar.fill(node, c, size || 50);
+      };
+      img.src = src;
+      node.appendChild(img);
+      return node;
+    }
+    node.classList.remove('has-img');
+    if (global.FYAvatar && typeof global.FYAvatar.fill === 'function') {
+      global.FYAvatar.fill(node, c, size || 50);
+    } else {
+      node.textContent = c.avatar || '🙂';
+    }
+    return node;
+  }
+
   /** 造一张角色卡（窗口化渲染时反复调用，所以单独抽出来） */
   function buildCharCard(c, sessions) {
     var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
     var top = el('div', 'char-top');
-    top.appendChild(el('div', 'char-avatar', c.avatar || '🙂'));
+    top.appendChild(fillAvatar(el('div', 'char-avatar'), c, 50));
 
     var fav = el('button', 'char-fav' + (c.fav ? ' on' : ''));
     fav.appendChild(iconEl(c.fav ? 'star' : 'star-o'));
@@ -2016,8 +2128,9 @@
     st.textContent = '按「还没聊过 → 最久没聊」排序，当前筛选下的随机 3 个';
     picks.forEach(function (p) {
       var row = el('div', 'model-row');
+      row.appendChild(fillAvatar(el('div', 'tiny-avatar'), p.c, 30));
       var col = el('div', 'grow');
-      var nm = el('div', 'model-name', (p.c.avatar || '🙂') + ' ' + p.c.name
+      var nm = el('div', 'model-name', p.c.name
         + (p.c.kind === 'story' ? ' · 剧情卡' : ''));
       col.appendChild(nm);
       col.appendChild(el('div', 'model-size', (p.c.tagline || '').slice(0, 40)));
@@ -3023,7 +3136,7 @@
       $('chatHeadSub').textContent = '去角色页选一个吧';
     } else {
       chars.slice(0, 4).forEach(function (c) {
-        box.appendChild(el('div', 'mini-avatar', c.avatar || '🙂'));
+        box.appendChild(fillAvatar(el('div', 'mini-avatar'), c, 34));
       });
       $('chatHeadName').textContent = S.session.mode === 'group'
         ? ('群聊 · ' + chars.map(function (c) { return c.name; }).join('、'))
@@ -3049,9 +3162,11 @@
     var chars = sessionCharacters();
     var speaker = null;
     if (m.characterId) speaker = charById(m.characterId);
-    var av = m.speakerAvatar || (speaker && speaker.avatar) || (m.role === 'user' ? '🧑' : '🤖');
     if (m.role === 'assistant' || chars.length > 1) {
-      node.appendChild(el('div', 'msg-avatar', av));
+      var avNode = el('div', 'msg-avatar');
+      if (m.role === 'assistant' && speaker) fillAvatar(avNode, speaker, 33);
+      else avNode.textContent = m.speakerAvatar || (speaker && speaker.avatar) || (m.role === 'user' ? '🧑' : '🤖');
+      node.appendChild(avNode);
     }
 
     var col = el('div', 'msg-col');
@@ -4915,6 +5030,12 @@
       /* 原生侧信息 */
       bindUI();
       initViewport();
+      /* 立绘包异步就绪后重画一次（不阻塞启动；没有立绘包就是纯程序化头像） */
+      loadAvatarIndex().then(function (idx) {
+        if (!idx) return;
+        renderCharacters();
+        if (S.session) { renderChatHeader(); renderMessages(); }
+      });
       S.appInfo = fyCall('appInfo', [], true) || {};
       refreshEngineStatus(true);
       refreshModels(true);
@@ -5500,7 +5621,7 @@
     var acts = all.map(function (c) {
       var on = inIds.indexOf(c.id) >= 0;
       return {
-        icon: c.avatar, label: (on ? '✓ ' : '＋ ') + c.name + (on ? '（已加入，点按移除）' : ''),
+        avatarCard: c, icon: c.avatar, label: (on ? '✓ ' : '＋ ') + c.name + (on ? '（已加入，点按移除）' : ''),
         run: function () {
           var idx = inIds.indexOf(c.id);
           if (idx >= 0) {
@@ -5541,6 +5662,11 @@
     importCardsBatch: importCardsBatch,
     patchPresetTags: patchPresetTags,
     libOverwriteOn: libOverwriteOn,
+    fillAvatar: fillAvatar,
+    avatarImageFor: avatarImageFor,
+    ensureAvatarOwners: ensureAvatarOwners,
+    loadAvatarIndex: loadAvatarIndex,
+    setAvatarIndex: function (j) { avatarIndex = j; },
     exportCharCard: exportCharCard,
     applyKeepScreen: applyKeepScreen,
     renderStorageInfo: renderStorageInfo,

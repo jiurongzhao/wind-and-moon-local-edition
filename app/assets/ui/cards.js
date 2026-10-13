@@ -55,7 +55,9 @@
             tagline: str(p.tagline),
             temperature: typeof p.temperature === 'number' ? p.temperature : 0.85,
             kind: p.kind === 'story' ? 'story' : 'character',
-            plot: !!p.plot
+            plot: !!p.plot,
+            /* topic —— 卡库生成时写进主题（法医/画像师…），立绘按它精确匹配 */
+            topic: str(p.topic)
           }
         }
       }
@@ -95,6 +97,7 @@
       name: name,
       tags: tags,
       kind: kind,
+      topic: str(ext.topic).slice(0, 40),      /* 主题：用于匹配专属立绘 */
       plot: ext.plot === true || kind === 'story',
       avatar: str(ext.avatar || d.avatar || '', '🙂').slice(0, 8) || '🙂',
       tagline: str(ext.tagline || personality).slice(0, 60),

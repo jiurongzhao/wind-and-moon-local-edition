@@ -1,0 +1,138 @@
+{
+ "count": 49,
+ "note": "立绘包：byTopic 精确匹配，byCategory 兜底（按名字哈希挑一张）",
+ "byTopic": {
+  "末世生存|character|水站看表的": "avatars/apocalypse/character-000.webp",
+  "校园|character|校门口的文具店老板": "avatars/campus/character-001.webp",
+  "喜剧沙雕|character|外卖骑手": "avatars/comedy/character-002.webp",
+  "情感树洞|character|心理援助热线志愿者": "avatars/comfort/character-003.webp",
+  "赛博朋克|character|义体儿童的陪读员": "avatars/cyberpunk/character-004.webp",
+  "日常治愈|character|24小时自习室的看店人": "avatars/daily-healing/character-005.webp",
+  "奇幻冒险|character|符文学者": "avatars/fantasy/character-006.webp",
+  "历史|character|船户": "avatars/history/character-007.webp",
+  "恐怖惊悚|character|纸扎铺的手艺人": "avatars/horror/character-008.webp",
+  "悬疑推理|character|画像师": "avatars/mystery/character-009.webp",
+  "神话志怪|character|刻碑的石匠": "avatars/mythology/character-010.webp",
+  "恋爱|character|旧照片修复师": "avatars/romance/character-011.webp",
+  "科幻未来|character|记忆备份托管员": "avatars/scifi/character-012.webp",
+  "灵异怪谈|character|老照相馆的暗房师傅": "avatars/supernatural/character-013.webp",
+  "职场|character|夜班保洁": "avatars/workplace/character-014.webp",
+  "古风仙侠|character|摆渡的瞎子": "avatars/wuxia/character-015.webp",
+  "末世生存|character|药贩子": "avatars/apocalypse/character-001.webp",
+  "末世生存|character|搜刮者": "avatars/apocalypse/character-002.webp",
+  "末世生存|character|关卡头目": "avatars/apocalypse/character-003.webp",
+  "末世生存|character|煮盐的": "avatars/apocalypse/character-004.webp",
+  "末世生存|character|修水管的老工人": "avatars/apocalypse/character-005.webp",
+  "末世生存|character|会修发电机的": "avatars/apocalypse/character-006.webp",
+  "末世生存|character|屋顶看水的": "avatars/apocalypse/character-007.webp",
+  "末世生存|character|种仓看门的": "avatars/apocalypse/character-008.webp",
+  "末世生存|character|测水的人": "avatars/apocalypse/character-009.webp",
+  "末世生存|character|井盖下的独居者": "avatars/apocalypse/character-010.webp",
+  "末世生存|character|加油站守着的": "avatars/apocalypse/character-011.webp",
+  "末世生存|character|兽医": "avatars/apocalypse/character-012.webp",
+  "末世生存|character|守电话亭的": "avatars/apocalypse/character-013.webp",
+  "末世生存|character|粮站化验员": "avatars/apocalypse/character-014.webp",
+  "末世生存|character|教会避难所的执事": "avatars/apocalypse/character-015.webp",
+  "末世生存|character|变电站值班的": "avatars/apocalypse/character-016.webp",
+  "末世生存|character|缝补的人": "avatars/apocalypse/character-017.webp",
+  "末世生存|character|巡逻队长": "avatars/apocalypse/character-018.webp",
+  "末世生存|character|摆渡人": "avatars/apocalypse/character-019.webp",
+  "末世生存|character|无线电爱好者": "avatars/apocalypse/character-020.webp",
+  "末世生存|character|养殖棚的饲养员": "avatars/apocalypse/character-021.webp",
+  "末世生存|character|粮仓把头": "avatars/apocalypse/character-022.webp",
+  "末世生存|character|柴油保管员": "avatars/apocalypse/character-023.webp",
+  "末世生存|character|旧书摊主": "avatars/apocalypse/character-024.webp",
+  "末世生存|character|掮客": "avatars/apocalypse/character-025.webp",
+  "末世生存|character|拾荒的孩子头": "avatars/apocalypse/character-026.webp",
+  "末世生存|character|避难所管理员": "avatars/apocalypse/character-027.webp",
+  "末世生存|character|殡葬工": "avatars/apocalypse/character-028.webp",
+  "末世生存|character|卖情报的": "avatars/apocalypse/character-029.webp",
+  "末世生存|character|前护士": "avatars/apocalypse/character-030.webp",
+  "末世生存|character|罐头厂车间主任": "avatars/apocalypse/character-031.webp",
+  "校园|character|领操的": "avatars/campus/character-033.webp",
+  "校园|character|宿舍长": "avatars/campus/character-034.webp"
+ },
+ "byCategory": {
+  "末世生存|character": [
+   "avatars/apocalypse/character-000.webp",
+   "avatars/apocalypse/character-001.webp",
+   "avatars/apocalypse/character-002.webp",
+   "avatars/apocalypse/character-003.webp",
+   "avatars/apocalypse/character-004.webp",
+   "avatars/apocalypse/character-005.webp",
+   "avatars/apocalypse/character-006.webp",
+   "avatars/apocalypse/character-007.webp",
+   "avatars/apocalypse/character-008.webp",
+   "avatars/apocalypse/character-009.webp",
+   "avatars/apocalypse/character-010.webp",
+   "avatars/apocalypse/character-011.webp",
+   "avatars/apocalypse/character-012.webp",
+   "avatars/apocalypse/character-013.webp",
+   "avatars/apocalypse/character-014.webp",
+   "avatars/apocalypse/character-015.webp",
+   "avatars/apocalypse/character-016.webp",
+   "avatars/apocalypse/character-017.webp",
+   "avatars/apocalypse/character-018.webp",
+   "avatars/apocalypse/character-019.webp",
+   "avatars/apocalypse/character-020.webp",
+   "avatars/apocalypse/character-021.webp",
+   "avatars/apocalypse/character-022.webp",
+   "avatars/apocalypse/character-023.webp",
+   "avatars/apocalypse/character-024.webp",
+   "avatars/apocalypse/character-025.webp",
+   "avatars/apocalypse/character-026.webp",
+   "avatars/apocalypse/character-027.webp",
+   "avatars/apocalypse/character-028.webp",
+   "avatars/apocalypse/character-029.webp",
+   "avatars/apocalypse/character-030.webp",
+   "avatars/apocalypse/character-031.webp"
+  ],
+  "校园|character": [
+   "avatars/campus/character-001.webp",
+   "avatars/campus/character-033.webp",
+   "avatars/campus/character-034.webp"
+  ],
+  "喜剧沙雕|character": [
+   "avatars/comedy/character-002.webp"
+  ],
+  "情感树洞|character": [
+   "avatars/comfort/character-003.webp"
+  ],
+  "赛博朋克|character": [
+   "avatars/cyberpunk/character-004.webp"
+  ],
+  "日常治愈|character": [
+   "avatars/daily-healing/character-005.webp"
+  ],
+  "奇幻冒险|character": [
+   "avatars/fantasy/character-006.webp"
+  ],
+  "历史|character": [
+   "avatars/history/character-007.webp"
+  ],
+  "恐怖惊悚|character": [
+   "avatars/horror/character-008.webp"
+  ],
+  "悬疑推理|character": [
+   "avatars/mystery/character-009.webp"
+  ],
+  "神话志怪|character": [
+   "avatars/mythology/character-010.webp"
+  ],
+  "恋爱|character": [
+   "avatars/romance/character-011.webp"
+  ],
+  "科幻未来|character": [
+   "avatars/scifi/character-012.webp"
+  ],
+  "灵异怪谈|character": [
+   "avatars/supernatural/character-013.webp"
+  ],
+  "职场|character": [
+   "avatars/workplace/character-014.webp"
+  ],
+  "古风仙侠|character": [
+   "avatars/wuxia/character-015.webp"
+  ]
+ }
+}

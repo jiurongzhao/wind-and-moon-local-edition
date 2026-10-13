@@ -31,7 +31,7 @@ if (!PACKS_READY && fs.existsSync(path.join(ROOT, 'cards'))) {
   }
 }
 const HTML = fs.readFileSync(path.join(UI, 'index.html'), 'utf8');
-const SCRIPTS = ['store.js', 'cards.js', 'creator.js', 'mock.js', 'app.js'];
+const SCRIPTS = ['store.js', 'cards.js', 'creator.js', 'mock.js', 'avatar.js', 'app.js'];
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -2071,6 +2071,98 @@ check('老库预设没分类 → 迁移补上（只动 tags，文本一个字都
   'patched=' + patched + ' tags=' + JSON.stringify(linxiaNew.tags));
 check('已经有分类的卡不会被反复改（迁移幂等，返回 0）',
   window.FYApp.patchPresetTags([{ name: '林夏', tags: ['日常治愈', '恋爱'] }]) === 0);
+
+/* ---------- 35. 程序化头像：每张卡一个独有的图标（v1.6.1） ---------- */
+console.log('\n【35】程序化头像（分类配色 + 名字唯一）');
+check('FYAvatar 已加载，能画出 SVG',
+  !!window.FYAvatar && /^<svg /.test(window.FYAvatar.svg({ name: '测试', tags: ['悬疑推理'] }, 50)),
+  typeof window.FYAvatar);
+const avCardA = { name: '白口罩', tags: ['末世生存'], avatar: '☢️', tagline: '水站看表的' };
+window.FYAvatar.clearCache();
+const avSvg1 = window.FYAvatar.svg(avCardA, 50);
+const avSvg2 = window.FYAvatar.svg(avCardA, 50);
+check('同一张卡两次渲染字节一致（确定性：不是每次刷新都换）', avSvg1 === avSvg2);
+const avUniq = {};
+for (let i = 0; i < 400; i++) avUniq[window.FYAvatar.svg({ name: '悬疑-' + i, tags: ['悬疑推理'] }, 50)] = 1;
+check('同分类 400 个不同名字 → 400 个不同图标（“每个图标都不一样”）',
+  Object.keys(avUniq).length === 400, String(Object.keys(avUniq).length));
+const avBgs = {};
+['末世生存', '恋爱', '科幻未来', '古风仙侠', '恐怖惊悚', '喜剧沙雕'].forEach((t) => {
+  avBgs[t] = window.FYAvatar.themeOf({ name: 'X', tags: [t] }).bg[1];
+});
+check('不同分类拿到不同配色（图标跟着内容走）',
+  new Set(Object.values(avBgs)).size === 6
+  && window.FYAvatar.themeOf({ name: 'X', tags: ['末世生存'] }).ac === '#c9d94a'
+  && window.FYAvatar.themeOf({ name: 'X', avatar: '🔍' }).ac === '#e3b341',
+  JSON.stringify(avBgs));
+check('库卡的分类 emoji 换成名字首字（不然 1000 张末世卡还是同一个 ☢️）',
+  avSvg1.indexOf('白') >= 0 && avSvg1.indexOf('☢') < 0);
+check('用户自己挑的 emoji 保留成角标（不抢用户的选择）',
+  window.FYAvatar.svg({ name: '自定义', avatar: '🌸', tags: ['自定分类'] }, 50).indexOf('🌸') >= 0);
+check('名字里的特殊字符被转义，不会把 SVG 撑坏',
+  window.FYAvatar.svg({ name: '<b>&"', tags: ['悬疑推理'] }, 50).indexOf('&lt;') >= 0);
+/* 列表里真的用上了 SVG（不是把 emoji 继续塞进 div） */
+window.FYApp.renderCharacters();
+check('角色列表的头像渲染成 SVG（不是 emoji 文本）',
+  !!doc.querySelector('#charGrid .char-avatar svg'),
+  '#charGrid .char-avatar svg = ' + doc.querySelectorAll('#charGrid .char-avatar svg').length);
+/* 装饰随机但稳定：同一张卡两次一致；不同卡连装饰图案都可能不同 */
+const decoA = window.FYAvatar.svg({ name: '白口罩', tags: ['末世生存'] }, 50);
+const decoB = window.FYAvatar.svg({ name: '白口罩', tags: ['末世生存'] }, 50);
+check('同一张卡的图标两次完全一致（确定性）', decoA === decoB);
+check('图标带随机装饰图案（叶子/星芒/圆点/波纹…不止一种）',
+  Object.keys(window.FYAvatar._patterns).length >= 8
+  && Object.keys(window.FYAvatar._patterns).indexOf('leaf') >= 0,
+  Object.keys(window.FYAvatar._patterns).join(','));
+
+/* ---------- 36. 卡库立绘：AI 图优先，缺图退回程序化（v1.6.1） ---------- */
+console.log('\n【36】卡库立绘（一张图只给一张卡）');
+const avIndexPath = path.join(UI, 'avatars', 'index.json');
+const avIndex = fs.existsSync(avIndexPath) ? JSON.parse(fs.readFileSync(avIndexPath, 'utf8')) : null;
+check('立绘索引已随 App 打包（app/assets/ui/avatars/index.json）',
+  !!avIndex && avIndex.count > 0, avIndex ? ('count=' + avIndex.count) : '缺失');
+window.FYApp.setAvatarIndex(avIndex);
+
+/* 立绘是"一张图只给一张卡"：先建两张同主题的卡，只有哈希小的那张拿得到图 */
+const avA = S.store.saveCharacter({ name: '白口罩', tags: ['末世生存'], kind: 'character', topic: '水站看表的', persona: '测试人设' });
+const avB = S.store.saveCharacter({ name: '白粥', tags: ['末世生存'], kind: 'character', topic: '水站看表的', persona: '测试人设' });
+S.characters = S.store.listCharacters();
+window.FYApp.ensureAvatarOwners();
+const avSrcA = window.FYApp.avatarImageFor(avA);
+const avSrcB = window.FYApp.avatarImageFor(avB);
+const avHits = [avSrcA, avSrcB].filter(Boolean);
+check('带 topic 的卡命中专属立绘（"符合剧情"的那张）',
+  avHits.length === 1 && avHits[0].indexOf('avatars/apocalypse/') === 0,
+  JSON.stringify([avSrcA, avSrcB]));
+check('命中路径指向真实存在的文件', !!avHits[0] && fs.existsSync(path.join(UI, avHits[0])));
+check('同一张立绘只给一张卡用：同主题的另一张不重复用同一张脸', avHits.length === 1);
+check('没带 topic 的卡 → 返回空（回程序化图标）',
+  window.FYApp.avatarImageFor({ name: '甲', tags: ['末世生存'], kind: 'character' }) === '');
+check('分类里一张图都没有 → 返回空（不报错）',
+  window.FYApp.avatarImageFor({ name: '无', tags: ['不存在的分类'], kind: 'character' }) === '');
+
+const avOwner = avSrcA ? avA : avB;
+const avOther = avSrcA ? avB : avA;
+const avNode = doc.createElement('div');
+window.FYApp.fillAvatar(avNode, avOwner, 50);
+check('fillAvatar 命中时渲染 <img.av-img> 并挂上描边色',
+  !!avNode.querySelector('img.av-img') && avNode.classList.contains('has-img')
+  && avNode.style.getPropertyValue('--av-ac').length > 0,
+  avNode.innerHTML.slice(0, 70));
+const avProc = doc.createElement('div');
+window.FYApp.fillAvatar(avProc, avOther, 50);
+check('同主题的"非主人"卡渲染程序化 SVG（不是同一张脸）',
+  !!avProc.querySelector('svg') && !avProc.classList.contains('has-img'));
+S.store.deleteCharacter(avA.id);
+S.store.deleteCharacter(avB.id);
+S.characters = S.store.listCharacters();
+
+window.FYApp.setAvatarIndex(null);
+const procNode = doc.createElement('div');
+window.FYApp.fillAvatar(procNode, { name: '白口罩', tags: ['末世生存'], kind: 'character' }, 50);
+check('没有立绘包时退回程序化 SVG（离线不花屏）',
+  !!procNode.querySelector('svg') && !procNode.classList.contains('has-img'));
+window.FYApp.setAvatarIndex(avIndex);
 
 S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;

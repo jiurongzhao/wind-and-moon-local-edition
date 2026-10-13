@@ -31,8 +31,8 @@ TARGET_SDK=35
 # ⚠️ 注意：aapt2 的 --version-code/--version-name 只在 AndroidManifest.xml
 # **没有**声明版本号时才生效（官方文档原话 "if none is present"）。
 # 所以版本号以 app/AndroidManifest.xml 为准，这里的值只用于构建后比对自检。
-VER_CODE=12
-VER_NAME="1.6.1"
+VER_CODE=13
+VER_NAME="1.6.2"
 
 MODE="release"
 [ "${1:-}" = "--debug" ] && MODE="debug"

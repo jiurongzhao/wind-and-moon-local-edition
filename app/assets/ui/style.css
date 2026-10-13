@@ -1279,3 +1279,31 @@ select.input option { background: var(--surface-2); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ---------------------------------------------------------------------------
+   程序化头像（avatar.js）：SVG 填满容器，圆角/圆形裁切交给容器本身
+   --------------------------------------------------------------------------- */
+.char-avatar, .mini-avatar, .msg-avatar, .tiny-avatar, .act-ico { overflow: hidden; }
+.char-avatar > svg, .mini-avatar > svg, .msg-avatar > svg,
+.tiny-avatar > svg, .act-ico > svg { display: block; width: 100%; height: 100%; }
+.tiny-avatar {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(150deg, var(--surface-3), var(--surface-2));
+  border: 1px solid var(--line);
+}
+.act-ico > svg { border-radius: 8px; }
+
+/* 立绘包（app/assets/ui/avatars）：有真图就用图，分类配色描边当装饰 */
+.char-avatar > img.av-img, .mini-avatar > img.av-img, .msg-avatar > img.av-img,
+.tiny-avatar > img.av-img, .act-ico > img.av-img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  /* 逐卡取景：缩放 + 水平镜像 + 变换原点，让共用同一张立绘的卡也各不相同 */
+  transform: scale(var(--av-zoom, 1)) scaleX(var(--av-flip, 1));
+  transform-origin: var(--av-ox, 50%) var(--av-oy, 50%);
+}
+.char-avatar.has-img { box-shadow: var(--sh-1), inset 0 0 0 2px var(--av-ac, rgba(255,255,255,.3)); }
+.mini-avatar.has-img, .msg-avatar.has-img, .tiny-avatar.has-img, .act-ico.has-img {
+  box-shadow: inset 0 0 0 2px var(--av-ac, rgba(255,255,255,.3));
+}
+

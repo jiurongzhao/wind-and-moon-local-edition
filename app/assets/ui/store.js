@@ -450,6 +450,8 @@
       tags: Array.isArray(p.tags) ? p.tags.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 6) : [],
       kind: (p.kind === 'story') ? 'story' : 'character',
       plot: !!p.plot,
+      topic: toStr(p.topic, '').slice(0, 40),   /* 卡库主题（法医/画像师…）：匹配专属立绘 */
+      
       createdAt: toNum(p.createdAt, t),
       updatedAt: toNum(p.updatedAt, t),
       builtin: !!p.builtin
