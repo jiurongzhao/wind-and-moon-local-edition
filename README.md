@@ -1,25 +1,34 @@
-# 风月·本地版（fy）
+# 🌙 风月 · 本地版
 
-<!-- 仓库：https://gitee.com/zhao-jiurong/wind-and-moon-local-edition -->
+**一个完全离线的 Android AI 角色扮演 App** —— 推理引擎和 GGUF 大模型全部跑在手机本地。
+不登录、不联网、不上传对话。整个 App 在 Termux 里从零构建，不需要 Android Studio / NDK / Gradle。
+
+[![下载 fy.apk](https://img.shields.io/badge/%E2%AC%87%20%E4%B8%8B%E8%BD%BD-fy.apk%20(13MB)-brightgreen?style=for-the-badge)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
+[![tests](https://img.shields.io/badge/tests-411%20passing-success.svg)](runtests.sh)
+[![apk](https://img.shields.io/badge/APK-13.4%20MB-blue.svg)](../../releases)
 
-一个**完全离线**的 Android AI 角色扮演 App：llama.cpp 推理引擎和 GGUF 大模型全部在手机本地跑，
-不登录、不联网、不上传对话。整个 App 在 Termux 里从零构建，不需要 Android Studio / NDK / Gradle。
+**下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
+**镜像** → [GitHub](https://github.com/jiurongzhao/wind-and-moon-local-edition) · [Gitee](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
 
-```
-角色卡陪聊 · 流式输出 · 长期记忆 · 剧情选项玩法 · 多角色群聊 · 语音朗读与语音输入
-角色卡导入导出（SillyTavern chara_card_v2，.json / .png 都吃）· 整库备份/恢复
-多存储后端（IndexedDB / SQLite / localStorage / 内存，可一键迁移）· 跨会话聊天记录搜索
-内置 160 张原创卡（16 个分类，角色卡 + 剧情卡）· 分类筛选 / 搜索 / 智能推荐 / 卡包一键导入
-**创作者工具**：16 分类模板 + 48 个人设骨架 + 七维质量评分 + 用你配置的模型做 AI 辅助扩写 + 联网灵感面板
-模型来源自由选（**默认 DeepSeek**）：内置引擎（本地 GGUF）/ 粘贴链接下载任意模型 / 连局域网自建或云端 OpenAI 兼容服务
-首次启动三选一 · 顶栏一键切换模型来源 · 斜杠指令（/继续 /重写 /摘要 /导出 /清空）· 对话导出 Markdown · 正文字号 · 角色收藏
-深色 / 浅色 / 跟随系统三档外观 · 手写 Material 3 风格设计系统（无任何外部素材）
-```
+---
 
-## 快速开始
+## 为什么值得装
+
+| | |
+|---|---|
+| 🔒 **真 · 离线** | 引擎是 llama.cpp 官方 Android arm64 预编译库，内置进 APK；模型放本地。**飞行模式照样聊**，对话永远不出这台手机 |
+| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文） |
+| 🎭 **32000 张原创卡** | 16 类 ×（1000 角色卡 + 1000 剧情卡），全部 **CC0**，**按需下载不进 APK**；还能按关键词只下命中那一片 |
+| ✍️ **创作者工具** | 16 类模板 + 48 个人设骨架 + **七维质量评分** + 用你配好的模型做 AI 辅助扩写 + 联网灵感面板 |
+| 🔁 **模型来源随便换** | 本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
+| 🎨 **界面是自己画的** | 手写 Material 3 风格设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，**零外部素材、零字体文件** |
+| 📦 **只有 13MB** | 引擎从 276MB strip 到 27MB 再压进 APK；32000 张卡库走发行版附件，不撑大安装包 |
+| 🧪 **411 项测试** | 前端 jsdom + JVM 真跑引擎 / 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
+
+## 🚀 快速开始
 
 **装现成的**：到 [发行版](../../releases) 下载 `fy.apk`（约 13MB），手机上点开安装
 （需要允许「安装未知来源应用」）。
@@ -51,17 +60,17 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 内存 | 建议 6GB+；0.5B 模型约需 1GB 空闲，3B 约需 3.5GB（内存不够会疯狂换页，实测能慢到十分钟吐不出一个字） |
 | 存储 | 模型 0.5～2.5GB + App 本体 13MB |
 
-## 界面预览
+## 📱 界面预览
 
 <table>
 <tr>
 <td width="33%"><img src="docs/shots/01-characters.png" alt="角色页：夜幕头图 + 分类筛选"><br><sub>角色页 · 头图 / 搜索 / 分类 / 卡包</sub></td>
-<td width="33%"><img src="docs/shots/16-library-search.png" alt="在线卡库：按关键词只下某一片"><br><sub>在线卡库 · 搜「画像师」只下命中那一片（不必整类下完）</sub></td>
 <td width="33%"><img src="docs/shots/02-chat.png" alt="聊天页：流式对话与剧情选项"><br><sub>聊天页 · 流式对话与剧情选项</sub></td>
+<td width="33%"><img src="docs/shots/15-library.png" alt="在线卡库"><br><sub>在线卡库 · 16 类 32000 张，按需下载</sub></td>
 </tr>
 <tr>
+<td width="33%"><img src="docs/shots/16-library-search.png" alt="在线卡库：按关键词只下某一片"><br><sub>在线卡库 · 搜「画像师」只下命中那一片</sub></td>
 <td width="33%"><img src="docs/shots/11-creator-category.png" alt="创作者工具：选分类"><br><sub>创作者工具 · 16 分类模板（第一步）</sub></td>
-<td width="33%"><img src="docs/shots/12-creator-skeleton.png" alt="创作者工具：挑骨架"><br><sub>创作者工具 · 48 个人设骨架（第二步）</sub></td>
 <td width="33%"><img src="docs/shots/13-editor-lint.png" alt="角色编辑面板与七维评分"><br><sub>角色编辑 · 七维质量评分 + AI 辅助</sub></td>
 </tr>
 <tr>
@@ -71,38 +80,56 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 </tr>
 <tr>
 <td width="33%"><img src="docs/shots/08-onboard.png" alt="首次引导"><br><sub>首次启动三选一：云端 / 本地 / 局域网</sub></td>
-<td width="33%"><img src="docs/shots/09-backend.png" alt="切换模型来源"><br><sub>顶栏一键切换模型来源</sub></td>
+<td width="33%"><img src="docs/shots/12-creator-skeleton.png" alt="创作者工具：挑骨架"><br><sub>创作者工具 · 48 个人设骨架（第二步）</sub></td>
 <td width="33%"><img src="docs/shots/06-recommend.png" alt="智能推荐"><br><sub>智能推荐 · 还没聊过的优先</sub></td>
 </tr>
 </table>
 
 > 这些图是 `./tools/shots.sh` 用无头 Chromium 自动生成的（`tools/preview-seed.js` 注入假数据，
 > 包括「在线卡库」那张——用假目录把 `/fetch` 拦下来，所以截图不需要联网）。
-> 改完界面重新跑一次即可（共 15 张），不需要真机也不需要 Android Studio；
-> 没往表里塞的还有浅色聊天页、灵感面板、斜杠指令三张，在 `docs/shots/` 里。
+> 改完界面重新跑一次即可（共 16 张），不需要真机也不需要 Android Studio；
+> 没往表里塞的还有浅色聊天页、灵感面板、斜杠指令、切换来源几张，在 `docs/shots/` 里。
 
-## 现状
+## 🧩 功能一览
+
+```
+角色卡陪聊 · 流式输出 · 长期记忆 · 剧情选项玩法 · 多角色群聊 · 语音朗读与语音输入
+角色卡导入导出（SillyTavern chara_card_v2，.json / .png 都吃）· 整库备份/恢复
+多存储后端（IndexedDB / SQLite / localStorage / 内存，可一键迁移）· 跨会话聊天记录搜索
+内置 160 张原创卡（16 个分类，角色卡 + 剧情卡）· 分类筛选 / 搜索 / 智能推荐 / 卡包一键导入
+创作者工具：16 分类模板 + 48 个人设骨架 + 七维质量评分 + AI 辅助扩写 + 联网灵感面板
+模型来源自由选（默认 DeepSeek）：内置引擎（本地 GGUF）/ 粘链接下载任意模型 / 连局域网自建或云端 OpenAI 兼容服务
+首次启动三选一 · 顶栏一键切换模型来源 · 斜杠指令（/继续 /重写 /摘要 /导出 /清空）· 对话导出 Markdown · 正文字号 · 角色收藏
+深色 / 浅色 / 跟随系统三档外观 · 手写 Material 3 风格设计系统（无任何外部素材）
+```
+
+---
+
+# 🔬 工程实录（点开看细节）
+
+<details>
+<summary><b>✅ 现状：都实测到什么程度了</b></summary>
 
 | 项目 | 状态 |
 |---|---|
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.4 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **381 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载） |
+| 前端功能（jsdom 集成测试） | ✅ **411 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
 | `AssetServer.java` 真跑（JVM） | ✅ **17 项通过**：路由/MIME/query/404/并发/只监听回环不暴露局域网 |
+| `/fetch` 下载代理 | ✅ **27 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
 | 角色卡解析真跑（JVM） | ✅ **6 项通过**：`PngCardText` 解 PNG 的 `tEXt`/`zTXt`/`iTXt` 三种卡块（含截断文件不崩） |
 | 本地数据库 | ✅ **四个后端**（IndexedDB / SQLite / localStorage / 内存）+ 一键迁移 + 跨会话搜索；内存索引 + 增量落盘；修掉「设置表每次保存被清空」的持久化 bug |
 | 界面主题 | ✅ 深/浅/跟随系统 + 强调色对比度自适应，有 jsdom 回归测试（12 项） |
-| 前端 jsdom 覆盖 | ✅ **381 项**：含数据库持久化、备份恢复、token 自校正、多后端协议、搜索界面、分类/推荐/卡包导入、模型来源路由、创作者工具（模板/七维评分/AI 辅助/灵感面板）、界面图标系统、角色列表窗口化、批量入库、在线卡库（目录/下载/幂等/强制重导/坏数据拒写/关键词只下某一片） |
 | 外部模型代理 | ✅ 15 项 JVM 实跑（假上游）：路由拼接、body 逐字节转发、key 注入、**SSE 实时透传**、502 快速失败 |
 | 内置卡包 | ✅ 16 个分类 / 160 张原创卡（CC0），随 APK 发布，有发布前真实性校验 |
 | **在线卡库** | ✅ **16 类 ×（1000 角色卡 + 1000 剧情卡）= 32000 张**（CC0），由 `tools/gen-cards.py` 从叙事母题素材库组合生成；发布闸门 `check-cards.py` **32000 张全过**、App 解析器全量自检全过；每类约 6MB，按需下载不进 APK |
-| `/fetch` 下载代理 | ✅ **27 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
 | 创作者工具 | ✅ 16 分类 × 3 个人设骨架 + 每类写作要点（全部原创 CC0）；七维质量评分（维度口径借鉴 CC-BY-4.0 的 SPB-2603，判定逻辑自研）；AI 辅助扩写走同一条流式通道；`tools/check-creator.py` 校验三份模板 JSON 的对齐关系 |
 | 联网灵感面板 | ✅ 全部端点都用 curl 实测过 CORS：`api.chub.ai`（只取名字与 topics 标签，按 `nsfw_image` 过滤）、`api.github.com`（仓库元数据 + 许可证）、`datasets-server.huggingface.co`（字段结构）。**运行时即时拉取，不打包任何第三方内容** |
+| 头像系统 | ✅ AI 立绘（一个主题一张，且**一张只给一张卡用**）+ 程序化 SVG 图标（逐卡色相偏移 / 10 种装饰 / 4 种边框 / 5×5 镜像 / 首字角标），有 9 项 jsdom 回归 |
 | 性能实测脚本 | ✅ `tests/bench-flags.mjs`（启动参数 A/B）、`tests/bench-prefix.mjs`（前缀复用）、`tests/bench-db.mjs`（数据库真实规模） |
 | 模型下载（断点续传） | ✅ 对真实 ModelScope 实测：重定向跟随、Range 206、续传逐字节一致 |
 | 在真机上安装并对话 | ✅ **Redmi Turbo 3 / Android 16 上跑通**。0.5B：预填充 **144 tok/s**、生成 **4.73 tok/s**、单轮 ~25s，流式/剧情/后台都验证过；3B 能加载，但在这台机器当前内存下会被换页拖死（见「踩过的坑」17、18） |
@@ -111,85 +138,12 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 > 于是在 Termux 里就能直接 `java EngineJvmTest`，用真实的 llama-server 走完整流程 ——
 > 不需要 Android 设备、不需要模拟器。这条路的收获见下面"踩过的坑"第 10 条。
 
-## 为什么是这套架构
+</details>
 
-| 需求 | 做法 |
-|---|---|
-| 真·单机 | llama.cpp 官方 **Android arm64 预编译** `llama-server` 内置进 APK，模型放本地 |
-| 不装 NDK / 不交叉编译 | 二进制改名成 `libfy_llama_server.so` 放进 `jniLibs`，装完在 `nativeLibraryDir` 里 exec |
-| APK 不臃肿 | 只留 server 需要的库 + `strip`：引擎 276MB → **27MB**，APK 13MB |
-| 前端体验好 | WebView + 本地 http 资源服务器（真实 origin），前端用 IndexedDB + `fetch` 直连推理端口 |
-| 全程 Termux 内构建 | `javac` → `d8` → `aapt2` → 自写 `packapk.py`（代替 zipalign）→ `apksigner` |
+<details>
+<summary><b>⚡ 实测性能：同一台机器，速度差 10 倍都是这些原因</b></summary>
 
-关键结论都有实证，见 [docs/engine-exec.md](docs/engine-exec.md)（SELinux 策略依据、页对齐、GPU 结论）。
-
-## 目录
-
-```
-~/2/fy/
-├── build.sh              # 一键出 APK
-├── deploy.sh             # 装到手机 + 推模型 + 启动 + 抓日志（需要 adb）
-├── checkup.sh            # 不需要 adb 的装机/运行体检（读 App 自己写的诊断报告）
-├── bench.sh / bench2.sh  # 引擎速度实测（cpu / gpu、含加载耗时）
-├── tools/
-│   ├── packapk.py        # 打包 + zipalign 对齐（Termux 没有 zipalign）
-│   └── checkapk.py       # APK 硬性要求校验（对齐/清单/引擎文件）
-├── tests/
-│   ├── ui.test.mjs              # 前端 jsdom 集成测试（67 项）
-│   ├── e2e-real.mjs             # 真实前端 + 真实 4B 模型端到端（角色扮演/剧情/记忆）
-│   ├── probe-speed.mjs          # 量化预填充 vs 生成耗时（定位多轮变慢）
-│   ├── probe-plot.mjs           # 剧情选项成功率统计
-│   ├── probe-prompts.mjs        # prompt 合规性对照实验
-│   ├── EngineJvmTest.java       # Engine.java 真跑：自检/状态机/推理/停止（14 项）
-│   ├── AssetServerJvmTest.java  # AssetServer.java 真跑：路由/MIME/404/并发/回环（17 项）
-│   ├── CardIOJvmTest.java       # PNG 角色卡解析真跑：tEXt/zTXt/iTXt（6 项）
-│   ├── DownloadResumeTest.java  # 下载与断点续传实测（逐字节比对）
-│   └── jvmstub/                 # 让上面几个 Java 测试能在 JVM 跑的 Android 最小桩
-├── runtests.sh           # 一条命令跑完上面全部（--quick 跳过要起引擎的）
-├── app/
-│   ├── AndroidManifest.xml
-│   ├── java/com/fy/local/
-│   │   ├── MainActivity.java   # 组装 + 生命周期 + 事件推送到前端
-│   │   ├── AssetServer.java    # 本地静态资源服务器（给 WebView 一个真 origin）
-│   │   ├── Engine.java         # llama-server 子进程管理 + 状态机 + exec 回退 + 启动自检
-│   │   ├── Bridge.java         # window.FY 原生桥
-│   │   ├── ModelStore.java     # 模型 列表/导入/下载(断点续传)/删除
-│   │   ├── Diag.java           # 诊断报告落盘到 Download（无需 adb 的反馈通道）
-│   │   ├── CardIO.java         # 角色卡文件读写（JSON/PNG → 文本；导出到 Download）
-│   │   ├── PngCardText.java    # PNG 里 tEXt/zTXt/iTXt 卡块解析（纯逻辑，可在 JVM 真跑）
-│   │   ├── FyService.java      # 引擎前台服务（防后台冻结）
-│   │   └── Speech.java         # 系统 TTS + 语音识别
-│   ├── assets/ui/              # 前端（index/style/app/store/cards/mock/presets）
-│   └── res/values/strings.xml
-├── native/               # 要打进 APK 的引擎文件（engine/payload 的副本）
-├── engine/               # llama.cpp 二进制（下载/解包/strip 的中间产物）
-├── models/               # 本地 GGUF
-├── sdk/android-36/       # android.jar（javac / d8 用）
-├── docs/
-│   ├── bridge-api.md     # JS ↔ Java 接口契约
-│   ├── engine-exec.md    # 「为什么能 exec APK 里的二进制」证据链
-│   └── user-guide.md     # 使用说明（装/选模型/玩法/排错）
-└── fy.apk                # 构建产物（同时会拷一份到 Download/fy.apk）
-```
-
-## 构建 / 部署 / 测试
-
-```bash
-cd ~/2/fy
-./build.sh                     # 出 fy.apk（自动做对齐校验，不通过就报错）
-./checkup.sh                   # 不需要 adb：看装没装、看 App 自己写的诊断报告
-./deploy.sh install            # 装到手机（需手机「无线调试」在线）
-./deploy.sh model-small        # 推 0.5B 小模型（快速验证）
-./deploy.sh model              # 推 4B 主模型
-./deploy.sh run                # 启动 App
-./deploy.sh logs               # 跟日志
-cd tests && node ui.test.mjs   # 前端集成测试（需先 npm install jsdom fake-indexeddb）
-cd tests && java DownloadResumeTest  # 实测下载/断点续传
-```
-
-## 实测性能（Redmi Turbo 3 / 骁龙 8s Gen 3 / 8 核 / 12GB）
-
-**同一个引擎，速度由「线程数 / CPU 调度 / 前缀缓存 / 内存换页」四件事决定**，
+**Redmi Turbo 3 / 骁龙 8s Gen 3 / 8 核 / 12GB**，
 下面全部是这台机器上用 `tests/bench-flags.mjs`、`tests/bench-prefix.mjs` 实测出来的：
 
 | 模型 | 线程 | 加载 | 预填充 | 生成 | 常驻内存 |
@@ -233,9 +187,87 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 所以「切到后台继续生成」不仅会被冻结，就算没冻也会被限核。
 `FyService` 前台服务 + 生成期间的唤醒锁就是为了尽量别落到 `/background`。
 
-### 界面与主题
+</details>
 
-- **v1.4.0 界面重做**：整体走「夜色 · 月白」这套语言 —— 角色页有夜幕头图，卡片改成"头像 + 收藏/编辑"
+<details>
+<summary><b>🏗 为什么是这套架构 / 目录结构 / 构建命令</b></summary>
+
+| 需求 | 做法 |
+|---|---|
+| 真·单机 | llama.cpp 官方 **Android arm64 预编译** `llama-server` 内置进 APK，模型放本地 |
+| 不装 NDK / 不交叉编译 | 二进制改名成 `libfy_llama_server.so` 放进 `jniLibs`，装完在 `nativeLibraryDir` 里 exec |
+| APK 不臃肿 | 只留 server 需要的库 + `strip@@：引擎 276MB → **27MB**，APK 13MB |
+| 前端体验好 | WebView + 本地 http 资源服务器（真实 origin），前端用 IndexedDB + `fetch` 直连推理端口 |
+| 全程 Termux 内构建 | `javac` → `d8` → `aapt2` → 自写 `packapk.py`（代替 zipalign）→ `apksigner` |
+
+关键结论都有实证，见 [docs/engine-exec.md](docs/engine-exec.md)（SELinux 策略依据、页对齐、GPU 结论）。
+
+```
+~/2/fy/
+├── build.sh              # 一键出 APK
+├── deploy.sh             # 装到手机 + 推模型 + 启动 + 抓日志（需要 adb）
+├── checkup.sh            # 不需要 adb 的装机/运行体检（读 App 自己写的诊断报告）
+├── bench.sh / bench2.sh  # 引擎速度实测（cpu / gpu、含加载耗时）
+├── tools/
+│   ├── packapk.py        # 打包 + zipalign 对齐（Termux 没有 zipalign）
+│   └── checkapk.py       # APK 硬性要求校验（对齐/清单/引擎文件）
+├── tests/
+│   ├── ui.test.mjs              # 前端 jsdom 集成测试（411 项）
+│   ├── e2e-real.mjs             # 真实前端 + 真实 4B 模型端到端（角色扮演/剧情/记忆）
+│   ├── probe-speed.mjs          # 量化预填充 vs 生成耗时（定位多轮变慢）
+│   ├── probe-plot.mjs           # 剧情选项成功率统计
+│   ├── probe-prompts.mjs        # prompt 合规性对照实验
+│   ├── EngineJvmTest.java       # Engine.java 真跑：自检/状态机/推理/停止（14 项）
+│   ├── AssetServerJvmTest.java  # AssetServer.java 真跑：路由/MIME/404/并发/回环（17 项）
+│   ├── CardIOJvmTest.java       # PNG 角色卡解析真跑：tEXt/zTXt/iTXt（6 项）
+│   ├── DownloadResumeTest.java  # 下载与断点续传实测（逐字节比对）
+│   └── jvmstub/                 # 让上面几个 Java 测试能在 JVM 跑的 Android 最小桩
+├── runtests.sh           # 一条命令跑完上面全部（--quick 跳过要起引擎的）
+├── app/
+│   ├── AndroidManifest.xml
+│   ├── java/com/fy/local/
+│   │   ├── MainActivity.java   # 组装 + 生命周期 + 事件推送到前端
+│   │   ├── AssetServer.java    # 本地静态资源服务器（给 WebView 一个真 origin）
+│   │   ├── Engine.java         # llama-server 子进程管理 + 状态机 + exec 回退 + 启动自检
+│   │   ├── Bridge.java         # window.FY 原生桥
+│   │   ├── ModelStore.java     # 模型 列表/导入/下载(断点续传)/删除
+│   │   ├── Diag.java           # 诊断报告落盘到 Download（无需 adb 的反馈通道）
+│   │   ├── CardIO.java         # 角色卡文件读写（JSON/PNG → 文本；导出到 Download）
+│   │   ├── PngCardText.java    # PNG 里 tEXt/zTXt/iTXt 卡块解析（纯逻辑，可在 JVM 真跑）
+│   │   ├── FyService.java      # 引擎前台服务（防后台冻结）
+│   │   └── Speech.java         # 系统 TTS + 语音识别
+│   ├── assets/ui/              # 前端（index/style/app/store/cards/mock/presets/avatar）
+│   └── res/values/strings.xml
+├── native/               # 要打进 APK 的引擎文件（engine/payload 的副本）
+├── engine/               # llama.cpp 二进制（下载/解包/strip 的中间产物）
+├── models/               # 本地 GGUF
+├── sdk/android-36/       # android.jar（javac / d8 用）
+├── docs/
+│   ├── bridge-api.md     # JS ↔ Java 接口契约
+│   ├── engine-exec.md    # 「为什么能 exec APK 里的二进制」证据链
+│   └── user-guide.md     # 使用说明（装/选模型/玩法/排错）
+└── fy.apk                # 构建产物（同时会拷一份到 Download/fy.apk）
+```
+
+```bash
+cd ~/2/fy
+./build.sh                     # 出 fy.apk（自动做对齐校验，不通过就报错）
+./checkup.sh                   # 不需要 adb：看装没装、看 App 自己写的诊断报告
+./deploy.sh install            # 装到手机（需手机「无线调试」在线）
+./deploy.sh model-small        # 推 0.5B 小模型（快速验证）
+./deploy.sh model              # 推 4B 主模型
+./deploy.sh run                # 启动 App
+./deploy.sh logs               # 跟日志
+cd tests && node ui.test.mjs   # 前端集成测试（需先 npm install jsdom fake-indexeddb）
+cd tests && java DownloadResumeTest  # 实测下载/断点续传
+```
+
+</details>
+
+<details>
+<summary><b>🎨 界面与主题：从 v1.4.0 起是怎么做的</b></summary>
+
+- **整体走「夜色 · 月白」这套语言** —— 角色页有夜幕头图，卡片改成"头像 + 收藏/编辑"
   一行式结构，聊天页换了气泡与消息工具条，设置页按功能分组并给每组配了图标，
   创作者工具则重做成**三步步骤条 + 卡片化模板选择 + 七维评分面板**；
 - **图标全部自绘**：`index.html` 里内联一份 SVG sprite（`#i-moon` / `#i-chat` / `#i-gear` …），
@@ -263,7 +295,7 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 
 ```bash
 pkg install x11-repo && pkg install chromium   # 一次性
-./tools/shots.sh                               # 输出到 docs/shots/（14 张）
+./tools/shots.sh                               # 输出到 docs/shots/
 ```
 
 `tools/preview-seed.js` 会注入一份假数据并把界面摆到指定状态（角色页 / 聊天页 / 卡包 / 推荐 /
@@ -271,7 +303,10 @@ pkg install x11-repo && pkg install chromium   # 一次性
 所以每次改完样式都能重新出一套图，而不是靠肉眼猜。截图等待预算默认 9s（`SHOT_WAIT=<ms>` 可调）——
 太短会截到"界面还没渲染完"的空页，这个坑踩过一次。
 
-### 模型来源：本地引擎 / 局域网自建 / 云端 API
+</details>
+
+<details>
+<summary><b>🔌 模型来源：本地引擎 / 局域网自建 / 云端 API</b></summary>
 
 设置页「**模型来源**」二选一：
 
@@ -297,6 +332,11 @@ pkg install x11-repo && pkg install chromium   # 一次性
 
 自定义下载源：模型管理里粘贴任意 GGUF 直链（魔搭 / HF / 自建对象存储…），文件名自动从链接推导，
 断点续传。想接别的模型，不需要改代码。
+
+</details>
+
+<details>
+<summary><b>🎴 卡库：160 张内置 + 32000 张在线（CC0）</b></summary>
 
 ### 内置卡包：160 张原创卡，16 个分类
 
@@ -324,8 +364,9 @@ python3 tools/dedupe-cards.py                # 跨包重名消歧（会同步改
 python3 tools/build-pack-index.py            # 生成目录 + 同步进 App 资源
 ```
 
-**更大规模的「在线卡库」**：内置那 160 张是随包走的开胃菜；另有
-**16 类 ×（1000 角色卡 + 1000 剧情卡）= 32000 张**（CC0），**不打包进 APK**
+### 在线卡库：16 类 × 2000 张 = 32000 张
+
+内置那 160 张是随包走的开胃菜；另有 **32000 张**（CC0），**不打包进 APK**
 （否则包体会从 13MB 涨到几十 MB）。角色页「⬇ 卡库」打开面板：
 
 - **整组下载**：按「分类 × 类型」列成 32 组（分类名 + 类型 + 总张数 + 状态），
@@ -354,32 +395,25 @@ python3 tools/check-banks.py                                # 16 个素材库的
   `tests/library-pack.test.mjs`（用 App 自己的 `cards.js` 解析器再吃一遍）与
   `tests/library-e2e.test.mjs`（真目录 + 真分片走完下载入库）都是发布前的闸门；
 - **v2 文本翻倍**：实测中位数 人设 **442**（v1 220）、开场白 **259**（v1 119）、
-  示例对话 **380**（v1 171）——对 v1 是 **2.01× / 2.18× / 2.22×**，对内置 160 张（人写）
-  三栏分别高出 220 / 142 / 185 字；QA 自检（双标点/半句黏连/卡内重复句/动作堆叠/来回太少）
-  干净率 **99.99%**，名字唯一 32000/32000，抽样两两相似度均值 0.027、最大 0.29；
+  示例对话 **380**（v1 171）——对 v1 是 **2.01× / 2.18× / 2.22×**；QA 自检干净率 **99.99%**，
+  名字唯一 32000/32000，抽样两两相似度均值 0.027、最大 0.29；
 - 每张卡的系统提示里写死了**创作自由**条款：允许加人物、加事件、改走向，哪怕完全离开人设
   与示例里写到的情节另起一条线也没关系（只要人物底色与题材气质不跑偏）；
 - 下载统一走本机 `AssetServer` 的 `GET /fetch?url=…` 同源 https 代理 —— Gitee 的 raw / 发行版附件
   都不带 CORS 头，WebView 直连必被拦；代理只放行 https，且不转发前端的 Cookie / Authorization；
 - 每个分片下载后校验「目录声明的张数 = 文件里的卡片数」，不符就报错并**一张都不写**；
 - 已导入的分片记在 `settings.libraryImported`，重开面板能看出哪些已导入，重复导入幂等；
-- 配合**窗口化渲染**（角色页一次只建 60 张卡，滚到底再追加，底部显示「已显示 60 / 1234」）
-  与**批量导入**（一次事务写库 + 一次列表刷新，进度写到面板），三万张规模下界面不会被 DOM 拖死。
+- 配合**窗口化渲染**（角色页一次只建 60 张卡，滚到底再追加）与**批量导入**（一次事务写库 +
+  一次列表刷新），三万张规模下界面不会被 DOM 拖死。
 
 卡库的分片作为发行版附件发布（`cards-v2`），目录 `cards/library-index.json`（约 140KB，随仓库走）
 里带着每片的张数、字节数、sha256、**主题与关键词**和下载地址；**只借结构与母题、不抄任何第三方正文**。
-目录格式与搜索语义见 [`docs/library-catalog.md`](docs/library-catalog.md)。
+目录格式与搜索语义见 [docs/library-catalog.md](docs/library-catalog.md)。
 
-### 分类 / 搜索 / 推荐
+</details>
 
-- **分类筛选**：角色页顶部 chips（数量实时统计，无标签的卡归「未分类」）；
-  4 张内置预设（林夏 / 沈砚堂 / 云无咎 / 拾光）从 v1.6.1 起也带分类，
-  老库里那几张没标签的预设会在启动时**自动补上**（只补 tags，文本不动）；
-- **搜索**：名字、一句话简介、人设正文、标签都能搜，结果为空时提示换词；
-- **推荐**：按「**还没聊过 → 最久没聊**」排序后随机给 3 个，并说明推荐理由，可「换一批」；
-- **卡包**：角色页「📦 卡包」看 16 个分类包的张数与标签，单个导入或**全部导入**（重复导入只补缺不重复建卡）。
-
-### 头像：AI 立绘 + 程序化图标（v1.6.2 起）
+<details>
+<summary><b>🖼 头像：AI 立绘 + 程序化图标（v1.6.2 起）</b></summary>
 
 - **AI 立绘**：卡库每个主题可配一张专属立绘（源图 `cards/avatars/` → App 资源 `app/assets/ui/avatars/`，
   索引 `index.json`）。卡片带 `topic` 时精确匹配；**一张立绘只给一张卡用**
@@ -388,10 +422,13 @@ python3 tools/check-banks.py                                # 16 个素材库的
   分类配色 + **逐卡色相偏移**、10 种随机装饰图案（叶子/星芒/圆点/波纹/圆环/十字/五瓣花/气泡/短划/小三角）、
   4 种边框（无/细圈/虚线圈/四角括号）、5×5 镜像图案、名字首字角标（用户自选 emoji 原样保留）。同一张卡永远同一张图；
 - **工具链**：`tools/avatar-prompts.py`（按主题写提示词）→ `tools/translate-prompts.py`（译英文，供 FLUX 类模型）→
-  `tools/gen-avatars.py`（出图，支持智谱 CogView / 硅基流动 Qwen-Image 等，断点续传）→
+  `tools/gen-avatars.py`（出图，支持智谱 CogView / 硅基流动 Qwen-Image / **自建 GPU** 等，断点续传）→
   `tools/build-avatar-index.py`（裁方压 256px WebP + 重建索引）。
 
-### 多存储后端（一个接口，四个后端，可迁移）
+</details>
+
+<details>
+<summary><b>🗄 存储后端与真实规模下的表现</b></summary>
 
 `store.js` 把持久化抽成统一接口（`loadAll` / `apply(ops)` / `search`），四种实现：
 
@@ -406,11 +443,9 @@ python3 tools/check-banks.py                                # 16 个素材库的
 - 指定后端打不开会沿 `sqlite → indexeddb → localstorage → memory` 自动回退，并把失败原因带回界面；
 - 聊天记录搜索走 `searchMessages()`：后端有 `search` 就优先用，否则回落到内存索引。
 
-> 诚实说明：**换 SQLite 不是为了更快**（下面的实测数据说明存储层本来就不是瓶颈），
-> 而是为了事务/耐用性、不受 WebView 配额影响，以及为将来"数据量很大时只加载一屏"留路。
-> SQLite 路径目前只在"假原生桥"上验过协议语义，**真机验证还欠一次**，所以默认不启用。
-
-### 数据库在真实规模下的表现（无需换 SQLite）
+> 诚实说明：**换 SQLite 不是为了更快**，而是为了事务/耐用性、不受 WebView 配额影响，
+> 以及为将来"数据量很大时只加载一屏"留路。SQLite 路径目前只在"假原生桥"上验过协议语义，
+> **真机验证还欠一次**，所以默认不启用。
 
 `tests/bench-db.mjs`（jsdom + fake-indexeddb，不用真机）：
 
@@ -442,11 +477,14 @@ python3 tools/check-banks.py                                # 16 个素材库的
 > 前缀缓存对**完全相同**的前缀能把预填充降到 1 token；
 > 引擎固定开 `--context-shift`（防超长报错）与 `--cache-reuse 256`（前缀不完全相同时也能复用）。
 
-## 踩过的坑（都别再踩）
+</details>
+
+<details>
+<summary><b>🕳 踩过的坑（都别再踩）</b></summary>
 
 1. **`pkill -f llama-server` 会杀掉自己所在的 shell**（命令行里含同样字符串）——脚本里一律用 PID。
 2. **GPU 加速在这台机器上不可用**：Adreno 一开 `-ngl` 就被系统 SIGKILL；Hexagon 缺 QNN 库。别浪费时间。
-3. **引擎必须放 `nativeLibraryDir`** 才能 exec（Android 10+ 禁止执行应用数据目录里的文件）；
+3. **引擎必须放 `nativeLibraryDir` 才能 exec**（Android 10+ 禁止执行应用数据目录里的文件）；
    文件名必须是 `lib*.so` 且 `extractNativeLibs="true"`。
 4. **`aapt2 link` 的资源要作为位置参数传入**，用 `-R` 会被当成 overlay 报
    "does not override an existing resource"。
@@ -506,9 +544,13 @@ python3 tools/check-banks.py                                # 16 个素材库的
 20c. **落盘要增量，别整库重写**：老 `persist()` 每次都 `clear + put 全表`，加一条消息
    要把整张消息表重写一遍。现在按 store + id 记脏，只 put/delete 改动过的行；
    消息查询也从"全表扫描 + 排序"改成按 sessionId 的内存索引（`listMessages` 只碰本会话）。
+21. **JS 线程会被 `Runtime.evaluate` 卡住的假象骗到**：接 WebView DevTools 调 App 时，
+    若 App 在后台被冻结，`evaluate` 会一直不返回（不是超时设置的问题）。
+    调试这类问题要看 `cgroup.freeze`、`/proc/<pid>/stat` 的 CPU 时间增量，
+    以及「引擎在生成时 `/health` 也会排队不应答」（llama-server 单请求串行）。
 21b. **MIUI 上 `adb exec-out screencap` 截 WebView 得到全黑图**：真机上验界面时我一度以为
     应用渲染坏了（只有状态栏），实际是 MIUI 对 WebView 硬件层的截屏限制。
-    改用 CDP 的 `Page.captureScreenshot`（`~/tmpwork/cdpshot.mjs`）拿到的才是真实画面。
+    改用 CDP 的 `Page.captureScreenshot` 拿到的才是真实画面。
     另外截图要等滚动停止，否则会抓到 fling 中间帧（看起来像元素重叠）。
 21c. **"能不能聊天"的守卫要判断当前后端，不是本地引擎**：v1.1.0 里
     `sendUserMessage`/重新生成/压缩记忆等 5 处仍写着 `if (!engineReady())`，
@@ -516,10 +558,8 @@ python3 tools/check-banks.py                                # 16 个素材库的
     这类守卫必须统一走 `providerReady()`（本地引擎或外部服务任一就绪），
     只有引擎状态 UI 和 ping 才该看 `engineReady()`；并且要用"本地引擎故意停着 + 只配好远程"
     的用例把这条钉住。
-21. **JS 线程会被 `Runtime.evaluate` 卡住的假象骗到**：接 WebView DevTools 调 App 时，
-    若 App 在后台被冻结，`evaluate` 会一直不返回（不是超时设置的问题）。
-    调试这类问题要看 `cgroup.freeze`、`/proc/<pid>/stat` 的 CPU 时间增量，
-    以及「引擎在生成时 `/health` 也会排队不应答」（llama-server 单请求串行）。
+
+</details>
 
 ---
 
