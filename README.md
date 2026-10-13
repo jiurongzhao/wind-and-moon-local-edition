@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
-[![tests](https://img.shields.io/badge/tests-421%20passing-success.svg)](runtests.sh)
+[![tests](https://img.shields.io/badge/tests-432%20passing-success.svg)](runtests.sh)
 [![apk](https://img.shields.io/badge/APK-13.8%20MB-blue.svg)](../../releases)
 
 **下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
@@ -20,13 +20,13 @@
 | | |
 |---|---|
 | 🔒 **真 · 离线** | 引擎是 llama.cpp 官方 Android arm64 预编译库，内置进 APK；模型放本地。**飞行模式照样聊**，对话永远不出这台手机 |
-| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文）。v1.7 起默认**进程内引擎**（JNI 直连 libllama）：人设/世界书编译成 KV 里的常驻前缀，第二轮起只 decode 新增的几个 token |
+| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文）。v1.7 起默认**进程内引擎**（JNI 直连 libllama）：人设/世界书编译成 KV 里的常驻前缀，第二轮起只 decode 新增的几个 token；设置里可一键切回子进程 |
 | 🎭 **32000 张原创卡** | 16 类 ×（1000 角色卡 + 1000 剧情卡），全部 **CC0**，**按需下载不进 APK**；还能按关键词只下命中那一片 |
 | ✍️ **创作者工具** | 16 类模板 + 48 个人设骨架 + **七维质量评分** + 用你配好的模型做 AI 辅助扩写 + 联网灵感面板 |
 | 🔁 **模型来源随便换** | 本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
 | 🎨 **界面是自己画的** | 手写 Material 3 风格设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，**零外部素材、零字体文件** |
 | 📦 **只有 13MB** | 引擎从 276MB strip 到 27MB 再压进 APK；32000 张卡库走发行版附件，不撑大安装包 |
-| 🧪 **421 项测试** | 前端 jsdom + JVM 真跑引擎（含进程内 JNI 引擎）/ 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
+| 🧪 **432 项测试** | 前端 jsdom + JVM 真跑引擎（含进程内 JNI 引擎）/ 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
 
 ## 🚀 快速开始
 
@@ -115,7 +115,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.8 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **421 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像/进程内引擎流式） |
+| 前端功能（jsdom 集成测试） | ✅ **432 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像/进程内引擎流式/推理方式开关/Qwen3 关思考） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
 | `NativeEngine.java` 真跑（JVM + 真 libllama） | ✅ **27 项通过**：加载耗时、静态前缀写进 KV、**第二轮复用整段前缀**、换人设旧缓存失效、模型自带对话模板（ChatML）、小 ctx 必然溢出时 context-shift 不崩、**生成中途能真停下** |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
@@ -215,7 +215,7 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 │   ├── packapk.py        # 打包 + zipalign 对齐（Termux 没有 zipalign）
 │   └── checkapk.py       # APK 硬性要求校验（对齐/清单/引擎文件）
 ├── tests/
-│   ├── ui.test.mjs              # 前端 jsdom 集成测试（421 项）
+│   ├── ui.test.mjs              # 前端 jsdom 集成测试（432 项）
 │   ├── e2e-real.mjs             # 真实前端 + 真实 4B 模型端到端（角色扮演/剧情/记忆）
 │   ├── probe-speed.mjs          # 量化预填充 vs 生成耗时（定位多轮变慢）
 │   ├── probe-plot.mjs           # 剧情选项成功率统计

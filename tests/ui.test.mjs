@@ -2275,6 +2275,49 @@ window.FY.chatStop = realChatStop;
 window.FY.log = realFyLog;
 S.engineState = { state: 'ready', port: 5599, model: 'Qwen3-4B-Q4_K_M.gguf', message: 'ok', lastError: '' };
 
+console.log('\n【40】设置页：推理方式（进程内 / 子进程）');
+window.FYApp.switchView('settings');
+await sleep(300);
+check('设置页有「推理方式」下拉框', !!$('setEngineMode'));
+check('默认选中进程内（jni）', $('setEngineMode').value === 'jni', 'value=' + $('setEngineMode').value);
+$('setEngineMode').value = 'server';
+$('setEngineMode').dispatchEvent(new window.Event('change'));
+await sleep(150);
+check('改成子进程会立刻落盘', S.store.getSettings().engineMode === 'server',
+  'setting=' + S.store.getSettings().engineMode);
+$('setEngineMode').value = 'jni';
+$('setEngineMode').dispatchEvent(new window.Event('change'));
+await sleep(150);
+check('切回进程内也落盘', S.store.getSettings().engineMode === 'jni',
+  'setting=' + S.store.getSettings().engineMode);
+check('提示文案说清了会自动回退', /回退/.test($('engineModeHint').textContent || ''),
+  $('engineModeHint').textContent);
+
+console.log('\n【41】进程内引擎：Qwen3 的「关掉思考」怎么落地');
+/* llama-server 那条路能发 chat_template_kwargs，进程内那条 C API 不吃 ——
+   所以要用 Qwen3 自己认的 /no_think 顶上。这里盯住三件事：
+   该加的时候加、不该加的时候别乱加、加的时候不许改到原数组（前缀复用靠它）。 */
+const noThinkFix = window.FYApp.applyNoThink;
+const sysMsgs = [{ role: 'system', content: '你是助手' }, { role: 'user', content: '在吗' }];
+const modelBefore = S.engineState.model;
+S.engineState = Object.assign({}, S.engineState, { model: 'Qwen3-4B-Q4_K_M.gguf' });
+const n1 = noThinkFix(sysMsgs, { chat_template_kwargs: { enable_thinking: false } });
+check('Qwen3 + 关思考 → system 末尾补上 /no_think',
+  n1[0].content.indexOf('/no_think') > 0, JSON.stringify(n1[0].content));
+check('补的只是 system，消息条数不变', n1.length === 2 && n1[1] === sysMsgs[1]);
+check('不动传入的原数组（前缀 KV 复用靠消息一字不差）',
+  sysMsgs[0].content === '你是助手', sysMsgs[0].content);
+check('已经有 /no_think 就不重复加',
+  noThinkFix([{ role: 'system', content: '你是助手\n/no_think' }],
+    { chat_template_kwargs: { enable_thinking: false } })[0].content.split('/no_think').length === 2);
+check('没要求关思考 → 原样返回（连引用都不换）',
+  noThinkFix(sysMsgs, {}) === sysMsgs);
+S.engineState = Object.assign({}, S.engineState, { model: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' });
+check('非 Qwen3 模型不乱加 /no_think',
+  noThinkFix(sysMsgs, { chat_template_kwargs: { enable_thinking: false } }) === sysMsgs);
+S.engineState = Object.assign({}, S.engineState, { model: modelBefore });
+window.FYApp.switchView('characters');
+
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);
 if (failures.length) { console.log('失败项：'); failures.forEach(f => console.log('  · ' + f)); }

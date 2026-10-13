@@ -243,6 +243,14 @@
             <button class="btn grow" id="btnEngineStop">停止</button>
           </div>
           <div class="field">
+            <label class="label">推理方式</label>
+            <select class="input" id="setEngineMode">
+              <option value="jni">进程内（推荐）</option>
+              <option value="server">子进程 llama-server</option>
+            </select>
+          </div>
+          <div class="muted xs" id="engineModeHint">进程内：libllama 直接链进 App，没有端口和子进程，人设常驻 KV；起不来会自动回退到子进程</div>
+          <div class="field">
             <label class="label">当前模型</label>
             <select class="input" id="selModel"></select>
           </div>

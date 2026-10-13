@@ -3698,6 +3698,36 @@
   }
 
   /**
+   * 「关掉思考」在进程内这条路上的落地方式。
+   *
+   * llama-server 那条路可以发 `chat_template_kwargs:{enable_thinking:false}`，
+   * 但进程内用的 `llama_chat_apply_template` **不吃 jinja 额外变量**。
+   * 好在 Qwen3 的模板自己认 `/no_think` 这个软开关，所以这里给它补上。
+   *
+   * 三个约束：
+   *   - 只在模型确实是 Qwen3 时补（别的模型认不认这个词没保证）；
+   *   - system 里已经有 /no_think 就不重复加（聊天那条路的人设本来就带）；
+   *   - 返回**新**数组、不动传入的消息 —— 历史消息必须保持一模一样的字符串，
+   *     前缀 KV 复用全靠这个（见 docs/native-engine.md）。
+   */
+  function applyNoThink(messages, body) {
+    var kw = body && body.chat_template_kwargs;
+    if (!messages || !kw || kw.enable_thinking !== false) return messages;
+    var model = (S.engineState && S.engineState.model) || (S.settings && S.settings.model) || '';
+    if (!/qwen3/i.test(model)) return messages;
+    var idx = -1;
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i] && messages[i].role === 'system') { idx = i; break; }
+    }
+    if (idx < 0 || /\/no_think/.test(String(messages[idx].content || ''))) return messages;
+    var out = messages.slice();
+    out[idx] = Object.assign({}, messages[idx], {
+      content: String(messages[idx].content || '') + '\n/no_think'
+    });
+    return out;
+  }
+
+  /**
    * 走进程内引擎跑一轮，返回 {text, stats}。
    *
    * 原生侧同一时刻只接一轮（llama_context 不可重入），所以这里排成一条链：
@@ -3734,7 +3764,7 @@
         };
         nativeGen = g;
 
-        var ack = asObj(fyCall('chat', [JSON.stringify(messages), JSON.stringify(req)]));
+        var ack = asObj(fyCall('chat', [JSON.stringify(applyNoThink(messages, body)), JSON.stringify(req)]));
         if (!ack || ack.ok !== true) {
           g.settle(new Error((ack && ack.message) || '进程内引擎拒绝了这次生成'));
           return;
@@ -4541,7 +4571,8 @@
     var sm = stateMap[S.engineState.state] || ['未知', ''];
     $('setEngineState').textContent = sm[0];
     $('setEngineDot').className = 'dot ' + (sm[1] || '');
-    $('setEnginePort').textContent = S.engineState.port ? ('端口 ' + S.engineState.port) : '';
+    $('setEnginePort').textContent = S.engineState.native ? '进程内（JNI）'
+      : (S.engineState.port ? ('端口 ' + S.engineState.port) : '');
     $('setEngineMsg').textContent = S.engineState.lastError || S.engineState.message || '—';
 
     /* 数值输入 */
@@ -4566,6 +4597,7 @@
     $('setRandomSpeaker').checked = st.speakerMode === 'random';
     $('setMlock').checked = st.mlock !== false;
     $('setKeepScreen').value = st.keepScreen || 'auto';
+    $('setEngineMode').value = st.engineMode === 'server' ? 'server' : 'jni';
     renderKeepScreenHint();
     renderProviderUI();
     renderStorageInfo();
@@ -5539,6 +5571,9 @@
     bindSwitch('setRandomSpeaker', 'speakerMode');
     bindSwitch('setMlock', 'mlock');
 
+    /* 设置页：推理方式（进程内 / 子进程）。下次「启动引擎」生效，不会中途换引擎。 */
+    bindSelect('setEngineMode', 'engineMode');
+
     /* 设置页：屏幕常亮（生成时 / 一直 / 不保持） */
     $('setKeepScreen').onchange = function () {
       var v = this.value;
@@ -5676,6 +5711,18 @@
     };
   }
 
+  /** 下拉框 → 设置项。和 bindSwitch 同款：改完立刻落盘并刷新 S.settings。 */
+  function bindSelect(id, key) {
+    var input = $(id);
+    if (!input) return;
+    input.onchange = function () {
+      var patch = {};
+      patch[key] = input.value;
+      S.store.saveSettings(patch);
+      S.settings = S.store.getSettings();
+    };
+  }
+
   /** 让「关闭 Qwen3 思考模式」和「显示思考过程」两个开关保持一致。 */
   function syncThinkingSwitches() {
     var noThink = $('setNoThink');
@@ -5788,6 +5835,7 @@
     compressMemory: compressMemory,
     splitThinking: splitThinking,
     extractOptions: extractOptions,
+    applyNoThink: applyNoThink,
     stripPromptLeak: stripPromptLeak,
     optionsUsable: optionsUsable,
     importCardsFromText: importCardsFromText,

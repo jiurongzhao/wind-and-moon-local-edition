@@ -56,8 +56,7 @@
 好处是自动跟随模型：Qwen 是 ChatML，别的模型是别的格式，Java 与前端都不用知道。
 
 已知取舍：这条 C API **不支持 jinja 的额外 kwargs**，所以 `chat_template_kwargs:{enable_thinking:false}`
-在进程内这条路上不生效（llama-server 那条路生效）。Qwen3 的思考抑制靠人设里那句 `/no_think`
-兜着 —— 内置人设本来就都带。
+在进程内这条路上发不过去（llama-server 那条路可以）。替代方案见下面的「开关与取舍」。
 
 ## 流式：为什么要在 Java 侧再合批一次
 
@@ -81,6 +80,27 @@ C 侧每出一个 token 就 JNI 回调一次。如果每次回调都 `evaluateJa
 `engineStatus().native` 是 `true` 就走 `FY.chat()`，否则走 HTTP，两条路都收口在
 `streamChat()` / `postJson()` 里。
 
+## 开关与取舍
+
+设置页 →「推理方式」：
+
+| 选项 | 什么时候用 |
+|---|---|
+| 进程内（默认） | 平时都用这个：没有端口、没有子进程，人设常驻 KV |
+| 子进程 llama-server | 排查问题、或某些机型上进程内跑不动时的退路（界面不变，只是换了推理通道） |
+
+> 这个开关**下次启动引擎时生效**，不会中途换引擎。
+
+已知取舍：
+
+- `llama_chat_apply_template` **不支持 jinja 的额外 kwargs**，所以
+  `chat_template_kwargs:{enable_thinking:false}` 在进程内这条路上发不过去。
+  替代方案是 Qwen3 自己认的软开关：前端在 `applyNoThink()` 里给 system 补一句 `/no_think`
+  （只在模型是 Qwen3、且 system 里还没有时才补；不改原消息数组，前缀复用不受影响）。
+  效果比硬开关弱一点，但比"什么都不做"好得多 —— 创作者工具和记忆压缩在 Qwen3 上不会再白吐一大段思考。
+- 同一时刻只允许一轮生成（`llama_context` 不可重入）：前端把原生请求排成一条队列，
+  原生侧还有一把 `nativeBusy` 锁兜底。
+
 ## 怎么验证
 
 ```bash
@@ -91,7 +111,8 @@ LD_LIBRARY_PATH=native GGML_BACKEND_PATH=native \
 ```
 
 `./runtests.sh` 的 3.7 步就是它（缺模型或缺 `.so` 时跳过）。
-前端那条链路由 jsdom 用例【39】盯着（假装"进程内引擎就绪"，验证走的是 `FY.chat` 而不是 `fetch`）。
+前端那条链路由 jsdom 用例【39】／【40】／【41】盯着：假装"进程内引擎就绪"，
+验证走的是 `FY.chat` 而不是 `fetch`、推理方式开关能落盘、Qwen3 关思考会补 `/no_think`。
 
 ## 实测数据
 
