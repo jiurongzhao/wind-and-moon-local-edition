@@ -49,11 +49,26 @@ public class Bridge {
 
     // ---------- 基础信息 ----------
 
+    /**
+     * 从清单读真实版本号。
+     *
+     * 以前这里写死 "0.2"，于是设置页底部的版本号永远显示 0.2 —— 装的是 1.6.2 也一样，
+     * 而且测试里没有任何断言盯着它，所以这个 bug 活了很久。改完顺带补了一条前端回归测试。
+     */
+    private String appVersion() {
+        try {
+            return host.getPackageManager()
+                    .getPackageInfo(host.getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "本地版";
+        }
+    }
+
     @JavascriptInterface
     public String appInfo() {
         try {
             JSONObject o = new JSONObject();
-            o.put("version", "0.2");
+            o.put("version", appVersion());
             o.put("abi", android.os.Build.SUPPORTED_ABIS[0]);
             o.put("sdk", android.os.Build.VERSION.SDK_INT);
             o.put("model", android.os.Build.MODEL);

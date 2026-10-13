@@ -2184,6 +2184,22 @@ check('老的单行 line 仍然兼容',
 check('调试页把合批的日志渲染出来了',
   $('dbgLog').textContent.indexOf('合批-丙') >= 0);
 
+console.log('\n【38】设置页版本号取自原生 appInfo（防"写死版本号"回归）');
+/* 背景：Bridge.java 里曾经写死 o.put("version","0.2")，于是装 1.6.2 也显示 0.2。
+   这里把原生返回的版本号换成不可能出现在代码里的字符串，再看界面跟不跟着变。 */
+const realAppInfo = window.FY.appInfo;
+window.FY.appInfo = function () {
+  return realAppInfo.apply(window.FY, arguments)
+    .replace(/"version":"[^"]*"/, '"version":"9.9.9-test"');
+};
+S.appInfo = JSON.parse(window.FY.appInfo());
+window.FYApp.switchView('settings');
+await sleep(300);
+check('改了原生版本号，设置页跟着变（版本号不是前端写死的）',
+  $('setVersion').textContent === '9.9.9-test', $('setVersion').textContent);
+window.FY.appInfo = realAppInfo;
+S.appInfo = JSON.parse(realAppInfo.call(window.FY));
+
 S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;
 $('libMask').hidden = true;
