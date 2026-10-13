@@ -113,7 +113,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 项目 | 状态 |
 |---|---|
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
-| APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.4 MB**，含引擎，签名校验通过 |
+| APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.8 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
 | 前端功能（jsdom 集成测试） | ✅ **414 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
