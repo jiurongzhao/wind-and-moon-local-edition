@@ -4904,9 +4904,14 @@
       case 'log': {
         // 真机实测：Java 侧推日志可能早于前端初始化完（S.store 还是 null），
         // 之前这里直接抛 TypeError，那条日志就丢了还弹一次"事件处理异常"。
-        if (p.line && S.store) {
-          S.store.addLog(p.line);
-          if (S.view === 'debug') renderLogs();
+        // v1.6.3：原生侧把日志合批（150ms 或 64 行一次）再推，lines 是数组；
+        // 老的单行 line 继续兼容。
+        if (S.store) {
+          var lines = p.lines || (p.line ? [p.line] : null);
+          if (lines && lines.length) {
+            for (var li = 0; li < lines.length; li++) S.store.addLog(lines[li]);
+            if (S.view === 'debug') renderLogs();
+          }
         }
         break;
       }

@@ -69,23 +69,17 @@ step "1.8/5 在线卡库端到端（真目录 + 真分片；没起本地镜像�
 # ---------------------------------------------------------------- 2 & 3. Java
 step "2/5 编译 JVM 测试桩"
 rm -rf build/jvmtest && mkdir -p build/jvmtest
-javac -nowarn -encoding UTF-8 -d build/jvmtest \
-  tests/jvmstub/android/util/Log.java \
-  tests/jvmstub/android/util/Base64.java \
-  tests/jvmstub/android/content/pm/ApplicationInfo.java \
-  tests/jvmstub/android/os/PowerManager.java \
-  tests/jvmstub/android/content/Context.java \
-  tests/jvmstub/android/content/SharedPreferences.java \
-  tests/jvmstub/android/content/res/AssetManager.java \
-  app/java/com/fy/local/Engine.java \
-  app/java/com/fy/local/AssetServer.java \
-  app/java/com/fy/local/PngCardText.java \
-  app/java/com/fy/local/Providers.java \
-  tests/EngineJvmTest.java \
-  tests/CardIOJvmTest.java \
-  tests/AssetServerJvmTest.java \
-  tests/ProxyJvmTest.java 2>&1 | grep -v deprecat | head -10
-if [ -f build/jvmtest/EngineJvmTest.class ]; then ok; else bad 1; fi
+# 源文件自动发现：以前这里是 14 行手写清单，加一个测试桩就得回来改脚本（漏改就是"莫名编译失败"）。
+# 路径里没有空格，所以靠 shell 分词展开是有意的。
+STUB_SRC=$(find tests/jvmstub -name '*.java' | sort | tr '\n' ' ')
+APP_SRC="app/java/com/fy/local/Engine.java app/java/com/fy/local/AssetServer.java app/java/com/fy/local/PngCardText.java app/java/com/fy/local/Providers.java"
+TEST_SRC=$(find tests -maxdepth 1 -name '*JvmTest.java' | sort | tr '\n' ' ')
+# shellcheck disable=SC2086
+javac -nowarn -encoding UTF-8 -d build/jvmtest $STUB_SRC $APP_SRC $TEST_SRC > build/javac.log 2>&1
+javac_rc=$?
+grep -v deprecat build/javac.log | head -12
+# 以前用 "| head -10" 直接把 javac 的退出码冲掉了，只能靠"类文件在不在"猜
+if [ "$javac_rc" = "0" ] && [ -f build/jvmtest/EngineJvmTest.class ]; then ok; else bad $javac_rc; fi
 
 step "3/5 AssetServer JVM 实跑（资源服务器）"
 timeout 180 java -cp build/jvmtest AssetServerJvmTest 2>&1 | tail -5
@@ -93,14 +87,23 @@ timeout 180 java -cp build/jvmtest AssetServerJvmTest 2>&1 | tail -5
 
 step "3.5/5 CardIO JVM 实跑（PNG 角色卡解析）"
 timeout 120 java -cp build/jvmtest CardIOJvmTest 2>&1 | tail -10
-if [ "${PIPESTATUS[0]}" = "0" ]; then ok; else bad ${PIPESTATUS[0]}; fi
+# 先把退出码存下来：原来直接在 bad 的参数里用 PIPESTATUS[0]，
+# 但那时的 PIPESTATUS 已经被 if 里的 [ 命令覆盖，报出来的码是错的。
+cardio_rc=${PIPESTATUS[0]}
+if [ "$cardio_rc" = "0" ]; then ok; else bad "$cardio_rc"; fi
+
+step "3.6/5 Engine 孤儿进程清理 JVM 实跑（真起进程、真杀进程）"
+timeout 120 java -cp build/jvmtest EngineReapJvmTest 2>&1 | tail -14
+reap_rc=${PIPESTATUS[0]}
+if [ "$reap_rc" = "0" ]; then ok; else bad "$reap_rc"; fi
 
 step "4/5 外部模型代理 JVM 实跑（假上游 + SSE 透传）"
 timeout 180 java -cp build/jvmtest ProxyJvmTest > build/proxy-test.log 2>&1
 rc=$?
 tail -16 build/proxy-test.log
-if [ "$rc" = "0" ]; then ok; else bad $rc; fi
-[ "${PIPESTATUS[0]:-0}" = "0" ] && ok || bad 0
+# 这里以前还多一行 [ "PIPESTATUS[0]" = "0" ] && ok || bad 0，导致代理测试被计两次；
+# 而且失败时那行的 PIPESTATUS 已变成上面 if 的退出码，会出现"失败 +1、通过 +1"。
+if [ "$rc" = "0" ]; then ok; else bad "$rc"; fi
 
 if [ "$QUICK" = "0" ]; then
   step "5/5 Engine JVM 实跑（会真起 llama-server 加载小模型）"

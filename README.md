@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
-[![tests](https://img.shields.io/badge/tests-411%20passing-success.svg)](runtests.sh)
+[![tests](https://img.shields.io/badge/tests-414%20passing-success.svg)](runtests.sh)
 [![apk](https://img.shields.io/badge/APK-13.4%20MB-blue.svg)](../../releases)
 
 **下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
@@ -26,7 +26,7 @@
 | 🔁 **模型来源随便换** | 本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
 | 🎨 **界面是自己画的** | 手写 Material 3 风格设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，**零外部素材、零字体文件** |
 | 📦 **只有 13MB** | 引擎从 276MB strip 到 27MB 再压进 APK；32000 张卡库走发行版附件，不撑大安装包 |
-| 🧪 **411 项测试** | 前端 jsdom + JVM 真跑引擎 / 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
+| 🧪 **414 项测试** | 前端 jsdom + JVM 真跑引擎 / 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
 
 ## 🚀 快速开始
 
@@ -115,7 +115,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.4 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **411 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像） |
+| 前端功能（jsdom 集成测试） | ✅ **414 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
@@ -502,6 +502,11 @@ python3 tools/check-banks.py                                # 16 个素材库的
     纯静态检查和 jsdom 测试都发现不了。
 11. **孤儿引擎进程会拖垮下一次启动**：测试异常退出留下一个占 3.5GB RSS 的 llama-server 后，
     4B 加载从 19 秒变成 140 秒。排查内存问题时先 `ps -A | grep llama`。
+    **v1.6.3 起已经自动处理**：`Engine.reapStrayEngines()` 会在启动和停止时扫 `/proc`，
+    把"命令行里带本引擎文件名、且读得到 cmdline（= 同一个 App）"的残留进程收掉；
+    另有一条回归测试 `tests/EngineReapJvmTest.java` 专门盯"该杀的杀掉、**不该杀的不许动**"。
+    同一个修复还堵住了另一条漏进程的路：以前在**启动过程中**点停止，`stop()` 那一刻 `proc` 还是 null，
+    等 `doStart()` 把进程赋上去之后就没人管它了（现在用 `wantRun` 标志复查两次）。
 12. `Runtime.exec` 里 `-t 0` 不是"自动"，是未定义行为 —— 前端的"自动"要**在后端换算成具体线程数**。
 12b. **"每轮变化的内容"必须随消息一起定型，不能只在发送时追加**：以前把「（当前时间：…）」
    在发送时追加到最后一条消息，历史里的同一条却没有 —— 下一轮请求与上一轮的 KV 前缀在那一处断掉，

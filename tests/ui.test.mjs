@@ -2164,6 +2164,26 @@ check('没有立绘包时退回程序化 SVG（离线不花屏）',
   !!procNode.querySelector('svg') && !procNode.classList.contains('has-img'));
 window.FYApp.setAvatarIndex(avIndex);
 
+console.log('\n【37】引擎日志合批（原生侧一次推多行）');
+window.FYApp.switchView('debug');
+await sleep(300);
+const logBefore = S.store.listLogs().length;
+window.fyEvent('log', JSON.stringify({ lines: ['合批-甲', '合批-乙', '合批-丙'] }));
+await sleep(200);
+const logAfter = S.store.listLogs();
+check('lines 数组一次写入 3 行',
+  logAfter.length === logBefore + 3
+  && logAfter.slice(-3).map(x => x.line).join(',') === '合批-甲,合批-乙,合批-丙',
+  'before=' + logBefore + ' after=' + logAfter.length);
+/* 老格式（单行 line）必须继续认：原生侧可能还装着旧版本，前端不能崩 */
+window.fyEvent('log', JSON.stringify({ line: '旧的单行格式' }));
+await sleep(200);
+check('老的单行 line 仍然兼容',
+  S.store.listLogs().slice(-1)[0].line === '旧的单行格式',
+  S.store.listLogs().slice(-1)[0].line);
+check('调试页把合批的日志渲染出来了',
+  $('dbgLog').textContent.indexOf('合批-丙') >= 0);
+
 S.store.saveCharacters = realSaveMany;
 window.fetch = realFetchLib;
 $('libMask').hidden = true;

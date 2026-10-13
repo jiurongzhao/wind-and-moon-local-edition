@@ -48,6 +48,14 @@ public class Engine {
     private volatile String lastError = "";
     private volatile int port = 0;
     private volatile String currentModel = "";
+    /**
+     * true = 用户希望引擎跑着。
+     *
+     * stop() 会把它清掉，doStart() 在"排队等着"和"刚拉起进程"两个节点都会复查 ——
+     * 以前没有这个标志：启动过程中点停止，proc 字段那时还是 null，stop() 什么也收不到，
+     * 然后 doStart 才把进程赋上去，于是它就永远留着了（下次启动被它拖着，见 reapStrayEngines）。
+     */
+    private volatile boolean wantRun = false;
     private PowerManager.WakeLock wakeLock;
 
     public Engine(Context ctx, Listener listener) {
@@ -127,6 +135,7 @@ public class Engine {
             setState("starting", "正在准备引擎…");
             lastError = "";
             mlockRetried = false;
+            wantRun = true;
             lastStart = new String[]{modelFile, String.valueOf(ctxSize), String.valueOf(threads),
                     String.valueOf(gpuLayers), modelDir};
             new Thread(() -> doStart(modelFile, ctxSize, threads, gpuLayers, modelDir),
@@ -228,10 +237,88 @@ public class Engine {
         }
     }
 
+    // ================= 孤儿引擎进程清理 =================
+    //
+    // App 被系统杀掉或崩了的时候，llama-server 子进程不会跟着死，它会继续占着几个 GB。
+    // 不清理的话下一次启动就是"跟一个僵尸抢内存"。
+
+    /**
+     * 收掉残留的引擎进程，返回收掉的个数（公开是给 JVM 测试直接调，见 tests/EngineReapJvmTest.java）。
+     *
+     * 安全性：只认「能读到 /proc/&lt;pid&gt;/cmdline、且里面带本引擎文件名」的进程。
+     * Android 上别的 uid 的 cmdline 是读不到的（hidepid），所以这等价于
+     * "本 App 自己的引擎进程"，不会误杀无关进程。
+     */
+    public int reapStrayEngines() {
+        List<Integer> stray = findStrayEnginePids();
+        if (stray.isEmpty()) return 0;
+        int n = 0;
+        for (int pid : stray) {
+            try {
+                android.os.Process.killProcess(pid);
+                n++;
+            } catch (Throwable ignored) {
+            }
+        }
+        addLog("[清理] 收掉 " + n + " 个残留引擎进程（PID " + stray + "）");
+        // 给内核一点时间回收那几 GB，否则新进程起来还是会被挤
+        try {
+            Thread.sleep(300);
+        } catch (InterruptedException ignored) {
+        }
+        return n;
+    }
+
+    private List<Integer> findStrayEnginePids() {
+        List<Integer> out = new ArrayList<>();
+        File[] dirs = new File("/proc").listFiles();
+        if (dirs == null) return out;
+        int self = android.os.Process.myPid();
+        for (File d : dirs) {
+            String name = d.getName();
+            if (name.isEmpty() || !Character.isDigit(name.charAt(0))) continue;
+            int pid;
+            try {
+                pid = Integer.parseInt(name);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (pid == self) continue;
+            String cmd = readCmdline(pid);
+            if (cmd != null && cmd.contains(EXEC_NAME)) out.add(pid);
+        }
+        return out;
+    }
+
+    /** 读 /proc/&lt;pid&gt;/cmdline（NUL 分隔）。读不到返回 null —— 那多半不是本 App 的进程。 */
+    private static String readCmdline(int pid) {
+        java.io.FileInputStream in = null;
+        try {
+            in = new java.io.FileInputStream("/proc/" + pid + "/cmdline");
+            byte[] buf = new byte[512];
+            int n = in.read(buf);
+            if (n <= 0) return null;
+            return new String(buf, 0, n).replace('\0', ' ').trim();
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (in != null) {
+                try {
+                    in.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
     private void doStart(String modelFile, int ctxSize, int threads, int gpuLayers, String modelDir) {
         // threads <= 0 视为"自动"。不要用"核数×系数"：实测 8 核(2小+5中+1大)上
         // 4 线程稳定 42~52 tok/s，6 线程在 24~57 之间抖动，8 线程更差（慢核拖同步点）。
         // 与 Bridge.engineStart 里的默认值保持一致。
+        if (!wantRun) {          // 还没开始就被点了停止
+            setState("stopped", "已取消启动");
+            return;
+        }
         if (threads <= 0) {
             threads = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
         }
@@ -256,6 +343,11 @@ public class Engine {
             //noinspection ResultOfMethodCallIgnored
             exec.setExecutable(true, false);
         }
+
+        // 上一次运行留下的孤儿引擎会跟新进程抢内存：README「踩过的坑」#11 记过实测，
+        // 留着一个占 3.5GB 的残留进程，4B 的加载时间会从 19 秒变成 140 秒。
+        // 占端口之前先把它收掉。
+        reapStrayEngines();
 
         try {
             port = findFreePort();
@@ -328,6 +420,19 @@ public class Engine {
                 }
             }
         } catch (InterruptedException ignored) {
+        }
+
+        // 启动是个几百毫秒的动作，这期间用户可能已经点了停止。
+        // 不复查的话，刚拉起来的进程会被晾在这儿变成孤儿。
+        if (!wantRun) {
+            addLog("启动过程中收到停止请求，立刻收掉刚拉起的进程");
+            try {
+                proc.destroy();
+            } catch (Throwable ignored) {
+            }
+            proc = null;
+            setState("stopped", "引擎已停止");
+            return;
         }
 
         setState("loading", "正在加载模型 " + modelFile + " …");
@@ -465,9 +570,15 @@ public class Engine {
     }
 
     public void stop() {
+        Thread tOut, tWatch;
         synchronized (lock) {
+            wantRun = false;            // 先清标志：doStart 的每个复查点都会看到
             Process p = proc;
             proc = null;
+            tOut = pumpOut;
+            tWatch = watchdog;
+            pumpOut = null;
+            watchdog = null;
             if (p != null) {
                 p.destroy();
                 try {
@@ -478,6 +589,16 @@ public class Engine {
             releaseWakeLock();
             setState("stopped", "引擎已停止");
         }
+        // 收尾：pump / 看门狗线程 join 一下再复查残留 —— destroy() 有时只干掉进程组的一部分
+        for (Thread t : new Thread[]{tOut, tWatch}) {
+            if (t != null && t != Thread.currentThread()) {
+                try {
+                    t.join(800);
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }
+        reapStrayEngines();
     }
 
     private String lastLines(int n) {

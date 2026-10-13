@@ -45,6 +45,15 @@ public class MainActivity extends Activity {
     private Speech speech;
     private volatile boolean uiReady = false;
     private boolean notifAsked = false;
+    /**
+     * 引擎日志合批：加载模型时 llama.cpp 会连打几十上百行，逐行走一次 evaluateJavascript
+     * 会把 WebView 拖卡（而且日志窗口那边也只是往数组里 push）。
+     * 现在按「150ms 或 64 行」合批，一次推一个 lines 数组；前端两种格式都认。
+     */
+    private final java.util.ArrayList<String> logQueue = new java.util.ArrayList<>();
+    private boolean logFlushScheduled = false;
+    private final android.os.Handler logHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
     /** 推理期间的 CPU 唤醒锁（见 keepScreenOn） */
     private android.os.PowerManager.WakeLock inferWake;
 
@@ -55,6 +64,7 @@ public class MainActivity extends Activity {
         engine = new Engine(this, new Engine.Listener() {
             @Override
             public void onState(String state, String message) {
+                flushEngineLogs();   // 先推日志再推状态，否则日志窗口里顺序会乱
                 JSONObject o = new JSONObject();
                 try {
                     o.put("state", state);
@@ -74,12 +84,16 @@ public class MainActivity extends Activity {
 
             @Override
             public void onLog(String line) {
-                JSONObject o = new JSONObject();
-                try {
-                    o.put("line", line);
-                } catch (Exception ignored) {
+                boolean flushNow;
+                synchronized (logQueue) {
+                    logQueue.add(line);
+                    flushNow = logQueue.size() >= 64;
+                    if (!flushNow && !logFlushScheduled) {
+                        logFlushScheduled = true;
+                        logHandler.postDelayed(MainActivity.this::flushEngineLogs, 150);
+                    }
                 }
-                pushEvent("log", o);
+                if (flushNow) flushEngineLogs();
             }
         });
 
@@ -178,6 +192,26 @@ public class MainActivity extends Activity {
     // ---------- 前端事件推送 ----------
 
     /** 从任意线程把事件推给前端。 */
+    /** 把攒着的引擎日志一次性推给前端。线程安全（pushEvent 内部自己 runOnUiThread）。 */
+    private void flushEngineLogs() {
+        java.util.ArrayList<String> batch;
+        synchronized (logQueue) {
+            if (logQueue.isEmpty()) {
+                logFlushScheduled = false;
+                return;
+            }
+            batch = new java.util.ArrayList<>(logQueue);
+            logQueue.clear();
+            logFlushScheduled = false;
+        }
+        JSONObject o = new JSONObject();
+        try {
+            o.put("lines", new org.json.JSONArray(batch));
+        } catch (Exception ignored) {
+        }
+        pushEvent("log", o);
+    }
+
     public void pushEvent(final String name, final JSONObject payload) {
         final String js = "window.fyEvent && window.fyEvent(" + JSONObject.quote(name) + ","
                 + (payload == null ? "{}" : payload.toString()) + ");";
