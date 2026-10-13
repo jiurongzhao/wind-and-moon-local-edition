@@ -7,11 +7,13 @@
   python3 tools/gen-avatars.py --provider siliconflow    # 需要 SILICONFLOW_API_KEY（FLUX.1-schnell 免费）
   python3 tools/gen-avatars.py --provider pollinations   # 免费但限流
   python3 tools/gen-avatars.py --provider hfspace        # HuggingFace FLUX 空间，匿名额度有限
+  python3 tools/gen-avatars.py --provider selfhost --endpoint http://IP:8080 --token xxx
+                                                        # 自建 GPU（先跑 tools/gpu-setup.sh）
 
 令牌读取顺序：环境变量 → ~/.image_token（一行）；不会打印。
 特性：断点续传（已有 webp 就跳过）、并发、退避重试、生成清单 manifest.json。
 """
-import argparse, concurrent.futures, hashlib, json, os, subprocess, sys, time, urllib.parse, urllib.request
+import argparse, concurrent.futures, hashlib, json, os, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROMPTS = os.path.join(ROOT, 'cards', 'avatars', 'prompts.json')
@@ -111,8 +113,38 @@ def gen_hfspace(prompt, seed, size, model='', steps=4):
         raise RuntimeError('空间没有返回图片地址')
     return http_get(url)
 
+# 自建 GPU 出图服务（tools/gpu-sdserver.py；同时兼容 A1111 的 /sdapi/v1/txt2img）
+
+SELFHOST = {'endpoint': 'http://127.0.0.1:8080', 'token': '', 'steps': 8,
+            'cfg': 1.0, 'negative': '文字, 水印, 签名, 低质量, 模糊, 多余人像'}
+
+def gen_selfhost(prompt, seed, size, model=''):
+    """请求自建的出图服务：先按 A1111 的 base64 解析，接口不存在就退回 /generate 收原始字节。"""
+    import base64
+    base = SELFHOST['endpoint'].rstrip('/')
+    px = int(size.split('x')[0])
+    payload = {'prompt': prompt, 'negative_prompt': SELFHOST['negative'],
+               'width': px, 'height': px, 'steps': SELFHOST['steps'],
+               'cfg_scale': SELFHOST['cfg'], 'seed': seed % 2147483647, 'batch_size': 1}
+    hdrs = {}
+    if SELFHOST['token']:
+        hdrs['Authorization'] = 'Bearer ' + SELFHOST['token']
+    try:
+        d = http_json(base + '/sdapi/v1/txt2img', payload, hdrs, timeout=600)
+    except urllib.error.HTTPError as e:
+        if e.code not in (404, 405):
+            raise
+        req = urllib.request.Request(base + '/generate', data=json.dumps(payload).encode(),
+                                     headers=dict({'Content-Type': 'application/json'}, **hdrs))
+        return urllib.request.urlopen(req, timeout=600).read()
+    imgs = d.get('images') or []
+    if not imgs:
+        raise RuntimeError('服务没有返回图片：' + str(d)[:120])
+    return base64.b64decode(imgs[0].split(',')[-1])
+
 PROVIDERS = {'zhipu': gen_zhipu, 'siliconflow': gen_siliconflow,
-             'pollinations': gen_pollinations, 'hfspace': gen_hfspace}
+             'pollinations': gen_pollinations, 'hfspace': gen_hfspace,
+             'selfhost': gen_selfhost}
 
 # ----------------------------------------------------------------- 后处理
 
@@ -150,10 +182,25 @@ def main():
     ap.add_argument('--per-category', type=int, default=0, help='每类只取前 N 个主题（做样张用）')
     ap.add_argument('--lang', default='zh', choices=['zh', 'en'], help='en=用 prompt_en（FLUX 等英文模型）')
     ap.add_argument('--model', default='', help='覆盖默认模型名，如 Qwen/Qwen-Image')
+    ap.add_argument('--endpoint', default=os.environ.get('SELFHOST_ENDPOINT', 'http://127.0.0.1:8080'),
+                    help='selfhost 的出图服务地址')
+    ap.add_argument('--token', default=os.environ.get('SELFHOST_TOKEN', ''), help='selfhost 的令牌')
+    ap.add_argument('--steps', type=int, default=0, help='selfhost 的出图步数')
+    ap.add_argument('--cfg', type=float, default=-1, help='selfhost 的 guidance/cfg')
+    ap.add_argument('--negative', default='', help='selfhost 的负面提示词')
     ap.add_argument('--slug', default='')
     ap.add_argument('--kind', default='')
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
+
+    SELFHOST['endpoint'] = args.endpoint
+    SELFHOST['token'] = args.token
+    if args.steps:
+        SELFHOST['steps'] = args.steps
+    if args.cfg >= 0:
+        SELFHOST['cfg'] = args.cfg
+    if args.negative:
+        SELFHOST['negative'] = args.negative
 
     data = json.load(open(PROMPTS, encoding='utf-8'))
     items = data['items']
