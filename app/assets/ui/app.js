@@ -4138,7 +4138,7 @@
 
         var ack = asObj(fyCall('chat', [JSON.stringify(applyNoThink(messages, body)), JSON.stringify(req)]));
         if (!ack || ack.ok !== true) {
-          g.settle(new Error((ack && ack.message) || '进程内引擎拒绝了这次生成'));
+          g.settle(new Error((ack && ack.message) || '本机引擎没能完成这次生成'));
           return;
         }
         g.id = ack.id || token;
