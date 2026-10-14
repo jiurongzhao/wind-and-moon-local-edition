@@ -2,7 +2,7 @@
 
 **A fully offline Android AI roleplay app** — both the inference engine and the GGUF models run on your phone. No login, no network, no uploads. The whole app is built from scratch inside Termux; no Android Studio / Gradle / NDK required.
 
-[中文说明 (Chinese README)](README.md) · [Gitee mirror](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
+[中文说明 (Chinese README)](README.md) · [Website](https://jiurongzhao.github.io/wind-and-moon-local-edition/) · [Gitee mirror](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
 
 ## Why install it
 
