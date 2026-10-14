@@ -423,8 +423,9 @@
 
   var DEFAULT_SYSTEM_PROMPT =
     '你要扮演一个鲜活的角色，与用户进行自然、沉浸式的对话。' +
-    '始终保持人设，不要跳出角色，不要以 AI 的口吻解释自己。' +
-    '用简洁口语化的中文回复，通常 1~3 句话，必要时可以描写动作与神态（用括号）。\n/no_think';
+    '始终保持人设，不要跳出角色，不要以 AI 的口吻解释自己，也不要总结和讲道理。' +
+    '用简洁口语化的中文回复，通常 1~3 句话，话可以说一半；' +
+    '必要时才描写动作与神态（用括号），别每句都补一个小动作。\n/no_think';
 
   function makeCharacter(patch) {
     var p = patch || {};
@@ -489,7 +490,11 @@
       options: Array.isArray(p.options) ? p.options.map(function (o) { return toStr(o); }) : [],
       ts: toNum(p.ts, nextTs()),
       error: !!p.error,
-      aborted: !!p.aborted
+      aborted: !!p.aborted,
+      /* 记忆摘要消息（append-only）：不画气泡、不参与"待压缩消息"，但会像普通 system
+         消息一样进 prompt —— 记忆更新就只是往历史尾部追加，上一轮的 messages 永远是
+         这一轮的真前缀，KV 整段复用（见 docs/native-engine.md）。 */
+      mem: !!p.mem
     };
   }
 
@@ -515,6 +520,32 @@
     temperature: 0.85,
     topP: 0.9,
     maxTokens: 512,
+    /* ---- v1.7.1 采样算法（都可调）----
+       治小模型的三个老毛病：复读、用词单调、长句崩坏。
+         penalty*  重复 / 频率 / 存在惩罚（对出现过的 token 降权）
+         dry*      DRY：按重复片段的长度加权惩罚；比裸 repeat penalty 更不容易伤正常表达
+         minP      只保留累计概率之上的候选（比 top_p 稳）
+         topNSigma 按 logit 的 σ 截断
+         xtc*      XTC：按概率剔除"最平庸"的候选，增加用词变化
+         dynTemp*  动态温度：熵越高越降温，长句不容易崩
+       默认：轻度重复惩罚 + DRY 打开，其余关（想换风格再动）。 */
+    penaltyLastN: 64,
+    penaltyRepeat: 1.1,
+    penaltyFreq: 0,
+    penaltyPresent: 0,
+    dryMultiplier: 0.8,
+    dryBase: 1.75,
+    dryAllowedLength: 2,
+    minP: 0.05,
+    topNSigma: 0,
+    xtcProbability: 0,
+    xtcThreshold: 0.1,
+    dynTempDelta: 0,
+    dynTempExponent: 1,
+    /* 选项模式用 GBNF 保证 <<<OPTIONS … OPTIONS>>> 一定合法。
+       用的是「懒语法」：正文里出现 <<< 之前完全不受约束，之后才生效，写不出正确格式也不至于卡死。
+       默认关（模型本来就写得对时没必要），想强制格式再开。 */
+    optionsGrammar: false,
     historyLimit: 20,    // 送入模型的最大历史条数
     memoryThreshold: 20, // 超过多少条消息触发记忆压缩
     memoryEnabled: true,
@@ -530,10 +561,16 @@
        代价是内存占用变硬；内存特别小的机器可以关掉（加载失败时原生层会自动回退到 mmap）。 */
     mlock: true,
     /* 推理方式：
-       jni    = 进程内引擎（默认）。libllama 直接链进 App，没有子进程/端口，
-                静态前缀（人设/世界书）常驻 KV；起不来原生侧会自动回退 server。
-       server = 老的 llama-server 子进程（排查问题、或某些机型上进程内跑不动时的退路）。 */
+       jni      = 进程内引擎（JNI 直连 libllama，跑 GGUF，默认）。真机实测 0.5B q4 ≈ 48 tok/s。
+       litertlm = LiteRT-LM（.litertlm/.task）。功能更全（会话自带 KV、可中断、真实统计），
+                  但真机实测 CPU 只有 ~12–16 tok/s、GPU 在高通机上会让进程 SIGSEGV，
+                  性能没翻盘之前不做默认，保留给愿意手动试的用户。
+       server   = 老的 llama-server 子进程（排查问题时的退路）。 */
     engineMode: 'jni',
+    /* 引擎调参（高级）：一行 "k=v;k=v"，不填=各后端默认。下次「启动引擎」生效。
+       JNI 认 type_k/type_v/flash_attn/ubatch；LiteRT-LM 认 thinking/spec/backend=gpu|npu/act；
+       MediaPipe 认 mp_session=1。默认空串 = 一行都不传，行为和以前完全一样。 */
+    engineTune: '',
     /* 屏幕常亮策略：
        auto   = 生成期间不熄屏（默认；切到后台也靠 CPU 唤醒锁把这一轮跑完）
        always = 只要 App 在前台就一直不熄屏（慢慢看长回复、慢慢打字都不黑屏）
@@ -594,6 +631,11 @@
      * ------------------------------------------------------------------ */
     var msgIndex = {};      // sessionId -> [message]
     var msgById = {};       // id -> message
+    /* 角色索引。32000 张卡时，一次 indexOfId 全表扫就是三万次比较 ——
+       而"打开会话 / 保存一张卡 / 取一张卡"都走它。charById 把按 id 取卡降到 O(1)；
+       charSorted 缓存 listCharacters 的排序结果（否则每次渲染都要 slice+sort 三万条）。 */
+    var charById = {};      // id -> character（与 data.characters 里同一个对象）
+    var charSorted = null;  // 按 createdAt 排好的数组，惰性重建
     var dirtyPut = {};      // storeName -> { id: true }
     var dirtyDel = {};      // storeName -> { id: true }
     var dirtyFull = {};     // storeName -> true（settings / logs 这种小表，整表重写更省事）
@@ -610,6 +652,13 @@
       for (var sid in msgIndex) {
         msgIndex[sid].sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); });
       }
+    }
+
+    /** 角色索引：id → 对象。改卡就地更新对象，所以不需要维护"对象 → 下标"。 */
+    function indexCharacters() {
+      charById = {};
+      for (var i = 0; i < data.characters.length; i++) charById[data.characters[i].id] = data.characters[i];
+      charSorted = null;
     }
 
     /** 把消息按 ts 插到有序索引里（绝大多数情况直接 push 到末尾） */
@@ -633,7 +682,8 @@
       if (dirtyPut[store]) delete dirtyPut[store][id];
     }
 
-    indexMessages();   // 启动时建一次索引，之后增删改都同步维护
+    indexMessages();      // 启动时建一次索引，之后增删改都同步维护
+    indexCharacters();
 
     function storeRecords(name) {
       if (name === 'settings') return settingsToRecords(data.settings);
@@ -718,31 +768,41 @@
 
     /* ---------------- 角色卡 ---------------- */
     function listCharacters() {
-      return data.characters.slice().sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+      if (!charSorted) {
+        charSorted = data.characters.slice().sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+      }
+      return charSorted.slice();
     }
     function getCharacter(id) {
-      var c = byId(data.characters, id);
+      var c = charById[id];
       return c ? copy(c) : null;
     }
     function saveCharacter(patch) {
       var c = makeCharacter(patch);
-      var i = indexOfId(data.characters, c.id);
-      if (i >= 0) {
-        c.createdAt = data.characters[i].createdAt || c.createdAt;
-        c.builtin = c.builtin || data.characters[i].builtin;
+      var prev = charById[c.id];
+      /* 只有"改名 / 换头像"才需要扫一遍消息同步显示名；否则这一步白扫（O(消息总数)） */
+      var renamed = !prev || (prev.name !== c.name) || (prev.avatar !== c.avatar);
+      if (prev) {
+        c.createdAt = prev.createdAt || c.createdAt;
+        c.builtin = c.builtin || prev.builtin;
         c.updatedAt = now();
-        data.characters[i] = c;
+        /* 就地更新：数组顺序、索引引用全不变，省掉一次全表 indexOfId */
+        Object.assign(prev, c);   // 就地更新：比 for...in 逐字段快，也比整表重建省一次 GC
+        c = prev;
       } else {
         data.characters.push(c);
+        charById[c.id] = c;
       }
-      /* 角色改名后，同步已有消息上的显示名（只重写受影响的消息） */
-      data.messages.forEach(function (m) {
-        if (m.characterId === c.id) {
-          m.speakerName = c.name;
-          m.speakerAvatar = c.avatar;
-          markPut('messages', m.id);
-        }
-      });
+      charSorted = null;
+      if (renamed) {
+        data.messages.forEach(function (m) {
+          if (m.characterId === c.id) {
+            m.speakerName = c.name;
+            m.speakerAvatar = c.avatar;
+            markPut('messages', m.id);
+          }
+        });
+      }
       markPut('characters', c.id);
       save();
       return copy(c);
@@ -763,41 +823,48 @@
       var arr = Array.isArray(list) ? list : [];
       var total = arr.length;
       var out = [];
-      var where = {};                                   // id -> data.characters 下标
-      for (var i0 = 0; i0 < data.characters.length; i0++) where[data.characters[i0].id] = i0;
       for (var i = 0; i < total; i++) {
         var c = makeCharacter(arr[i]);
-        var at = where[c.id];
-        var isUpdate = (at !== undefined && at >= 0);
-        if (isUpdate) {
-          c.createdAt = data.characters[at].createdAt || c.createdAt;
-          c.builtin = c.builtin || data.characters[at].builtin;
+        var prev = charById[c.id];
+        if (prev) {
+          var renamed = (prev.name !== c.name) || (prev.avatar !== c.avatar);
+          c.createdAt = prev.createdAt || c.createdAt;
+          c.builtin = c.builtin || prev.builtin;
           c.updatedAt = now();
-          data.characters[at] = c;
-          /* 改名同步消息显示名：只有"改老卡"才可能命中，导入新卡这步是空转 */
-          for (var mi = 0; mi < data.messages.length; mi++) {
-            var m = data.messages[mi];
-            if (m.characterId === c.id) {
-              m.speakerName = c.name;
-              m.speakerAvatar = c.avatar;
-              markPut('messages', m.id);
+          Object.assign(prev, c);   // 就地更新，省掉数组重建与一次 GC
+          c = prev;
+          /* 改名同步消息显示名：只有"改老卡且名字/头像变了"才可能命中，导入新卡这步是空转 */
+          if (renamed) {
+            for (var mi = 0; mi < data.messages.length; mi++) {
+              var m = data.messages[mi];
+              if (m.characterId === c.id) {
+                m.speakerName = c.name;
+                m.speakerAvatar = c.avatar;
+                markPut('messages', m.id);
+              }
             }
           }
         } else {
           data.characters.push(c);
-          where[c.id] = data.characters.length - 1;
+          charById[c.id] = c;
         }
         markPut('characters', c.id);
         out.push(copy(c));
         if (onProgress) { try { onProgress(i + 1, total); } catch (e) { /* 进度回调不许打断导入 */ } }
       }
+      charSorted = null;                                 // 有增删就作废排序缓存
       save();                                            // 脏标记已攒齐，一次防抖落盘
       return { saved: out.length, items: out };
     }
 
     function deleteCharacter(id) {
-      var i = indexOfId(data.characters, id);
-      if (i >= 0) data.characters.splice(i, 1);
+      var c = charById[id];
+      if (c) {
+        var i = data.characters.indexOf(c);   // 删除很少见，这个 O(N) 可以接受
+        if (i >= 0) data.characters.splice(i, 1);
+        delete charById[id];
+        charSorted = null;
+      }
       markDel('characters', id);
       /* 从会话里摘掉；会话空了就整体删除 */
       var dead = [];
@@ -875,9 +942,9 @@
     function lastMessage(sessionId) {
       var arr = msgIndex[sessionId] || [];
       if (!arr.length) return null;
-      var last = arr[0];
-      for (var i = 1; i < arr.length; i++) if ((arr[i].ts || 0) >= (last.ts || 0)) last = arr[i];
-      return copy(last);
+      /* 索引本身按 ts 有序（indexMessages 排一次、indexInsert 按 ts 插），
+         所以最后一条就是最新的一条 —— O(1)；以前是整段扫一遍找最大 ts。 */
+      return copy(arr[arr.length - 1]);
     }
     function addMessage(patch) {
       var m = makeMessage(patch);
@@ -907,17 +974,18 @@
         error: patch.error === undefined ? cur.error : patch.error,
         aborted: patch.aborted === undefined ? cur.aborted : patch.aborted
       });
-      var i = indexOfId(data.messages, merged.id);
-      if (i >= 0) data.messages[i] = merged;
-      msgById[merged.id] = merged;
-      var arr = msgIndex[merged.sessionId] || (msgIndex[merged.sessionId] = []);
-      var k = indexOfId(arr, merged.id);
-      if (k >= 0) arr[k] = merged;
+      /* 就地更新：cur 就是 data.messages / msgIndex / msgById 里同一个对象，
+         改字段等于三处一起生效 —— 省掉两次 O(N) 的 indexOfId（每条回复都要跑）。 */
+      cur.content = merged.content;
+      cur.thinking = merged.thinking;
+      cur.options = merged.options;
+      cur.error = merged.error;
+      cur.aborted = merged.aborted;
       var s = byId(data.sessions, merged.sessionId);
-      if (s) { s.updatedAt = now(); s.lastMessage = merged.content.slice(0, 80); markPut('sessions', s.id); }
+      if (s) { s.updatedAt = now(); s.lastMessage = cur.content.slice(0, 80); markPut('sessions', s.id); }
       markPut('messages', merged.id);
       save();
-      return copy(merged);
+      return copy(cur);
     }
     function deleteMessage(id) {
       var cur = msgById[id];
@@ -1082,6 +1150,7 @@
         data.settings = makeSettings(payload.settings);
       }
       indexMessages();
+      indexCharacters();   // 角色表被整体替换，id 索引与排序缓存必须一起重建
       markFull();
       flushNow();
       return counts;

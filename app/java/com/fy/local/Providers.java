@@ -120,7 +120,9 @@ public class Providers {
             InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
             String text = readAll(in);
             if (code >= 400) {
-                out.message = "HTTP " + code + " " + squeeze(text);
+                out.message = (code == 401 || code == 403)
+                        ? "这个服务没让进（" + code + "），多半是密钥不对或没权限，检查一下再试"
+                        : "这个服务返回了 " + code + "，检查一下地址，或稍后再试";
                 return out;
             }
             out.models = parseModelIds(text);
@@ -169,11 +171,10 @@ public class Providers {
     }
 
     private static String shortError(Exception e) {
-        String m = e.getMessage();
-        if (e instanceof java.net.SocketTimeoutException) return "连接超时（地址/端口对不对？服务在跑吗？）";
-        if (e instanceof java.net.UnknownHostException) return "域名解析不了：" + m;
-        if (e instanceof java.net.ConnectException) return "连不上：" + m + "（同一局域网吗？防火墙？）";
-        return e.getClass().getSimpleName() + (m == null ? "" : (": " + m));
+        if (e instanceof java.net.SocketTimeoutException) return "连接超时，检查一下地址和网络";
+        if (e instanceof java.net.UnknownHostException) return "找不到这个地址，检查一下拼写";
+        if (e instanceof java.net.ConnectException) return "连不上这个服务，检查一下地址和网络";
+        return "连接失败，检查一下地址和网络";
     }
 
     private static String squeeze(String s) {

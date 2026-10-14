@@ -281,6 +281,17 @@ check('记忆摘要已写入 IndexedDB', memOk,
 check('记忆 UI 能显示摘要', /小林|周五|河边|伞/.test($('memText').textContent) || memOk,
   $('memText').textContent.slice(0, 60));
 
+/* v1.7.1：记忆改成 append-only 消息 —— 更新记忆只是往历史尾部追加，
+   不再改 system（改了 system 就等于钉住的前缀变了，整段 KV 要重算）。 */
+const memMsgs = S.messages.filter(m => m.mem);
+check('记忆摘要落成一条 mem 消息（append-only）', memMsgs.length > 0, 'mem=' + memMsgs.length);
+const reqAfterMem = window.FYApp.buildRequestMessages(null);
+check('mem 消息以 system 角色进 prompt',
+  reqAfterMem.some(m => m.role === 'system' && /长期记忆/.test(m.content)),
+  JSON.stringify(reqAfterMem.map(m => m.role).slice(0, 8)));
+check('system 里不再内联摘要（前缀保持静态）', !/长期记忆/.test(reqAfterMem[0].content),
+  reqAfterMem[0].content.slice(0, 50));
+
 console.log('\n【8】语音');
 const speakCalls = [];
 const origSpeak = window.FY.speak;
@@ -470,6 +481,14 @@ check('剧情格式要求只出现在 system（不再往每条消息里塞提醒
   (!/提醒：/.test(bodyA.slice(1).map(m => m.content).join(''))),
   '第 2 条起含"提醒："：' + /提醒：/.test(bodyA.slice(1).map(m => m.content).join('')));
 
+/* v1.7.x：system 里加了一段静态的「说话底线」，专门压 AI 腔（总结/分点/先安抚再讲道理）。
+   它必须真的进了 system、只出现一次，而且不能破坏前缀复用。 */
+const sysTxt = bodyA[0].content;
+check('system 里带「说话底线」压 AI 腔',
+  /说话底线/.test(sysTxt) && /禁止 AI 腔/.test(sysTxt));
+check('说话底线在 system 里只出现一次', (sysTxt.match(/说话底线/g) || []).length === 1);
+check('说话底线是静态的（同一状态两次组装一致）', bodyA2[0].content === sysTxt);
+
 console.log('\n【15】本地数据库（IndexedDB 持久化 / 索引 / 增量落盘）');
 /* 数据量上去以后，这里三件事必须成立：
    ① 写进去的数据"重启"后还在（用 FYStore.init() 重新读一遍来模拟重启）；
@@ -557,6 +576,19 @@ check('恢复后数据回到快照状态',
 check('恢复后临时加的角色不见了',
   S.store.listCharacters().filter(c => c.name === '备份测试角色').length === 0);
 check('恢复会整表落盘（写计数增加）', S.store.stats().writes > 0, 'writes=' + S.store.stats().writes);
+
+/* 恢复是"整表替换 data.characters"：id 索引和排序缓存必须一起重建，
+   否则 getCharacter 取不到、saveCharacter 还会把同一张卡插成两张。 */
+const restored0 = S.store.listCharacters();
+const restoredId = restored0.length ? restored0[0].id : '';
+check('恢复后 id→角色索引已重建（getCharacter 取得到）',
+  !!restoredId && !!S.store.getCharacter(restoredId), 'id=' + restoredId);
+check('恢复后改已有卡不会插成两张（索引没失效）',
+  (function () {
+    if (!restoredId) return false;
+    S.store.saveCharacter(Object.assign({}, S.store.getCharacter(restoredId), { tagline: '改一下' }));
+    return S.store.listCharacters().filter(function (c) { return c.id === restoredId; }).length === 1;
+  })());
 
 let badThrew = false;
 try { S.store.importAll({ app: 'not-fengyue', characters: [{ id: 'x' }] }); }
@@ -739,6 +771,7 @@ check('状态行给出命中数', /找到 2 条/.test($('searchStatus').textCont
 
 rows[1].click();   // 点第二条 → 跳到对应会话
 await sleep(150);
+await until(() => doc.getElementById('searchMask').hidden, 1500);   // 关闭有退场动画
 check('点结果能跳到对应会话',
   S.session && (S.session.id === srSessA.id || S.session.id === srSessB.id),
   '当前会话=' + (S.session && S.session.title));
@@ -1248,6 +1281,7 @@ check('选「DeepSeek」后：标记已引导 + 预填地址与模型名',
   && doc.getElementById('selRemoteModel').value === 'deepseek-chat'
   && doc.getElementById('selProviderMode').value === 'remote',
   doc.getElementById('setRemoteBase').value + ' | ' + doc.getElementById('selRemoteModel').value);
+await until(() => doc.getElementById('onboardMask').hidden, 1500);   // 关闭有退场动画
 check('引导面板已关闭', doc.getElementById('onboardMask').hidden === true);
 S.settings = S.store.saveSettings({ onboarded: true });
 window.FYApp.maybeShowOnboarding();
@@ -1439,7 +1473,7 @@ check('能识别 AI 腔',
   FC.lint(Object.assign({}, goodCard, { persona: '作为一个AI助手，我可以帮助你解决问题。' }), {})
     .issues.some(i => /AI 腔/.test(i.msg)));
 const noThink = FC.lint(Object.assign({}, goodCard, { systemPrompt: '你扮演一个角色，保持人设不要出戏，说话自然一点，别太长。' }), {});
-check('能识别缺 /no_think', noThink.issues.some(i => /no_think/.test(i.msg)));
+check('能识别缺直接回答标记', noThink.issues.some(i => /直接回答标记/.test(i.msg)));
 const storyNoScenario = FC.lint(Object.assign({}, goodCard, { kind: 'story' }), {});
 check('剧情卡缺情境会被拦住',
   storyNoScenario.issues.some(i => i.level === 'error' && /情境/.test(i.msg)));
@@ -1580,7 +1614,7 @@ await until(() => $('refSources').children.length > 0, 5000);
 await sleep(150);
 check('灵感面板列出了来源', $('refSources').children.length >= 1, String($('refSources').children.length));
 check('本地来源渲染出分类分布与人设长度统计',
-  /分类分布/.test($('refBody').textContent) && /人设中位长度/.test($('refBody').textContent),
+  /分类分布/.test($('refBody').textContent) && /人设[^。]{0,8}长度/.test($('refBody').textContent),
   $('refBody').textContent.slice(0, 70));
 check('界面明确写了「只借鉴模式，不复制正文」与许可证提示',
   /只借鉴模式/.test($('refNote').textContent) && /许可证/.test($('refNote').textContent),
@@ -2269,6 +2303,29 @@ check('进程内引擎：真实 prompt token 数进了估算校正日志',
   nativeLogs.some(l => /token 估算校正/.test(l)),
   JSON.stringify(nativeLogs.slice(-3)));
 
+/* v1.7.1 采样算法：设置里的值要原样进原生 opts（Java 侧再拼成 "k=v;k=v" 给引擎）。 */
+check('进程内引擎：采样算法参数进了原生 opts',
+  !!(nativeReq && typeof nativeReq.opts.penaltyLastN === 'number'
+     && typeof nativeReq.opts.penaltyRepeat === 'number'
+     && typeof nativeReq.opts.dryMultiplier === 'number'
+     && typeof nativeReq.opts.minP === 'number'
+     && typeof nativeReq.opts.xtcProbability === 'number'),
+  nativeReq && JSON.stringify(nativeReq.opts));
+
+/* 选项模式 + 打开 GBNF：请求要带上懒语法和触发词（正文不受限，<<< 之后才约束）。 */
+const prevPlot = S.session.plot;
+const prevGrammar = S.settings.optionsGrammar;
+S.session.plot = true;
+S.settings.optionsGrammar = true;
+const reqBefore = nativeReq;
+window.FYApp.sendUserMessage('继续');
+const gotGrammar = await until(() => nativeReq !== reqBefore, 12000);
+check('选项模式：请求带上 GBNF 懒语法（触发词 <<<）',
+  !!(gotGrammar && nativeReq && nativeReq.opts.grammar && nativeReq.opts.grammarTrigger === '<<<'),
+  nativeReq ? JSON.stringify({ g: (nativeReq.opts.grammar || '').slice(0, 30), t: nativeReq.opts.grammarTrigger }) : '');
+S.session.plot = prevPlot;
+S.settings.optionsGrammar = prevGrammar;
+
 window.FY.engineStatus = realEngineStatus;
 window.FY.chat = realChat;
 window.FY.chatStop = realChatStop;
@@ -2292,6 +2349,15 @@ check('切回进程内也落盘', S.store.getSettings().engineMode === 'jni',
   'setting=' + S.store.getSettings().engineMode);
 check('提示文案说清了会自动回退', /回退/.test($('engineModeHint').textContent || ''),
   $('engineModeHint').textContent);
+check('设置页有「引擎调参」输入框', !!$('setEngineTune'));
+$('setEngineTune').value = 'type_k=q8_0;flash_attn=1';
+$('setEngineTune').dispatchEvent(new window.Event('change'));
+await sleep(150);
+check('引擎调参会立刻落盘', S.store.getSettings().engineTune === 'type_k=q8_0;flash_attn=1',
+  'tune=' + S.store.getSettings().engineTune);
+$('setEngineTune').value = '';
+$('setEngineTune').dispatchEvent(new window.Event('change'));
+await sleep(150);
 
 console.log('\n【41】进程内引擎：Qwen3 的「关掉思考」怎么落地');
 /* llama-server 那条路能发 chat_template_kwargs，进程内那条 C API 不吃 ——
@@ -2317,6 +2383,141 @@ check('非 Qwen3 模型不乱加 /no_think',
   noThinkFix(sysMsgs, { chat_template_kwargs: { enable_thinking: false } }) === sysMsgs);
 S.engineState = Object.assign({}, S.engineState, { model: modelBefore });
 window.FYApp.switchView('characters');
+
+console.log('\n【42】长会话增量渲染（发一条消息不该重建整屏 DOM）');
+/* 长会话里最大的渲染开销不是"算"，是每来一条消息就把几百几千个 DOM 节点整个重建一遍。
+   盯住三条性质：追加复用旧节点、内容变了才重建那一个、列表变短要整屏重建。 */
+const renderSess = S.store.saveSession({ title: '渲染压测', characterIds: [], mode: 'solo', plot: false });
+S.session = renderSess;
+for (let i = 0; i < 60; i++) {
+  S.store.addMessage({ sessionId: renderSess.id, role: i % 2 ? 'assistant' : 'user', content: '第 ' + i + ' 条', ts: Date.now() + i });
+}
+S.messages = S.store.listMessages(renderSess.id);
+window.FYApp.renderMessages();
+const mbox = doc.getElementById('messages');
+const visibleN = S.messages.filter(m => !m.mem).length;
+check('增量渲染：节点数与消息数一致',
+  mbox.querySelectorAll('.msg').length === visibleN,
+  mbox.querySelectorAll('.msg').length + ' vs ' + visibleN);
+
+const firstRef = mbox.querySelectorAll('.msg')[0];
+S.store.addMessage({ sessionId: renderSess.id, role: 'user', content: '新来的一条', ts: Date.now() + 100 });
+S.messages = S.store.listMessages(renderSess.id);
+window.FYApp.renderMessages();
+check('增量渲染：追加消息复用已有节点（没整屏重建）',
+  mbox.querySelectorAll('.msg')[0] === firstRef);
+check('增量渲染：新消息进了 DOM',
+  mbox.querySelectorAll('.msg').length === visibleN + 1,
+  mbox.querySelectorAll('.msg').length + ' vs ' + (visibleN + 1));
+
+const renderTarget = S.messages[S.messages.length - 1];
+const oldTargetNode = mbox.querySelector('.msg[data-id="' + renderTarget.id + '"]');
+S.store.updateMessage({ id: renderTarget.id, content: '内容变了 XYZ' });
+S.messages = S.store.listMessages(renderSess.id);
+window.FYApp.renderMessages();
+const newTargetNode = mbox.querySelector('.msg[data-id="' + renderTarget.id + '"]');
+check('增量渲染：内容变了的消息会重建并显示新内容',
+  !!newTargetNode && newTargetNode !== oldTargetNode && /XYZ/.test(newTargetNode.textContent),
+  newTargetNode ? newTargetNode.textContent.slice(0, 40) : 'none');
+
+const nodeCountNow = mbox.querySelectorAll('.msg').length;
+S.store.deleteMessage(S.messages[0].id);
+S.messages = S.store.listMessages(renderSess.id);
+window.FYApp.renderMessages();
+check('增量渲染：删消息（列表变短）整屏重建，条数对得上',
+  mbox.querySelectorAll('.msg').length === nodeCountNow - 1,
+  mbox.querySelectorAll('.msg').length + ' vs ' + (nodeCountNow - 1));
+
+console.log('\n【43】列表顺序 + O(1) 取最新消息（性能改造回归）');
+/* 1) lastMessage：索引按 ts 有序，取最后一条即可 —— 乱序插入也必须对 */
+const ordSess = S.store.saveSession({ title: '顺序测试', characterIds: [], mode: 'solo', plot: false });
+S.store.addMessage({ sessionId: ordSess.id, role: 'user', content: '中间', ts: 1700000002000 });
+S.store.addMessage({ sessionId: ordSess.id, role: 'assistant', content: '最早', ts: 1700000001000 });
+S.store.addMessage({ sessionId: ordSess.id, role: 'user', content: '最新', ts: 1700000003000 });
+check('lastMessage 取 ts 最大的一条（乱序插入也对）',
+  (S.store.lastMessage(ordSess.id) || {}).content === '最新',
+  JSON.stringify((S.store.lastMessage(ordSess.id) || {}).content));
+check('countMessages 与插入条数一致', S.store.countMessages(ordSess.id) === 3);
+
+/* 2) 收藏分区：收藏在前、组内仍按 createdAt 顺序（以前是整体 sort） */
+S.charQuery = '';
+S.charCat = 'all';
+const baseChars = S.store.listCharacters();
+if (baseChars.length) {
+  S.store.saveCharacter(Object.assign({}, baseChars[0], { fav: true }));
+}
+S.characters = S.store.listCharacters();
+window.FYApp.renderCharacters();
+const filteredChars = S.charFiltered || [];
+const lastFavIdx = filteredChars.map(function (c) { return !!c.fav; }).lastIndexOf(true);
+const firstNonFavIdx = filteredChars.map(function (c) { return !!c.fav; }).indexOf(false);
+check('收藏的角色排在列表最前面（分区后仍成立）',
+  lastFavIdx < 0 || firstNonFavIdx < 0 || lastFavIdx < firstNonFavIdx,
+  'lastFav=' + lastFavIdx + ' firstNonFav=' + firstNonFavIdx);
+check('非收藏部分保持 createdAt 顺序（分区是稳定的）',
+  JSON.stringify(filteredChars.filter(function (c) { return !c.fav; }).map(function (c) { return c.id; }))
+    === JSON.stringify(S.characters.filter(function (c) { return !c.fav; }).map(function (c) { return c.id; })));
+if (baseChars.length) S.store.saveCharacter(Object.assign({}, S.store.getCharacter(baseChars[0].id), { fav: false }));
+
+console.log('\n【44】文本输入弹层（重命名 / 编辑重发，不再依赖 window.prompt）');
+check('FYApp 暴露了 promptText', typeof window.FYApp.promptText === 'function');
+check('角色页次级工具栏是单行横滑容器（不再换行留孤儿）',
+  !!$('charTools') && $('charTools').classList.contains('scroll'));
+check('空状态文案指向真实按钮「创作」', !/「新建」/.test($('charEmpty').textContent),
+  $('charEmpty').textContent.replace(/\s+/g, ' ').slice(0, 40));
+
+const askMask = $('askMask');
+const askInput = $('askInput');
+let nativePromptCalls = 0;
+const realPrompt = window.prompt;
+window.prompt = function () { nativePromptCalls++; return 'native'; };
+
+const p1 = window.FYApp.promptText('会话名称', { value: '旧名字' });
+check('输入弹层已打开', askMask.hidden === false);
+check('弹层预填了原值', askInput.value === '旧名字', askInput.value);
+askInput.value = '新名字';
+$('btnAskOk').click();
+check('点「确定」resolve 输入值', (await p1) === '新名字');
+await until(() => askMask.hidden, 1500);   // 关闭有退场动画
+check('确定后弹层关闭', askMask.hidden === true);
+
+const p2 = window.FYApp.promptText('会话名称', { value: 'x' });
+$('btnAskCancel').click();
+check('点「取消」resolve null', (await p2) === null);
+
+const p3 = window.FYApp.promptText('必填');
+askInput.value = '   ';
+$('btnAskOk').click();
+check('必填时空值被拦下（弹层不关、Promise 未 settle）',
+  askMask.hidden === false && typeof p3.then === 'function');
+askInput.value = '有内容';
+$('btnAskOk').click();
+check('补上内容后正常返回', (await p3) === '有内容');
+check('全程没有调用原生 prompt', nativePromptCalls === 0, String(nativePromptCalls));
+window.prompt = realPrompt;
+
+console.log('\n【45】高级感 v2：图标体系 / 顶栏不重复');
+window.FYApp.renderFTags();
+const fTagChips = Array.from(doc.querySelectorAll('#fTags .chip'));
+check('分类 chip 用自绘 SVG 图标（不是 emoji）',
+  fTagChips.length >= 16 && fTagChips.every(c => c.querySelector('.ico')),
+  'chip=' + fTagChips.length + ' 带图标=' + fTagChips.filter(c => c.querySelector('.ico')).length);
+check('分类 chip 文本里不再夹 emoji',
+  !/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(fTagChips.map(c => c.textContent).join('')),
+  fTagChips.slice(0, 4).map(c => c.textContent).join('|'));
+const v2Char = S.store.listCharacters()[0];
+if (v2Char) {
+  const v2s = S.store.saveSession({ title: 'V2 检查', characterIds: [v2Char.id], mode: 'solo', plot: false });
+  window.FYApp.openSessionById(v2s.id);
+  check('聊天顶栏显示页名「聊天」，会话名只在 chat-head',
+    $('topTitle').textContent === '聊天' && $('chatHeadName').textContent.indexOf(v2Char.name) >= 0,
+    '顶栏=' + $('topTitle').textContent + ' / 头=' + $('chatHeadName').textContent);
+  const cssV2 = fs.readFileSync(path.join(UI, 'style.css'), 'utf8');
+  check('CSS 有退场动画（sheet-mask.closing）', /\.sheet-mask\.closing\s*\{/.test(cssV2));
+  check('CSS 有骨架屏 shimmer', /\.sk::after\s*\{/.test(cssV2) && /@keyframes\s+shimmer/.test(cssV2));
+  check('reduced-motion 不再用全局 0\.001ms 空转',
+    !/\*\s*\{\s*animation-duration:\s*\.001ms/.test(cssV2));
+}
 
 console.log('\n' + '─'.repeat(64));
 console.log(`结果： ${pass} 通过 / ${fail} 失败`);

@@ -85,7 +85,7 @@ public class Db {
             try {
                 out = new JSONObject();
                 out.put("ok", false);
-                out.put("message", String.valueOf(t.getMessage() == null ? t : t.getMessage()));
+                out.put("message", "数据操作没成功，请重启应用后再试");
             } catch (Exception ignored) {
             }
         }
@@ -233,7 +233,7 @@ public class Db {
             close();
             File f = new File(ctx.getFilesDir(), FILE_NAME);
             if (f.exists() && !f.delete()) {
-                return "{\"ok\":false,\"message\":\"数据库文件删不掉\"}";
+                return "{\"ok\":false,\"message\":\"数据清不掉，请重启应用后再试\"}";
             }
             File wal = new File(ctx.getFilesDir(), FILE_NAME + "-wal");
             File shm = new File(ctx.getFilesDir(), FILE_NAME + "-shm");
@@ -241,7 +241,7 @@ public class Db {
             if (shm.exists()) shm.delete();
             return "{\"ok\":true}";
         } catch (Throwable t) {
-            return "{\"ok\":false,\"message\":" + JSONObject.quote(String.valueOf(t)) + "}";
+            return "{\"ok\":false,\"message\":" + JSONObject.quote("数据清不掉，请重启应用后再试") + "}";
         }
     }
 }

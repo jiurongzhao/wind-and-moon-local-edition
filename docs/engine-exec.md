@@ -41,7 +41,7 @@ define(`x_file_perms', `{ getattr execute execute_no_trans map }')
 
 ## 3. 二进制本身要满足的条件
 
-- 架构：`arm64-v8a`（本项目只用 arm64，`abiFilters` 意义上的单一 ABI）
+- 架构：`arm64-v8a`（风月·本地版只用 arm64，`abiFilters` 意义上的单一 ABI）
 - 依赖库：`llama-server` 的 `DT_NEEDED` 有 6 个（`libllama-server-impl.so`、`libllama-common.so`、
   `libmtmd.so`、`libllama.so`、`libggml.so`、`libggml-base.so`），
   它们的**文件名必须保持原样**放在同一个 `lib/arm64-v8a/` 里，
@@ -49,7 +49,7 @@ define(`x_file_perms', `{ getattr execute execute_no_trans map }')
 - ggml 的 CPU 后端是**运行时按 CPU 特性 dlopen** 的（日志可见
   `load_backend: loaded CPU backend from .../libggml-cpu-android_armv8.6_1.so`），
   所以那几个 `libggml-cpu-android_armv*_*.so` 要全部带上，不能只留一个。
-- 页对齐：本项目引擎来自 llama.cpp 官方 `b11552` Android 构建，段对齐 `align=0x4000`（16KB），
+- 页对齐：风月·本地版的引擎来自 llama.cpp 官方 `b11552` Android 构建，段对齐 `align=0x4000`（16KB），
   同时兼容 4KB 页（本机 `getconf PAGE_SIZE = 4096`）和 16KB 页设备。
 
 ## 4. 兜底方案
@@ -70,4 +70,4 @@ define(`x_file_perms', `{ getattr execute execute_no_trans map }')
 | Hexagon NPU (`HTP0`) | ❌ 报 `failed to open session`，设备上没有 QNN 运行库 |
 
 snapdragon 特供包（`llama-*-bin-android-arm64-snapdragon.tar.gz`）才有 OpenCL/HTP 后端，
-普通包是纯 CPU，体积更小、依赖更干净——本项目用普通包。
+普通包是纯 CPU，体积更小、依赖更干净——风月·本地版用普通包。

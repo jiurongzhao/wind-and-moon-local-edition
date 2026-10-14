@@ -20,6 +20,10 @@ sdk/
 engine/
 platform-36.zip
 repository2-1.xml
+# MediaPipe（C 路线 PoC）的 jar 与 .so：同样走 tools/fetch-mediapipe.sh 现拉
+third_party/mediapipe/
+# LiteRT-LM 的 jar 与 .so：走 tools/fetch-litertlm.sh 现拉，不进仓库
+third_party/litertlm/
 
 # ---- 模型：几个 GB，用户自己下载 ----
 models/

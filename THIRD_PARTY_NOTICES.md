@@ -3,11 +3,38 @@
 本项目**自己写的代码**（`app/`、`tools/`、`tests/`、`docs/`）以 [MIT](LICENSE) 发布。
 下面这些是运行时依赖的第三方组件，各自遵循原许可证。
 
+> 迁移说明：本地推理正在从 llama.cpp（JNI + 子进程）切到 **LiteRT-LM**。
+> 只要 `third_party/litertlm/` 存在，构建出来的包默认后端就是 LiteRT-LM；
+> llama.cpp 在迁移验证完成前仍随包分发，之后会连同本节一起删掉。
+
 ---
 
-## 1. llama.cpp（推理引擎）—— MIT
+## 1. LiteRT-LM（本地推理引擎，当前默认）—— Apache-2.0
 
-- **用途**：App 的全部推理能力。`llama-server` 以子进程方式运行，模型在设备本地加载。
+- **用途**：本地推理主引擎。直接加载 `.litertlm` / `.task`，支持 CPU / GPU / NPU 后端，
+  会话自带 KV，可中断，并暴露真实的 prefill/decode tok/s。
+- **组件**：`com.google.ai.edge.litertlm:litertlm-android:0.18.0`
+  （[google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)，Apache-2.0）。
+  APK 里打进它的 `liblitertlm_jni.so`（arm64，约 22MB）与 `classes.jar`。
+- **获取方式**：`./tools/fetch-litertlm.sh` 从国内镜像（阿里云 Google / 腾讯 / dl.google）
+  重新下载 AAR 并解出上述文件；仓库不提交这些二进制，只留脚本与说明。
+- **随它一起进 APK 的传递依赖**（运行期必需，**均未修改**）：
+
+  | 组件 | 版本 | 许可证 |
+  |---|---|---|
+  | [Kotlin 标准库 / 反射](https://github.com/JetBrains/kotlin) | 2.4.0 | Apache-2.0 |
+  | [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) | 1.11.0 | Apache-2.0 |
+  | [Gson](https://github.com/google/gson) | 2.14.0 | Apache-2.0 |
+  | [Error Prone annotations](https://github.com/google/error-prone) | 2.48.0 | Apache-2.0 |
+
+- **模型格式**：只认 `.litertlm` / `.task`，不认 GGUF。现成权重见
+  [litert-community](https://huggingface.co/models?search=litert-community)
+  （Qwen3 / Gemma 等，许可证随各自模型卡）。
+
+## 2. llama.cpp（另一条推理栈，迁移中）—— MIT
+
+- **用途**：迁移完成前的另一条本地推理栈（进程内 JNI `libllama` + 子进程 `llama-server`），
+  跑 GGUF 模型。迁移完成后移除。
 - **版本**：`0.6.0-dev (build 11552, commit 23b0202a1)`，取自官方 release
   [`b11552` 的 Android arm64 预编译包](https://github.com/ggml-org/llama.cpp/releases/tag/b11552)
   （`llama-b11552-bin-android-arm64.tar.gz`）。
@@ -23,20 +50,20 @@ MIT License
 Copyright (c) 2023-2026 The ggml authors
 ```
 
-## 2. Android SDK（`android.jar` 等）—— Android SDK 许可证
+## 3. Android SDK（`android.jar` 等）—— Android SDK 许可证
 
 - **用途**：仅用于**编译期**（`javac` / `d8` / `aapt2`），不会打进 APK。
 - **获取方式**：`./tools/fetch-sdk.sh`，从 Google 官方仓库下载 `platform-36-ext19_r01.zip`。
 - 使用时请遵守 [Android SDK 许可协议](https://developer.android.com/studio/terms)。
 
-## 3. 应用图标 / 界面素材 —— 本项目原创
+## 4. 应用图标 / 界面素材 —— 本项目原创
 
 - 启动图标由 `tools/genicons.py` **用代码绘制**（深紫圆底 + 弯月 + 三颗星），
   矢量前景见 `app/res/drawable/ic_launcher_foreground.xml`；
 - 界面是手写 HTML/CSS，**没有引入任何第三方图标库或素材**；
 - 因此上架/分发时不需要处理额外素材授权。
 
-## 4. 模型文件 —— 由用户自行提供，不在本仓库内
+## 5. 模型文件 —— 由用户自行提供，不在本仓库内
 
 本 App **不内置任何模型**，也不要求特定模型。仓库文档里推荐的几款：
 
@@ -48,7 +75,7 @@ Copyright (c) 2023-2026 The ggml authors
 如果你导入了其它模型，请自行确认其许可证与用途限制。
 **下载与使用模型时请遵守模型提供方的许可条款。**
 
-## 5. 测试依赖（仅开发期）
+## 6. 测试依赖（仅开发期）
 
 | 组件 | 用途 | 许可证 |
 |---|---|---|
@@ -57,7 +84,7 @@ Copyright (c) 2023-2026 The ggml authors
 
 它们只在 `tests/` 里用，不会进入 APK。
 
-## 6. 创作者工具的知识来源 —— 只借鉴模式，不含第三方卡片正文
+## 7. 创作者工具的知识来源 —— 只借鉴模式，不含第三方卡片正文
 
 「创作者工具」的分类模板、骨架与写作要点**全部由本项目原创撰写**，
 不含任何第三方卡片正文。成文时参考了以下公开来源的**结构与分类口径**：

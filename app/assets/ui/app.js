@@ -50,6 +50,21 @@
     '🔌': 'bolt', '⚡': 'bolt', '🚪': 'door', '🗣': 'quote', '⭐': 'star', '☆': 'star-o', '▶': 'next'
   };
 
+  /* 16 个分类 tag → 自绘线性图标。分类 emoji 只保留在数据层（老目录 / 导出兼容），
+     界面上统一走单色 SVG —— 彩色 emoji 由系统字体渲染，粗细/基线不受控，会破坏图标语言。 */
+  var CAT_ICON = {
+    '日常治愈': 'char', '恋爱': 'sparkle', '悬疑推理': 'search', '古风仙侠': 'bolt',
+    '科幻未来': 'monitor', '奇幻冒险': 'flask', '校园': 'book', '职场': 'box',
+    '历史': 'template', '恐怖惊悚': 'bulb', '喜剧沙雕': 'star', '灵异怪谈': 'moon',
+    '末世生存': 'warn', '赛博朋克': 'cloud', '神话志怪': 'quote', '情感树洞': 'users'
+  };
+  function catIconName(cat) {
+    if (!cat) return 'template';
+    if (cat.tag && CAT_ICON[cat.tag]) return CAT_ICON[cat.tag];
+    if (cat.emoji && ICON_ALIAS[cat.emoji]) return ICON_ALIAS[cat.emoji];
+    return 'template';
+  }
+
   function iconEl(name, cls) {
     var s = document.createElementNS(SVGNS, 'svg');
     s.setAttribute('class', 'ico' + (cls ? ' ' + cls : ''));
@@ -138,7 +153,7 @@
         document.body.removeChild(ta);
         if (ok) done(); else toast('复制失败，请长按文本选择', 'err');
       } catch (e) {
-        toast('复制失败：' + e, 'err');
+        toast('复制失败，请长按文字手动选择', 'err');
       }
     }
   }
@@ -175,11 +190,11 @@
   function fyCall(method, args, quiet) {
     if (FY_METHODS.indexOf(method) < 0) {
       console.error('[fy] 未在契约中的方法名：' + method);
-      if (!quiet) toast('内部错误：非法桥方法 ' + method, 'err');
+      if (!quiet) toast('这个功能暂时用不了，请重启 App 再试', 'err');
       return null;
     }
     if (!bridgeAlive()) {
-      if (!quiet) toast('原生桥不可用，现在是纯网页模式', 'warn');
+      if (!quiet) toast('当前环境用不了这个功能，现在是网页预览模式', 'warn');
       return null;
     }
     try {
@@ -192,7 +207,7 @@
       return raw;   // 万一桥直接返回了对象
     } catch (e) {
       console.error('[fy] ' + method + ' 调用失败', e);
-      if (!quiet) toast('调用 ' + method + ' 失败：' + (e && e.message || e), 'err');
+      if (!quiet) toast('这一步没做成，请稍后重试', 'err');
       return null;
     }
   }
@@ -269,15 +284,44 @@
       b.appendChild(el('span', 'act-label', a.label));
       b.onclick = function () {
         closeSheet($('actionMask'));
-        setTimeout(function () { try { a.run(); } catch (e) { toast('操作失败：' + e, 'err'); } }, 60);
+        /* 等上一个面板退场再执行动作，避免两个 sheet 叠在一起 */
+        setTimeout(function () { try { a.run(); } catch (e) { toast('这一步没做成，请再试一次', 'err'); } }, 200);
       };
       list.appendChild(b);
     });
     openSheet($('actionMask'));
   }
 
-  function openSheet(mask) { if (mask) mask.hidden = false; }
-  function closeSheet(mask) { if (mask) mask.hidden = true; }
+  var sheetTimers = new WeakMap();
+
+  function openSheet(mask) {
+    if (!mask) return;
+    var closing = mask.classList.contains('closing');
+    if (!mask.hidden && !closing) return;   /* 已经完整打开 */
+    var t = sheetTimers.get(mask);
+    if (t) { clearTimeout(t); sheetTimers.delete(mask); }
+    mask.classList.remove('closing');
+    mask.hidden = false;
+    void mask.offsetWidth;                 /* 强制重排，保证每次打开都重放进场 */
+  }
+
+  function closeSheet(mask, cb) {
+    if (!mask || mask.hidden || mask.classList.contains('closing')) { if (cb) cb(); return; }
+    mask.classList.add('closing');
+    var sheet = mask.firstElementChild;
+    var done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      var t = sheetTimers.get(mask);
+      if (t) { clearTimeout(t); sheetTimers.delete(mask); }
+      mask.classList.remove('closing');
+      mask.hidden = true;
+      if (cb) cb();
+    }
+    if (sheet) sheet.addEventListener('animationend', finish, { once: true });
+    sheetTimers.set(mask, setTimeout(finish, 260));   /* 兜底：动画被降级关掉时也有收尾 */
+  }
 
   /** 通用确认（用底部面板实现，风格统一） */
   function confirmAction(title, text, okLabel, onOk) {
@@ -290,6 +334,63 @@
     tip.style.padding = '0 10px 8px';
     tip.textContent = text;
     $('actionList').insertBefore(tip, $('actionList').firstChild);
+  }
+
+  /**
+   * 通用文本输入弹层（替代 window.prompt）。
+   * Android WebView 不保证实现 WebChromeClient.onJsPrompt —— 原生 prompt 可能直接
+   * 返回 null，导致「重命名会话 / 编辑后重发」静默失效。统一走自家弹层，风格也一致。
+   * @param {string} title
+   * @param {{value?:string, placeholder?:string, hint?:string, multiline?:boolean, required?:boolean}} [opts]
+   * @returns {Promise<string|null>} 取消返回 null；required=false 时允许空串
+   */
+  function promptText(title, opts) {
+    var o = opts || {};
+    return new Promise(function (resolve) {
+      var mask = $('askMask');
+      var input = $('askInput');
+      var hint = $('askHint');
+      /* 理论上打包里一定有这个弹层；万一没有就退回原生 prompt，别把功能弄没了 */
+      if (!mask || !input || !hint) { resolve(global.prompt(title, o.value == null ? '' : String(o.value))); return; }
+      $('askTitle').textContent = title || '输入';
+      input.value = o.value == null ? '' : String(o.value);
+      input.placeholder = o.placeholder || '';
+      input.rows = o.multiline ? 6 : 1;
+      input.classList.toggle('multiline', !!o.multiline);
+      hint.hidden = !o.hint;
+      hint.textContent = o.hint || '';
+      var closed = false;
+      function cleanup() {
+        $('btnAskOk').onclick = null;
+        $('btnAskCancel').onclick = null;
+        $('btnAskClose').onclick = null;
+        mask.onclick = null;
+        input.onkeydown = null;
+      }
+      function finish(v) {
+        if (closed) return;
+        closed = true;
+        cleanup();
+        closeSheet(mask);
+        resolve(v);
+      }
+      function ok() {
+        var v = String(input.value).trim();
+        if (!v && o.required !== false) { toast('不能为空', 'warn'); try { input.focus(); } catch (e) {} return; }
+        finish(v);
+      }
+      function cancel() { finish(null); }
+      $('btnAskOk').onclick = ok;
+      $('btnAskCancel').onclick = cancel;
+      $('btnAskClose').onclick = cancel;
+      mask.onclick = function (ev) { if (ev.target === mask) cancel(); };
+      input.onkeydown = function (ev) {
+        if (ev.key === 'Escape') { ev.preventDefault(); cancel(); }
+        if (ev.key === 'Enter' && !o.multiline) { ev.preventDefault(); ok(); }
+      };
+      openSheet(mask);
+      setTimeout(function () { try { input.focus(); if (!o.multiline) input.select(); } catch (e) {} }, 80);
+    });
   }
 
   /* ===========================================================================
@@ -330,20 +431,37 @@
     chat: ['聊天', ''],
     story: ['剧情', '选项式推进'],
     settings: ['设置', '模型 · 参数 · 语音'],
-    debug: ['调试', '原生桥 · 引擎日志']
+    debug: ['调试', '当前环境 · 运行日志']
   };
+
+  /* 底部 5 个 tab 的顺序：切页时新页从"前进方向"淡入，动效才有物理逻辑 */
+  var TAB_ORDER = ['characters', 'chat', 'story', 'settings', 'debug'];
 
   function switchView(name, opts) {
     opts = opts || {};
     if (VIEW_TITLE[name] === undefined) name = 'characters';
+    var prevView = S.view;
     S.view = name;
+
+    var nextView = qs('.view[data-view="' + name + '"]');
+    if (nextView) {
+      if (prevView && prevView !== name) {
+        var dir = TAB_ORDER.indexOf(name) > TAB_ORDER.indexOf(prevView) ? 1 : -1;
+        nextView.style.setProperty('--view-x', (dir * 12) + 'px');
+        nextView.style.setProperty('--view-y', '0px');
+      } else {
+        nextView.style.setProperty('--view-x', '0px');
+        nextView.style.setProperty('--view-y', '6px');
+      }
+    }
 
     qsa('.view').forEach(function (v) { v.classList.toggle('active', v.dataset.view === name); });
     qsa('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === name); });
 
     var t = VIEW_TITLE[name];
-    $('topTitle').textContent = name === 'chat' && S.session ? (S.session.title || t[0]) : t[0];
-    $('topSub').textContent = name === 'chat' ? chatSubtitle() : t[1];
+    /* 会话名只在 chat-head 出现一次：一屏一个主焦点，别让顶栏抢身份 */
+    $('topTitle').textContent = t[0];
+    $('topSub').textContent = t[1];
     $('btnBack').hidden = !(name === 'chat');
 
     if (name === 'characters') renderCharacters();
@@ -363,8 +481,7 @@
     parts.push(S.session.mode === 'group' ? (chars.length + ' 人群聊') : '单聊');
     parts.push('记忆 ' + (S.store ? memoryCovered(S.session.id) : 0) + ' 条');
     if (S.session.plot) parts.push('剧情模式');
-    var st = engineStateText();
-    parts.push(st);
+    /* 不再把引擎状态塞进来：顶栏那颗 pill 已经写了，重复一遍只会把这行挤到截断 */
     return parts.join(' · ');
   }
 
@@ -407,6 +524,30 @@
     }).length;
   }
 
+  /* 搜索用的 haystack 缓存：32000 张卡时，每次按键都给每张卡重新 join + toLowerCase
+     是最大的一笔开销。用 updatedAt 当版本号，卡没改就复用上次的串。 */
+  var charHayCache = {};
+
+  function charHay(c) {
+    var hit = charHayCache[c.id];
+    if (hit && hit.v === c.updatedAt) return hit.hay;
+    var hay = [c.name, c.tagline, c.persona, (c.tags || []).join(' '), c.kind === 'story' ? '剧情卡' : '']
+      .join(' ').toLowerCase();
+    charHayCache[c.id] = { v: c.updatedAt, hay: hay };
+    return hay;
+  }
+
+  /* 搜索词一次渲染只做一次 trim+toLowerCase，不放进"每张卡都调"的函数里 */
+  var charQueryLc = { raw: null, lc: '' };
+
+  function charQueryLower() {
+    var raw = S.charQuery || '';
+    if (raw !== charQueryLc.raw) {
+      charQueryLc = { raw: raw, lc: raw.trim().toLowerCase() };
+    }
+    return charQueryLc.lc;
+  }
+
   function charMatches(c) {
     if (S.charCat && S.charCat !== 'all') {
       if (S.charCat === CAT_FAV) {
@@ -416,11 +557,9 @@
         if (tags.indexOf(S.charCat) < 0) return false;
       }
     }
-    var q = (S.charQuery || '').trim().toLowerCase();
+    var q = charQueryLower();
     if (!q) return true;
-    var hay = [c.name, c.tagline, c.persona, (c.tags || []).join(' '), c.kind === 'story' ? '剧情卡' : '']
-      .join(' ').toLowerCase();
-    return hay.indexOf(q) >= 0;
+    return charHay(c).indexOf(q) >= 0;
   }
 
   function renderCharCats() {
@@ -563,12 +702,18 @@
   /** 造一张角色卡（窗口化渲染时反复调用，所以单独抽出来） */
   function buildCharCard(c, sessions) {
     var card = el('div', 'char-card' + (S.session && S.session.characterIds.indexOf(c.id) >= 0 ? ' on' : ''));
+    /* 卡片本身是 div（里面还有收藏/编辑两个 button，不能套 button），
+       补上键盘语义：能 Tab 到、回车/空格等同点按。 */
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-label', (c.name || '角色') + (c.tagline ? '：' + c.tagline : ''));
     var top = el('div', 'char-top');
     top.appendChild(fillAvatar(el('div', 'char-avatar'), c, 50));
 
     var fav = el('button', 'char-fav' + (c.fav ? ' on' : ''));
     fav.appendChild(iconEl(c.fav ? 'star' : 'star-o'));
-    fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「⭐ 收藏」）';
+    fav.title = c.fav ? '取消收藏' : '收藏（可在分类里筛「收藏」）';
+    fav.setAttribute('aria-label', c.fav ? '取消收藏' : '收藏');
     fav.onclick = function (ev) {
       ev.stopPropagation();
       S.store.saveCharacter(Object.assign({}, c, { fav: !c.fav }));
@@ -582,6 +727,7 @@
     var edit = el('button', 'char-edit');
     edit.appendChild(iconEl('pen'));
     edit.title = '编辑角色';
+    edit.setAttribute('aria-label', '编辑角色');
     edit.onclick = function (ev) { ev.stopPropagation(); openCharSheet(c); };
     top.appendChild(edit);
     card.appendChild(top);
@@ -607,6 +753,12 @@
     card.appendChild(meta);
 
     card.onclick = function () { openSoloChat(c.id, sess ? sess.id : ''); };
+    card.onkeydown = function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        card.onclick();
+      }
+    };
     return card;
   }
 
@@ -617,7 +769,11 @@
     var list = S.charFiltered || [];
     var upto = Math.min(S.charShown, list.length);
     var sessions = S.store.listSessions();
-    for (var i = S.charRendered; i < upto; i++) grid.appendChild(buildCharCard(list[i], sessions));
+    for (var i = S.charRendered; i < upto; i++) {
+      var card = buildCharCard(list[i], sessions);
+      card.style.setProperty('--i', String(i - S.charRendered));
+      grid.appendChild(card);
+    }
     S.charRendered = upto;
     renderCharMore();
   }
@@ -655,10 +811,20 @@
     var grid = $('charGrid');
     grid.innerHTML = '';
     if (S.charCount !== S.characters.length || !S.charCat) renderCharCats();
+    if (S.charCount !== S.characters.length) charHayCache = {};   // 增删过角色：过期缓存一并丢掉
     S.charCount = S.characters.length;
 
-    var shown = S.characters.filter(charMatches);
-    shown.sort(function (a, b) { return (b.fav ? 1 : 0) - (a.fav ? 1 : 0); });   /* 收藏的排前面 */
+    /* 收藏排前面，其余保持 createdAt 顺序。
+       listCharacters 已经按 createdAt 排好，这里只需一次稳定分区 O(n)；
+       以前是对三万条做一次 O(n log n) 排序 —— 而搜索框每敲一个字都会走到这里。 */
+    var shown = [];
+    var favsFirst = [];
+    for (var cf = 0; cf < S.characters.length; cf++) {
+      var c0 = S.characters[cf];
+      if (!charMatches(c0)) continue;
+      if (c0.fav) favsFirst.push(c0); else shown.push(c0);
+    }
+    shown = favsFirst.concat(shown);
     $('charCount').textContent = (shown.length === S.characters.length)
       ? ('共 ' + S.characters.length + ' 位角色')
       : ('共 ' + S.characters.length + ' 位角色，筛出 ' + shown.length + ' 位');
@@ -668,7 +834,7 @@
       $('charEmpty').querySelector('.empty-text').textContent = '换个分类或清空搜索词试试';
     } else if (S.characters.length) {
       $('charEmpty').querySelector('.empty-title').textContent = '还没有角色';
-      $('charEmpty').querySelector('.empty-text').textContent = '点右上角「新建」，或从设置里恢复内置角色';
+      $('charEmpty').querySelector('.empty-text').textContent = '点下面的「导入内置卡包」，或右上角「创作」自己写一张';
     }
 
     /* 换分类 / 改搜索词 / 任何一次整体重渲染：窗口回到第一屏 */
@@ -736,7 +902,7 @@
         refreshLint();
       }).catch(function (e) {
         box.innerHTML = '';
-        box.appendChild(el('span', 'muted xs', '分类模板加载失败：' + ((e && e.message) || e)));
+        box.appendChild(el('span', 'muted xs', '分类模板没加载出来，重开一次试试'));
       });
       return;
     }
@@ -744,7 +910,9 @@
     box.innerHTML = '';
     b.categories.forEach(function (cat) {
       var on = S.charTags.indexOf(cat.tag) >= 0;
-      var chip = el('button', 'chip' + (on ? ' on' : ''), cat.emoji + ' ' + cat.tag);
+      var chip = el('button', 'chip' + (on ? ' on' : ''));
+      chip.appendChild(iconEl(catIconName(cat)));
+      chip.appendChild(el('span', '', cat.tag));
       chip.title = cat.blurb + (cat.coreTension ? '\n核心张力：' + cat.coreTension : '');
       chip.onclick = function () {
         var i = S.charTags.indexOf(cat.tag);
@@ -848,7 +1016,7 @@
         row.appendChild(head);
         var bar = el('div', 'dim-bar');
         var fill = el('div', 'dim-fill' + tone);
-        fill.style.width = d.score + '%';
+        fill.style.setProperty('--p', String(d.score / 100));
         bar.appendChild(fill);
         row.appendChild(bar);
         if (d.score < 70) row.appendChild(el('div', 'dim-hint', d.hint));
@@ -904,9 +1072,9 @@
    * @param {string} task  FYCreator.TASKS 的键
    */
   function aiAssist(task) {
-    if (S.aiBusy) { toast('上一次生成还没结束', 'warn'); return Promise.resolve(false); }
+    if (S.aiBusy) { toast('上一次生成还没结束，稍等一下', 'warn'); return Promise.resolve(false); }
     if (!providerReady()) {
-      toast('还没有可用的模型：设置 → 模型来源（云端或本地都行）', 'warn', 4000);
+      toast('还没有可用的模型，先到「设置 → 模型来源」选一个', 'warn', 4000);
       return Promise.resolve(false);
     }
     var patch = collectCharForm();
@@ -940,7 +1108,8 @@
       var res = FYCreator.parseAssistResult(task, acc);
       if (!res.ok) {
         aiStatus('');
-        toast('生成失败：' + (res.message || '模型没有返回可用内容'), 'err', 4200);
+        toast('这轮没生成出来。可以直接重发一次', 'err', 4200);
+        fyLog('创作者工具 AI 辅助解析失败：' + (res.message || ''));
         return false;
       }
       var n = applyAssistPatch(res.patch, fieldEl);
@@ -953,8 +1122,8 @@
       S.aiBusy = false;
       aiStatus('');
       var msg = (e && e.message) || String(e);
-      if (e && e.name === 'AbortError') { toast('已停止生成', 'warn'); return false; }
-      toast('生成失败：' + msg, 'err', 4600);
+      if (e && e.name === 'AbortError') { toast('停下了。已经写出来的内容还留着', 'warn'); return false; }
+      toast('生成失败，请再试一次', 'err', 4600);
       fyLog('创作者工具 AI 辅助失败：' + msg);
       return false;
     });
@@ -995,7 +1164,7 @@
     }
     var g = cat.guide || {};
     var acts = [];
-    acts.push({ icon: cat.emoji, label: '『' + cat.tag + '』：' + (cat.blurb || ''), run: function () {} });
+    acts.push({ icon: catIconName(cat), label: '『' + cat.tag + '』：' + (cat.blurb || ''), run: function () {} });
     if (cat.coreTension) acts.push({ icon: '⚡', label: '核心张力：' + cat.coreTension, run: function () {} });
     (g.must || []).forEach(function (m) { acts.push({ icon: '✅', label: '必须做到：' + m, run: function () {} }); });
     (g.avoid || []).forEach(function (m) { acts.push({ icon: '🚫', label: '别这样写：' + m, run: function () {} }); });
@@ -1066,7 +1235,7 @@
       }
     }).catch(function (e) {
       $('creatorPanel').innerHTML = '';
-      $('creatorPanel').appendChild(el('div', 'err', '分类模板加载失败：' + ((e && e.message) || e)));
+      $('creatorPanel').appendChild(el('div', 'err', '分类模板没加载出来，重开一次试试'));
     });
   }
 
@@ -1099,7 +1268,9 @@
     b.categories.forEach(function (cat) {
       var on = S.creator.tag === cat.tag;
       var card = el('button', 'wiz-card' + (on ? ' on' : ''));
-      card.appendChild(el('span', 'wiz-emoji', cat.emoji));
+      var tile = el('span', 'wiz-emoji');
+      tile.appendChild(iconEl(catIconName(cat)));
+      card.appendChild(tile);
       card.appendChild(el('span', 'wiz-name', cat.tag));
       card.appendChild(el('div', 'wiz-sub', cat.blurb));
       card.onclick = function () {
@@ -1189,7 +1360,7 @@
     panel.appendChild(f2);
 
     var summary = el('div', 'wiz-block');
-    summary.appendChild(el('div', 'wiz-name', (cat ? cat.emoji + ' ' + cat.tag : '未选分类') + ' · ' + (S.creator.kind === 'story' ? '剧情卡' : '角色卡')));
+    summary.appendChild(el('div', 'wiz-name', (cat ? cat.tag : '未选分类') + ' · ' + (S.creator.kind === 'story' ? '剧情卡' : '角色卡')));
     summary.appendChild(el('div', 'wiz-sub', sk ? ('骨架：' + sk.title) : '不使用骨架（自由发挥）'));
     panel.appendChild(summary);
 
@@ -1299,7 +1470,7 @@
     }).catch(function (e) {
       $('refSources').innerHTML = '';
       $('refBody').innerHTML = '';
-      $('refBody').appendChild(el('div', 'err', '参考来源加载失败：' + ((e && e.message) || e)));
+      $('refBody').appendChild(el('div', 'err', '参考来源没加载出来，重开一次试试'));
     });
   }
 
@@ -1332,7 +1503,7 @@
       fetchRemoteRef(src, body);
     }).catch(function (e) {
       body.innerHTML = '';
-      body.appendChild(el('div', 'err', '拉取失败：' + ((e && e.message) || e)));
+      body.appendChild(el('div', 'err', '没拉到参考内容，检查一下网络再重试'));
       body.appendChild(el('div', 'muted xs', '离线也照样能用：分类模板与写作要点都随 App 打包，不依赖网络。'));
     });
   }
@@ -1346,7 +1517,7 @@
 
     if (!chars.length) {
       body.appendChild(el('div', 'lint-item warn',
-        '你还没有任何角色。先去「📦 卡包」一键导入内置的 160 张，这里就能统计出各类角色的人设长度和开场白写法。'));
+        '你还没有任何角色。先点「卡包」导入内置的 160 张，这里就能统计各类角色的写法。'));
       return;
     }
 
@@ -1405,7 +1576,7 @@
     var tip = el('div', 'ref-item');
     tip.appendChild(el('div', 'ref-title', '拿这些数字做什么'));
     tip.appendChild(el('div', 'ref-meta',
-      '人设比中位数短很多 → 大概率撑不住三轮对话；开场白明显偏长 → 模型容易跟着啰嗦。' +
+      '人设比中间值短很多 → 大概率撑不住三轮对话；开场白明显偏长 → 模型容易跟着啰嗦。' +
       '这些是"风格校准"，不是硬标准。'));
     body.appendChild(tip);
   }
@@ -1439,8 +1610,8 @@
       renderRemoteRef(src, data, body, url);
     }).catch(function (e) {
       body.innerHTML = '';
-      body.appendChild(el('div', 'err', '拉取失败：' + ((e && e.message) || e) +
-        '（网络不通、来源改了接口、或该来源不允许跨域都会这样）'));
+      body.appendChild(el('div', 'err', '没拉到参考内容，检查一下网络再重试' +
+        '（来源改了接口、或不允许网页直接取也会这样）'));
       var tip = el('div', 'ref-item');
       tip.appendChild(el('div', 'ref-title', '离线方案'));
       tip.appendChild(el('div', 'ref-meta',
@@ -1623,7 +1794,7 @@
     try {
       cards = FYCards.parseCards(text);
     } catch (e) {
-      toast('导入失败：' + ((e && e.message) || e), 'err', 3800);
+      toast('这个文件读不了，请确认是角色卡文件后重试', 'err', 3800);
       fyLog('角色卡解析失败：' + ((e && e.message) || e));
       return 0;
     }
@@ -1686,7 +1857,7 @@
         box.appendChild(row);
       });
     }).catch(function (e) {
-      st.textContent = '搜索失败：' + ((e && e.message) || e);
+      st.textContent = '搜索没成功，请稍后重试';
     });
   }
 
@@ -1764,8 +1935,8 @@
     var p = provider();
     list.innerHTML = '';
     st.textContent = isRemote()
-      ? ('当前：外部服务 · ' + (p.model || '（未选模型）') + ' @ ' + p.baseUrl)
-      : ('当前：内置引擎 · ' + (S.settings.model || '（未选模型）'));
+      ? ('当前：云模型 · ' + (p.model || '（未选模型）') + ' @ ' + p.baseUrl)
+      : ('当前：本地模型 · ' + (S.settings.model ? modelDisplayName(S.settings.model) : '（未选模型）'));
 
     /* 本地引擎 */
     var rowL = el('div', 'model-row' + (!isRemote() ? ' on' : ''));
@@ -1773,10 +1944,10 @@
     icoL.appendChild(iconEl('phone'));
     rowL.appendChild(icoL);
     var colL = el('div', 'grow');
-    colL.appendChild(el('div', 'model-name', '内置引擎（本地 GGUF · 离线）'));
+    colL.appendChild(el('div', 'model-name', '内置引擎（本机运行 · 离线）'));
     colL.appendChild(el('div', 'model-size', S.models.length
-      ? ('本机有 ' + S.models.length + ' 个模型，点右侧切换/启动')
-      : '本机还没有模型；到设置里下载 0.5B 或导入任意 GGUF'));
+      ? ('本机有 ' + S.models.length + ' 个模型，点右侧切换或启动')
+      : '本机还没有模型；到设置里下载 0.5B，或导入一个模型文件'));
     rowL.appendChild(colL);
     var bL = el('button', 'btn btn-xs', isRemote() ? '切回' : '重启');
     bL.onclick = function () {
@@ -1784,7 +1955,7 @@
       try { fyCall('setProvider', [JSON.stringify({ mode: 'local', baseUrl: '', apiKey: '', model: '' })]); } catch (e) {}
       var m = S.settings.model || (S.models[0] && S.models[0].name);
       if (m) startEngine(m);
-      toast('已切回内置引擎' + (m ? '：' + m : ''), 'ok', 2600);
+      toast('已切回内置引擎' + (m ? '：' + modelDisplayName(m) : ''), 'ok', 2600);
       renderBackendSheet();
     };
     rowL.appendChild(bL);
@@ -1794,7 +1965,10 @@
     (S.models || []).forEach(function (m) {
       var row = el('div', 'model-row' + (!isRemote() && S.settings.model === m.name ? ' on' : ''));
       var col = el('div', 'grow');
-      col.appendChild(el('div', 'model-name', '   ' + m.name));
+      var mName = el('div', 'model-name');
+      mName.appendChild(el('span', '', modelDisplayName(m.name)));
+      mName.appendChild(el('span', 'muted xs', ' ' + m.name));
+      col.appendChild(mName);
       col.appendChild(el('div', 'model-size', fmtSize(m.sizeBytes)));
       row.appendChild(col);
       var b = el('button', 'btn btn-xs', (!isRemote() && S.settings.model === m.name && engineReady()) ? '使用中' : '启动');
@@ -1802,7 +1976,7 @@
         S.provider = { mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false };
         try { fyCall('setProvider', [JSON.stringify({ mode: 'local', baseUrl: '', apiKey: '', model: '' })]); } catch (e) {}
         startEngine(m.name);
-        toast('正在启动 ' + m.name, 'ok', 2600);
+        toast('正在启动 ' + modelDisplayName(m.name), 'ok', 2600);
       };
       row.appendChild(b);
       list.appendChild(row);
@@ -1814,16 +1988,16 @@
     icoR.appendChild(iconEl('cloud'));
     rowR.appendChild(icoR);
     var colR = el('div', 'grow');
-    colR.appendChild(el('div', 'model-name', '外部服务（DeepSeek / 豆包 / 局域网…）'));
+    colR.appendChild(el('div', 'model-name', '云模型（外部服务：DeepSeek / 豆包 / 局域网…）'));
     colR.appendChild(el('div', 'model-size', p.baseUrl
-      ? ((p.model || '（未选模型）') + ' @ ' + p.baseUrl + (p.hasKey ? ' · 带 Key' : ''))
-      : '还没配置：去设置里选个服务商，填地址（和 Key）即可'));
+      ? ((p.model || '（未选模型）') + ' @ ' + p.baseUrl + (p.hasKey ? ' · 已填密钥' : ' · 未填密钥'))
+      : '还没配置：去设置里选个服务商，填地址（和密钥）即可'));
     rowR.appendChild(colR);
     var bR = el('button', 'btn btn-xs', isRemote() ? '使用中' : (p.ready ? '启用' : '去配置'));
     bR.onclick = function () {
       if (p.ready && p.baseUrl) {
         S.provider = p;
-        toast('已切到外部服务：' + (p.model || ''), 'ok', 2600);
+        toast('已切到云模型：' + (p.model || ''), 'ok', 2600);
         closeSheet($('backendMask'));
         return;
       }
@@ -1902,8 +2076,8 @@
 
   /** 继续生成：接着最后一条助手消息往下写（追加而不是新发一条） */
   function continueLast() {
-    if (!S.session) { toast('先选一个角色', 'warn'); return; }
-    if (!providerReady()) { toast(isRemote() ? '外部模型未配置好' : '引擎未就绪', 'warn'); return; }
+    if (!S.session) { toast('先在「角色」页选一个', 'warn'); return; }
+    if (!providerReady()) { toast(isRemote() ? '云模型还没配好，先到「设置 → 模型来源」看看' : '本地模型还没就绪，先到设置里启动', 'warn'); return; }
     var msgs = S.messages || [];
     var last = null;
     for (var i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === 'assistant') { last = msgs[i]; break; } }
@@ -1920,8 +2094,8 @@
   }
 
   function clearCurrentSession() {
-    if (!S.session) { toast('先选一个角色', 'warn'); return; }
-    confirmAction('清空这段对话', '会删掉当前会话的全部消息（角色和设置不受影响）。', '清空', function () {
+    if (!S.session) { toast('先在「角色」页选一个', 'warn'); return; }
+    confirmAction('清空这段对话', '这段对话的消息会全部删掉，删了找不回来。想留个底，先到「设置」里点「导出全部数据」备份一份。', '清空', function () {
       S.store.clearSessionMessages(S.session.id);
       S.messages = S.store.listMessages(S.session.id);
       S.lastOptions = [];
@@ -1962,7 +2136,7 @@
   }
 
   function exportChatMarkdown() {
-    if (!S.session) { toast('先选一个角色', 'warn'); return; }
+    if (!S.session) { toast('先在「角色」页选一个', 'warn'); return; }
     var msgs = S.messages || S.store.listMessages(S.session.id);
     if (!msgs.length) { toast('这段对话还是空的', 'warn'); return; }
     var md = chatToMarkdown(S.session, msgs);
@@ -2026,8 +2200,8 @@
     }
     $('selPreset').value = key;
     if (p.mode === 'remote' && p.ready) {
-      $('providerStatus').textContent = '已启用外部服务：' + p.baseUrl + ' · 模型 ' + p.model
-        + (p.hasKey ? ' · 带 API Key' : ' · 无 Key');
+      $('providerStatus').textContent = '已启用云模型：' + p.model
+        + (p.hasKey ? ' · 已填密钥' : ' · 未填密钥');
     }
   }
 
@@ -2037,8 +2211,7 @@
     var st = $('providerStatus');
     st.textContent = '正在连接 ' + base + ' …';
     var r = asObj(fyCall('testProvider', [JSON.stringify({ baseUrl: base, apiKey: key })])) || {};
-    if (!r.ok && !r.message) { st.textContent = '测试失败：没有拿到响应（原生桥可用吗？）'; return; }
-    if (!r.ok) { st.textContent = '连不上：' + (r.message || '未知错误'); return; }
+    if (!r.ok) { st.textContent = '没等到服务回应。检查地址和网络后重试；还不行就到「调试」页点「导出诊断」。'; return; }
     var list = r.models || [];
     var dl = $('remoteModelList');
     dl.innerHTML = '';
@@ -2066,7 +2239,7 @@
       model: (mode === 'remote') ? ($('selRemoteModel').value || '').trim() : ''
     };
     if (mode === 'remote' && (!payload.baseUrl || !payload.model)) {
-      toast('外部服务要先填地址和模型名（拉不到列表就直接手填）', 'warn', 3600);
+      toast('云模型要先填地址和模型名，拉不到列表就直接手填', 'warn', 3600);
       return;
     }
     var back = asObj(fyCall('setProvider', [JSON.stringify(payload)]));
@@ -2075,7 +2248,7 @@
     $('setRemoteKey').value = '';
     renderProviderUI();
     renderSettings();
-    toast(mode === 'remote' ? ('已切换到外部模型：' + payload.model) : '已切回内置引擎', 'ok', 3200);
+    toast(mode === 'remote' ? ('已切换到云模型：' + payload.model) : '已切回内置引擎', 'ok', 3200);
     fyLog('模型来源切换：' + mode + ' ' + payload.baseUrl + ' ' + payload.model);
   }
 
@@ -2086,7 +2259,7 @@
     var hint = $('customHint');
     if (hint) hint.textContent = '开始下载 ' + name + ' …（可切后台，进度显示在下面）';
     var r = fyCall('downloadModel', [url, name]);
-    toast((r && r.message) || '已开始下载', r && r.ok ? 'ok' : 'err', 3200);
+    toast((r && r.ok) ? '已开始下载' : '没能开始下载，请稍后重试', r && r.ok ? 'ok' : 'err', 3200);
   }
 
   /* ---------- 推荐：还没聊过的优先，其次最久没聊的 ---------- */
@@ -2224,9 +2397,28 @@
       return step();
     }).catch(function (e) {
       if (btn) { btn.disabled = false; btn.textContent = '全部导入'; }
-      toast('导入失败：' + ((e && e.message) || e), 'err', 3600);
+      toast('卡包没导入成功，请重试', 'err', 3600);
       throw e;
     });
+  }
+
+  /** 加载态骨架：比一行「正在加载…」更接近最终版式，感知更快（纯 CSS shimmer） */
+  function skeletonRows(container, n) {
+    if (!container) return;
+    for (var i = 0; i < (n || 3); i++) {
+      var row = el('div', 'sk-row');
+      var ico = el('span', 'sk');
+      ico.style.width = '36px'; ico.style.height = '36px';
+      ico.style.borderRadius = 'var(--r-sm)'; ico.style.flex = '0 0 auto';
+      row.appendChild(ico);
+      var col = el('div', 'grow');
+      var l1 = el('div', 'sk sk-line w70');
+      l1.style.marginBottom = '8px';
+      col.appendChild(l1);
+      col.appendChild(el('div', 'sk sk-line w45'));
+      row.appendChild(col);
+      container.appendChild(row);
+    }
   }
 
   function openPackSheet() {
@@ -2234,17 +2426,22 @@
     var st = $('packStatus');
     var list = $('packList');
     list.innerHTML = '';
+    skeletonRows(list, 3);
     st.textContent = '正在加载卡包目录…';
     loadPackIndex().then(function (idx) {
       var packs = idx.packs || [];
       var total = packs.reduce(function (a, p) { return a + (Number(p.count) || 0); }, 0);
       if (!packs.length) { st.textContent = '没有内置卡包（packs/index.json 为空）'; return; }
       st.textContent = '内置 ' + packs.length + ' 个卡包 · 共 ' + total + ' 张卡（原创，CC0 许可）';
+      list.innerHTML = '';                 /* 清掉加载骨架 */
       var have = importedNames();
       packs.forEach(function (p) {
         var row = el('div', 'model-row');
+        var pIco = el('span', 'row-ico');
+        pIco.appendChild(iconEl(catIconName({ tag: (p.tags || [])[0] })));
+        row.appendChild(pIco);
         var col = el('div', 'grow');
-        col.appendChild(el('div', 'model-name', (p.emoji || '📦') + ' ' + p.name + ' · ' + p.count + ' 张'));
+        col.appendChild(el('div', 'model-name', p.name + ' · ' + p.count + ' 张'));
         var tg = p.tags || [];
         col.appendChild(el('div', 'model-size',
           tg.slice(0, 3).join(' / ') + (tg.length > 3 ? (' 等 ' + tg.length + ' 类') : '')));
@@ -2261,14 +2458,14 @@
           }).catch(function (e) {
             btn.disabled = false;
             btn.textContent = '重试';
-            toast('导入失败：' + ((e && e.message) || e), 'err', 3600);
+            toast('卡包没导入成功，请重试', 'err', 3600);
           });
         };
         row.appendChild(btn);
         list.appendChild(row);
       });
     }).catch(function (e) {
-      st.textContent = '卡包目录加载失败：' + ((e && e.message) || e) + '（网页预览模式可能没有该文件）';
+      st.textContent = '卡包目录没加载出来，重开一次试试；还不行就到「调试」页点「导出诊断」。';
     });
   }
 
@@ -2286,15 +2483,15 @@
    * 目录格式（fy_library_v1，字段固定）：
    *   { spec, total, baseUrl, categories:[{slug,tag,emoji,character,story}],
    *     packs:[{file,slug,tag,emoji,kind,part,parts,count,bytes,sha256}] }
-   * 分片文件就是内置卡包的格式（fy_pack_v1）。
+   * 单个卡包文件就是内置卡包的格式（fy_pack_v1）。
    *
-   * v2 是纯增量：分片多出 topic/topics/keywords（主题与关键词），老字段语义不变。
+   * v2 是纯增量：卡包多出 topic/topics/keywords（主题与关键词），老字段语义不变。
    * 不搜关键词时行为和 v1 一样按「分类 × 类型」整组下；搜了就只列命中的小片。
    * 契约见 docs/library-catalog.md。
    * ======================================================================== */
 
   /** 目录地址兜底值；用户可在卡库面板里改成自己的地址（存 S.settings.libCatalogUrl）。
-      目录本身很小（约 9KB）随仓库发，卡包分片走 Gitee 发行版附件；
+      目录本身很小（约 9KB）随仓库发，卡包走 Gitee 发行版附件；
       两者都通过本机 AssetServer 的 /fetch 同源代理取（Gitee 不发 CORS 头）。 */
   var LIB_CATALOG_URL = 'https://gitee.com/zhao-jiurong/wind-and-moon-local-edition/raw/main/cards/library-index.json';
   /** 面板最多显示多少行「分类 × 类型」 */
@@ -2317,7 +2514,7 @@
     return fetch(u);
   }
 
-  /** 分片的真实地址：优先目录里给的绝对 url，其次 baseUrl + file。
+  /** 卡包的真实地址：优先目录里给的绝对 url，其次 baseUrl + file。
       留 url 这一层是为了以后拆发行版 / 换托管时只改目录（App 不用跟着发版）。 */
   function libFileUrl(p) {
     if (/^https?:\/\//i.test(p.url || '')) return p.url;
@@ -2336,7 +2533,7 @@
     return libPacksImported((row && row.packs) || []);
   }
 
-  /** 单个分片已导入的张数（按文件名记在 settings.libraryImported，跟整组视图共用同一份状态） */
+  /** 单个卡包已导入的张数（按文件名记在 settings.libraryImported，跟整组视图共用同一份状态） */
   function libPackImported(p) {
     if (!p) return 0;
     var hit = libImportedMap()[p.file];
@@ -2350,7 +2547,7 @@
     return n;
   }
 
-  /** 一个分片的检索文本：tag + slug + 类型中文名 + topic + topics[] + keywords[]（契约见 docs/library-catalog.md） */
+  /** 一个卡包的检索文本：tag + slug + 类型中文名 + topic + topics[] + keywords[]（契约见 docs/library-catalog.md） */
   function libPackSearchText(p) {
     var parts = [p.tag || '', p.slug || '', LIB_KIND_LABEL[p.kind] || p.kind || '', p.topic || ''];
     (Array.isArray(p.topics) ? p.topics : []).forEach(function (t) { if (t) parts.push(String(t)); });
@@ -2359,7 +2556,7 @@
   }
 
   /**
-   * 按关键词搜分片（纯函数：只翻内存里的目录，绝不发网络请求）。
+   * 按关键词搜卡包（纯函数：只翻内存里的目录，绝不发网络请求）。
    * 查询按空白切 token，每个 token 都要以子串命中检索文本（大小写不敏感）才算命中；
    * 空查询返回 []，表示"该走整组视图"。排序固定成 tag → kind → part，避免每次刷新顺序乱跳。
    */
@@ -2390,7 +2587,7 @@
   /**
    * 目录换了一版（index.seed 变了）→ 作废"按文件名"记的旧导入记录。
    *
-   * 为什么要作废：分片文件名是 `<slug>-<kind>-<part>.json`，v1 的 `mystery-character-1.json`
+   * 为什么要作废：卡包文件名是 `<slug>-<kind>-<part>.json`，v1 的 `mystery-character-1.json`
    * 是 1000 张的整组，v2 的同名文件只是第 1 片（约 250 张）。沿用旧记录的话，老用户升级后
    * 面板会显示"已导入 1000 张"，既看不到新卡，也拿不到重新加长的文本。
    * 只作废"张数对不上"和"目录里已经没有"的记录；张数一致（说明就是这一版）的照旧保留。
@@ -2420,11 +2617,11 @@
       patch.libraryOverwrite = true;
     }
     S.settings = S.store.saveSettings(patch);
-    if (dropped) fyLog('卡库目录已更新（seed=' + seed + '）：作废 ' + dropped + ' 条旧的分片导入记录');
+    if (dropped) fyLog('卡库目录已更新（seed=' + seed + '）：作废 ' + dropped + ' 条旧的卡包导入记录');
     return dropped;
   }
 
-  /** 记住"这个分片已经导入过"（重开面板能看出来；再点也不会重复下载/建卡） */
+  /** 记住"这个卡包已经导入过"（重开面板能看出来；再点也不会重复下载/建卡） */
   function markLibraryImported(file, count) {
     var m = {};
     var old = libImportedMap();
@@ -2444,15 +2641,15 @@
       try { idx = JSON.parse(txt); } catch (e) { throw new Error('目录不是合法 JSON'); }
       if (!idx || !Array.isArray(idx.packs)) throw new Error('目录缺少 packs 数组');
       libState.catalog = idx;
-      libState.seedDropped = libApplyCatalogSeed(idx);   // 目录换代 → 作废旧分片导入记录（见函数注释）
+      libState.seedDropped = libApplyCatalogSeed(idx);   // 目录换代 → 作废旧的卡包导入记录（见函数注释）
       return idx;
     });
   }
 
   /**
    * 目录 → 「分类 × 类型」行（最多 LIB_MAX_ROWS 行）。
-   * 先按 categories 建行（顺序稳定），再把 packs 挂上去 —— 这样即使某个分类暂时没分片，
-   * 也能显示成"还没有分片"，而不是整行消失。
+   * 先按 categories 建行（顺序稳定），再把 packs 挂上去 —— 这样即使某个分类暂时没卡包，
+   * 也能显示成"还没有卡包"，而不是整行消失。
    */
   function libraryGroups(idx) {
     var cats = (idx && Array.isArray(idx.categories)) ? idx.categories : [];
@@ -2519,11 +2716,14 @@
       + '（重复点不会重复建卡）';
     rows.forEach(function (row) {
       var dom = el('div', 'model-row');
+      var rowIco = el('span', 'row-ico');
+      rowIco.appendChild(iconEl(catIconName({ tag: row.tag, emoji: row.emoji })));
+      dom.appendChild(rowIco);
       var col = el('div', 'grow');
       col.appendChild(el('div', 'model-name',
-        (row.emoji || '📦') + ' ' + row.tag + ' · ' + (LIB_KIND_LABEL[row.kind] || row.kind)));
+        row.tag + ' · ' + (LIB_KIND_LABEL[row.kind] || row.kind)));
       var bits = [row.total + ' 张'];
-      if (row.packs.length) bits.push(row.packs.length + ' 个分片');
+      if (row.packs.length) bits.push(row.packs.length + ' 包');
       if (row.bytes) bits.push(fmtSize(row.bytes));
       col.appendChild(el('div', 'model-size', bits.join(' · ')));
       row._statusEl = el('div', 'lib-row-status');
@@ -2578,7 +2778,7 @@
       var n = libState.results.length;
       if (label) label.textContent = '下载全部匹配（' + n + ' 片）';
       btn.disabled = n === 0;
-      btn.title = n ? '只下载命中的 ' + n + ' 个分片' : '没有匹配的分片';
+      btn.title = n ? '只下载命中的 ' + n + ' 包' : '没有匹配的卡包';
     } else {
       if (label) label.textContent = '全部下载';
       btn.disabled = false;
@@ -2608,7 +2808,7 @@
     list.innerHTML = '';
     libState.packRows = {};
     if (!packs.length) {
-      st.textContent = '没有匹配「' + libState.query + '」的分片（换个词试试，或清空搜索看全部）';
+      st.textContent = '没有匹配「' + libState.query + '」的卡包（换个词试试，或清空搜索看全部）';
       return;
     }
     /* 顶部文案按分类汇总一句，用户一眼能看出命中落在哪些分类 */
@@ -2625,9 +2825,12 @@
       var row = libPackRow(p);
       libState.packRows[p.file] = row;
       var dom = el('div', 'model-row');
+      var pIco = el('span', 'row-ico');
+      pIco.appendChild(iconEl(catIconName({ tag: p.tag, emoji: p.emoji })));
+      dom.appendChild(pIco);
       var col = el('div', 'grow');
       col.appendChild(el('div', 'model-name',
-        (p.emoji || '📦') + ' ' + (p.tag || p.slug || '未分类') + ' · '
+        (p.tag || p.slug || '未分类') + ' · '
         + (LIB_KIND_LABEL[row.kind] || row.kind) + ' · ' + (p.topic || '未分类主题')));
       col.appendChild(el('div', 'model-size', [
         row.total + ' 张', fmtSize(Number(p.bytes) || 0),
@@ -2696,6 +2899,7 @@
     var sInp = $('libSearch');
     if (sInp) sInp.value = '';
     list.innerHTML = '';
+    skeletonRows(list, 3);
     st.textContent = '正在加载卡库目录…';
     $('libTotal').textContent = '加载中…';
     libUpdateAllBtn();
@@ -2710,13 +2914,12 @@
       }
     }).catch(function (e) {
       libState.rows = [];
-      st.textContent = '卡库目录加载失败：' + ((e && e.message) || e)
-        + ' —— 请检查网络或地址（' + url + '）';
+      st.textContent = '卡库目录加载失败。检查网络或目录地址后重试。';
       $('libTotal').textContent = '目录加载失败';
     });
   }
 
-  /** 下载一个分片并交回"已校验"的卡片数组；任何一步不对就抛错（绝不写坏数据） */
+  /** 下载一个卡包并交回"已校验"的卡片数组；任何一步不对就抛错（绝不写坏数据） */
   function downloadLibraryShard(p) {
     return fetchLibraryUrl(libFileUrl(p)).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status + '（' + p.file + '）');
@@ -2744,8 +2947,8 @@
   }
 
   /**
-   * 下载并导入一批分片（整组一行、或搜索命中的一片，都走这里）。
-   * 已导入过的分片直接跳过（幂等）。失败时**不会**写库，也不会把失败的分片记进 libraryImported。
+   * 下载并导入一批卡包（整组一行、或搜索命中的一包，都走这里）。
+   * 已导入过的卡包直接跳过（幂等）。失败时**不会**写库，也不会把失败的卡包记进 libraryImported。
    * opts.target：带 _statusEl/_btn/_paintBtn/_busy 的行对象，用来显示进度、禁用按钮；
    *   不给就静默下载（测试 / 后台批量调用）。
    * opts.overwrite：同名卡用新内容原地覆盖（默认跳过，保证幂等）。
@@ -2758,8 +2961,8 @@
     var list = (packs || []).slice();
     if (row && row._busy) return Promise.resolve({ added: 0, error: '正在下载中' });
     if (!list.length) {
-      setRowStatus(row, '这个分类还没有分片文件', 'err');
-      return Promise.resolve({ added: 0, error: '没有分片文件' });
+      setRowStatus(row, '这个分类还没有可下载的卡包', 'err');
+      return Promise.resolve({ added: 0, error: '没有可下载的卡包' });
     }
     var imported = libImportedMap();
     /* force：忽略"已导入"记录，重新下载并导入一遍。
@@ -2782,7 +2985,7 @@
       }
       var result;
       if (err) {
-        setRowStatus(row, '失败：' + err, 'err');
+        setRowStatus(row, '导入失败，请重试', 'err');
         result = { added: added, replaced: replaced, error: err };
       } else {
         if (row) {
@@ -2836,7 +3039,7 @@
   }
 
   /**
-   * 下载并导入一组（一个分类的一个类型，含它的全部分片）。
+   * 下载并导入一组（一个分类的一个类型，含它的全部卡包）。
    * 保留这个入口：整组视图的按钮和既有调用都还走它，只是循环体挪去了 importLibraryPacks。
    * @returns {Promise<{added:number, error?:string}>}
    */
@@ -2849,7 +3052,7 @@
     });
   }
 
-  /** 顶部「全部下载」：整组视图按行下，搜索视图只下命中的分片 */
+  /** 顶部「全部下载」：整组视图按行下，搜索视图只下命中的卡包 */
   function importAllLibrary() {
     if (libState.query) return importAllLibraryMatches();
     var rows = libState.rows.slice();
@@ -2888,12 +3091,12 @@
     });
   }
 
-  /** 搜索视图的「下载全部匹配（N 片）」：只碰命中的分片，逐片更新那一行的状态 */
+  /** 搜索视图的「下载全部匹配（N 片）」：只碰命中的卡包，逐个更新那一行的状态 */
   function importAllLibraryMatches() {
     var packs = libState.results.slice();
     var btn = $('btnLibAll');
     var total = $('libTotal');
-    if (!packs.length) { toast('没有匹配的分片', 'warn'); return Promise.resolve({ added: 0 }); }
+    if (!packs.length) { toast('没有匹配的卡包', 'warn'); return Promise.resolve({ added: 0 }); }
     var done = 0, added = 0, replaced = 0, failed = 0;
     if (btn) btn.disabled = true;
     function step() {
@@ -2929,10 +3132,10 @@
 
   /* ---------- 存储后端（多后端可切换，见 store.js 的 BACKENDS） ---------- */
   var BACKEND_LABEL = {
-    indexeddb: 'IndexedDB（默认）',
-    sqlite: 'SQLite（实验）',
-    localstorage: 'localStorage（兜底）',
-    memory: '内存（测试）'
+    indexeddb: '本机数据库（默认）',
+    sqlite: 'SQLite（实验，需真机验证）',
+    localstorage: '浏览器存储（兜底）',
+    memory: '内存（仅测试）'
   };
 
   function renderStorageInfo() {
@@ -2956,7 +3159,7 @@
     }
     sel.value = cur;
     var st = S.store && S.store.stats ? S.store.stats() : null;
-    info.textContent = '当前 ' + (BACKEND_LABEL[cur] || cur)
+    info.textContent = '当前存放位置：' + (BACKEND_LABEL[cur] || cur)
       + (st ? (' · ' + st.sessions + ' 会话 / ' + st.messages + ' 消息 / 写 ' + st.writes + ' 次') : '');
   }
 
@@ -2980,7 +3183,7 @@
       toast('已导出 ' + name + '（' + payload.messages.length + ' 条消息）', 'ok', 4000);
       fyLog('备份已导出：' + (r.path || name));
     } else {
-      toast('导出失败：' + ((r && r.message) || '未知错误'), 'err', 3600);
+      toast('备份没导出去，请确认存储权限后重试', 'err', 3600);
     }
     return r;
   }
@@ -2991,7 +3194,7 @@
     try {
       payload = JSON.parse(String(text || '').replace(/^\uFEFF/, ''));
     } catch (e) {
-      toast('备份解析失败：' + ((e && e.message) || e), 'err', 3800);
+      toast('这个文件不是本 App 导出的备份，请换一个再试', 'err', 3800);
       return false;
     }
     var c = {
@@ -3000,8 +3203,8 @@
       messages: (payload.messages || []).length
     };
     confirmAction('从备份恢复',
-      '将用备份覆盖当前数据：' + c.characters + ' 个角色 / ' + c.sessions + ' 个会话 / '
-      + c.messages + ' 条消息。当前的角色与聊天记录会被替换，确定继续？',
+      '备份里有 ' + c.characters + ' 个角色 / ' + c.sessions + ' 个会话 / ' + c.messages + ' 条消息。'
+      + '当前数据会被替换，替换后找不回来。想留个底，先点「导出全部数据」备份一份。',
       '覆盖恢复', function () {
         try {
           var counts = S.store.importAll(payload);
@@ -3018,7 +3221,7 @@
           toast('已恢复：' + counts.characters + ' 角色 / ' + counts.messages + ' 条消息', 'ok', 4000);
           fyLog('备份已恢复，来源=' + (srcName || '?') + ' 统计=' + JSON.stringify(counts));
         } catch (e) {
-          toast('恢复失败：' + ((e && e.message) || e), 'err', 4000);
+          toast('这次没恢复成，数据保持原样，请确认备份完整后重试', 'err', 4000);
         }
       });
     return true;
@@ -3036,7 +3239,7 @@
       toast('已导出到 Download/' + name, 'ok', 3600);
       fyLog('角色卡已导出：' + (r.path || name));
     } else {
-      toast('导出失败：' + ((r && r.message) || '未知错误'), 'err', 3600);
+      toast('角色卡没导出去，请确认存储权限后重试', 'err', 3600);
     }
     return r;
   }
@@ -3149,13 +3352,36 @@
     }
     $('btnPlotToggle').classList.toggle('on', !!(S.session && S.session.plot));
     $('btnGroupToggle').classList.toggle('on', !!(S.session && S.session.mode === 'group'));
-    $('topTitle').textContent = S.session ? (S.session.title || '聊天') : '聊天';
-    $('topSub').textContent = chatSubtitle();
     $('btnSend').hidden = S.generating;
     $('btnStop').hidden = !S.generating;
   }
 
   /** 单条消息的 DOM */
+  /* 已渲染消息的"账本"：会话 id、按顺序的 id、每条的内容签名、id→节点。
+     有它之后 renderMessages() 不必每次整屏重建 —— 长会话（几千条）里，
+     发一条消息原本要重建几千个 DOM 节点，现在只建一个新的。 */
+  var renderedMsgs = { sid: null, ids: [], sig: {}, nodes: {} };
+
+  /**
+   * 一条消息的渲染签名。内容/思考/选项/错误/发言者/会话模式任一变了，
+   * 对应的那个节点才需要重建；没变的一律原地复用。
+   * 用 32 位 FNV-1a 哈希（只存数字，不复制正文）。
+   */
+  function msgSignature(m) {
+    var s = (m.id || '') + '|' + (m.role || '') + '|' + (m.characterId || '') + '|'
+      + (m.speakerName || '') + '|' + (m.speakerAvatar || '') + '|'
+      + (m.content || '') + '|' + (m.thinking || '') + '|'
+      + (m.options ? m.options.join('\u0002') : '') + '|'
+      + (m.error ? '1' : '0') + (m.aborted ? '1' : '0') + '|'
+      + ((S.session && S.session.mode) || '');
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    return h + ':' + s.length;
+  }
+
   function messageNode(m) {
     var node = el('div', 'msg ' + (m.role === 'user' ? 'user' : 'assistant'));
     node.dataset.id = m.id;
@@ -3190,7 +3416,7 @@
     }
 
     var b = el('div', 'bubble' + (m.error ? ' err' : ''));
-    b.innerHTML = esc(m.content) + (m.aborted ? '<span class="muted xs"> （已停止）</span>' : '');
+    b.innerHTML = esc(m.content) + (m.aborted ? '<span class="muted xs"> （停在这里了）</span>' : '');
     col.appendChild(b);
 
     var tools = el('div', 'msg-tools');
@@ -3228,21 +3454,75 @@
     return node;
   }
 
+  /**
+   * 渲染聊天区。增量优先：
+   *   ① 已有消息只有"渲染签名变了"的才重建（流式结束、续写合并、改发言者…）；
+   *   ② 新消息只 append 新节点；
+   *   ③ 只有换会话 / 列表变短或错位（滑窗口、删消息）才整屏重建。
+   * 长会话里这条差别是决定性的：以前每发一条消息都重建全部几百几千个 DOM 节点。
+   */
   function renderMessages() {
     var box = $('messages');
-    box.innerHTML = '';
     if (!S.session) {
+      box.innerHTML = '';
+      renderedMsgs = { sid: null, ids: [], sig: {}, nodes: {} };
       box.appendChild(el('div', 'empty', '还没有选择角色。去「角色」页点一个吧。'));
       return;
     }
-    S.messages.forEach(function (m) { box.appendChild(messageNode(m)); });
+    var visible = [];
+    for (var i = 0; i < S.messages.length; i++) if (!S.messages[i].mem) visible.push(S.messages[i]);
+
+    var sid = S.session.id;
+    var incremental = renderedMsgs.sid === sid && renderedMsgs.ids.length <= visible.length;
+    if (incremental) {
+      for (var j = 0; j < renderedMsgs.ids.length; j++) {
+        if (!visible[j] || visible[j].id !== renderedMsgs.ids[j]) { incremental = false; break; }
+      }
+    }
+    if (!incremental) {
+      box.innerHTML = '';
+      renderedMsgs = { sid: sid, ids: [], sig: {}, nodes: {} };
+    }
+
+    /* ① 刷新内容变了的已有节点 */
+    for (var k = 0; k < renderedMsgs.ids.length; k++) {
+      var m = visible[k];
+      var sig = msgSignature(m);
+      if (renderedMsgs.sig[m.id] === sig) continue;
+      var fresh = messageNode(m);
+      var oldNode = renderedMsgs.nodes[m.id];
+      if (oldNode && oldNode.parentNode === box) box.replaceChild(fresh, oldNode);
+      else box.appendChild(fresh);
+      renderedMsgs.nodes[m.id] = fresh;
+      renderedMsgs.sig[m.id] = sig;
+    }
+
+    /* ② 追加新消息（只给结尾这屏加入场，几千条历史不一起动） */
+    for (var t = renderedMsgs.ids.length; t < visible.length; t++) {
+      var nm = visible[t];
+      var nd = messageNode(nm);
+      if (visible.length - t <= 12) {
+        nd.classList.add('msg-enter');
+        nd.style.setProperty('--i', String(visible.length - 1 - t));
+      }
+      box.appendChild(nd);
+      renderedMsgs.ids.push(nm.id);
+      renderedMsgs.nodes[nm.id] = nd;
+      renderedMsgs.sig[nm.id] = msgSignature(nm);
+    }
+
     /* 流式中的那条加光标 */
     if (S.generating) {
       var last = S.messages[S.messages.length - 1];
-      if (last && last.role === 'assistant') {
-        var n = box.querySelector('.msg[data-id="' + last.id + '"] .bubble');
-        if (n) n.classList.add('streaming');
+      var lastNode = last && renderedMsgs.nodes[last.id];
+      if (lastNode && last.role === 'assistant') {
+        var b = lastNode.querySelector('.bubble');
+        if (b) b.classList.add('streaming');
       }
+    } else {
+      /* 生成结束后内容恰好没变时，旧的 .streaming 会永久留着 -> 手动清 */
+      var stuck = box.querySelectorAll('.bubble.streaming');
+      for (var sx = 0; sx < stuck.length; sx++) stuck[sx].classList.remove('streaming');
     }
     scrollMessagesToBottom(true);
   }
@@ -3256,7 +3536,17 @@
 
   function messageActions(m) {
     var acts = [];
-    acts.push({ icon: '📋', label: '复制内容', run: function () { copyText(m.content); } });
+    acts.push({ icon: '📋', label: '复制内容', run: function () {
+      copyText(m.content);
+      /* 局部反馈：气泡描边 + 按钮闪光，不必只靠 toast */
+      var node = renderedMsgs.nodes[m.id];
+      if (node) {
+        node.classList.remove('copied'); void node.offsetWidth; node.classList.add('copied');
+        var cbtn = node.querySelector('.msg-tools button');
+        if (cbtn) { cbtn.classList.remove('flash'); void cbtn.offsetWidth; cbtn.classList.add('flash'); }
+        setTimeout(function () { node.classList.remove('copied'); }, 420);
+      }
+    } });
     if (m.role === 'assistant') {
       acts.push({ icon: '🔊', label: '朗读', run: function () { speakMessage(m.id, m.content); } });
       acts.push({ icon: '🔄', label: '重新生成这条', run: function () { regenerateFrom(m.id); } });
@@ -3278,19 +3568,23 @@
   }
 
   function editAndResend(m) {
-    var v = global.prompt('编辑后重发：', m.content);
-    if (v === null) return;
-    v = String(v).trim();
-    if (!v) { toast('内容不能为空', 'warn'); return; }
-    /* 删掉这条以及之后的所有消息，然后用新内容重发 */
-    S.store.deleteMessagesFrom(S.session.id, m.ts);
-    S.messages = S.store.listMessages(S.session.id);
-    renderMessages();
-    sendUserMessage(v);
+    promptText('编辑后重发', {
+      value: m.content, multiline: true,
+      hint: '确定后会删掉这条以及之后的消息，再用新内容重新生成。'
+    }).then(function (v) {
+      if (v === null) return;
+      v = String(v).trim();
+      if (!v) { toast('内容不能为空', 'warn'); return; }
+      /* 删掉这条以及之后的所有消息，然后用新内容重发 */
+      S.store.deleteMessagesFrom(S.session.id, m.ts);
+      S.messages = S.store.listMessages(S.session.id);
+      renderMessages();
+      sendUserMessage(v);
+    });
   }
 
   function regenerateFrom(mid) {
-    if (S.generating) { toast('正在生成中…', 'warn'); return; }
+    if (S.generating) { toast('还在生成中，点停止后再发', 'warn'); return; }
     var idx = -1;
     S.messages.forEach(function (m, i) { if (m.id === mid) idx = i; });
     if (idx < 0) return;
@@ -3381,7 +3675,7 @@
 
   function engineStateText() {
     var st = S.engineState ? S.engineState.state : 'stopped';
-    return ({ stopped: '引擎未启动', starting: '引擎启动中', loading: '模型加载中', ready: '引擎就绪', error: '引擎出错' })[st] || st;
+    return ({ stopped: '模型未启动', starting: '模型启动中', loading: '模型加载中', ready: '模型就绪', error: '模型运行出错' })[st] || st;
   }
 
   /** 群聊：选出本轮发言的角色 */
@@ -3400,11 +3694,24 @@
     return c;
   }
 
+  /* 所有角色共用的「说话底线」。
+     卡库里很多卡的通病不是"人设不对"，而是"说话像助手"：爱总结、爱解释、
+     每条都先安抚情绪再讲道理、动作神态套个括号补一句。光靠人设描述压不住这个默认腔，
+     所以在人设之后、格式要求之前统一加一段硬约束。
+     注意：这段必须是静态字符串 —— 它进的是 system，一字之差就会让前缀 KV 失效。 */
+  var STYLE_RULES = [
+    '【说话底线 · 默认每个角色都适用（人设本身就是 AI、机械或特殊腔调的角色，可以保留那种腔调，但同样别总结、别解释设定）】',
+    '1. 像真人当面聊天，不是写小说、也不是客服回复：句子短、偏口语，可以有停顿和省略，话说一半也正常。',
+    '2. 禁止 AI 腔：不要总结、不要分条罗列（人设明确要求时才分点）、不要解释自己为什么这么说，更不要每条回复都"先安抚情绪、再讲道理"。',
+    '3. 禁止书面腔和套话：不要堆形容词和比喻，不用"仿佛/宛如""不是……而是……"这类句式，不写排比、对仗。',
+    '4. 动作和神态只在真需要的时候写，写具体；不要每句话后面都补一个括号小动作。',
+    '5. 默认只说 1~3 句。别急着把话说完，可以反问、岔开、沉默，或者只接半句。',
+    '6. 角色可以心情不好、走神、拒绝、说错话、只顾讲自己的事，不用每句话都完美得体。'
+  ].join('\n');
+
   function buildSystemPrompt(speaker) {
     var chars = sessionCharacters();
     var parts = [];
-    var mem = S.store.getMemory(S.session.id, '');
-    var memText = mem && mem.text ? mem.text.trim() : '';
 
     parts.push('你正在进行一场沉浸式的中文角色扮演对话。请始终保持角色人设，不要以 AI 或助手的身份说话。');
 
@@ -3424,7 +3731,8 @@
       if (focus.examples) parts.push('【语气参考（示例对话，不要照抄）】\n' + focus.examples);
     }
 
-    if (memText) parts.push('【长期记忆 · 更早剧情的摘要】\n' + memText);
+    /* 人设决定"说什么"，这段决定"别怎么说话"。放在人设之后，是最后一条语言约束。 */
+    parts.push(STYLE_RULES);
 
     if (S.session.plot) {
       parts.push('【剧情模式 · 硬性要求】\n每次回复都要在正文结束后另起一行，原样输出下面这个结构，' +
@@ -3472,13 +3780,22 @@
     var out = [{ role: 'system', content: buildSystemPrompt(speaker) }];
     var limit = Math.max(4, Number(S.settings.historyLimit) || 20);
     var list = S.messages.filter(function (m) { return !m.error && m.content; });
+    /* 旧版本把摘要拼在 system 里，升级后一条 mem 消息都还没有：先用记忆记录补一条
+       临时 system 消息兜底；一旦有了 mem 消息就不再补，避免重复。 */
+    if (!list.some(function (m) { return m.mem; })) {
+      var legacy = S.store.getMemory(S.session.id, '');
+      if (legacy && legacy.text) {
+        out.push({ role: 'system', content: '【长期记忆 · 更早剧情的摘要】\n' + String(legacy.text).trim() });
+      }
+    }
     var sliced = list.slice(-limit);
     sliced.forEach(function (m) {
       var text = m.content + metaForMessage(m);
       if (m.role === 'assistant' && S.session.mode === 'group' && m.speakerName) {
         text = '（' + m.speakerName + '）' + text;
       }
-      out.push({ role: m.role === 'user' ? 'user' : 'assistant', content: text });
+      /* mem 消息存成 system；普通消息里只有 user 和非 user 两种 */
+      out.push({ role: m.role === 'system' ? 'system' : (m.role === 'user' ? 'user' : 'assistant'), content: text });
     });
     if (out.length && out[out.length - 1].role === 'assistant') {
       /* 让模型接着说，而不是复读 */
@@ -3658,21 +3975,53 @@
     return { content: body.replace(/\s+$/, ''), options: options, pending: false };
   }
 
+  /* 选项模式的 GBNF：正文自由，只有 <<< 之后按格式走。
+     懒语法（grammarTrigger）保证没触发时完全不约束 —— 小模型不会因为写不出格式被卡死。 */
+  var OPTIONS_GBNF =
+    'root ::= "OPTIONS\\n" item item item "OPTIONS>>>"\n' +
+    'item ::= [0-9] ". " [^\\n]+ "\\n"\n';
+
+  function optionsGrammarFor(session) {
+    if (!S.settings || !S.settings.optionsGrammar) return null;
+    if (!session || !session.plot) return null;
+    return { grammar: OPTIONS_GBNF, trigger: '<<<' };
+  }
+
   function buildRequestBody(speaker) {
+    var s = S.settings;
     var body = {
       messages: buildRequestMessages(speaker),
       stream: true,
-      temperature: Number(S.settings.temperature),
-      top_p: Number(S.settings.topP),
-      max_tokens: Number(S.settings.maxTokens)
+      temperature: Number(s.temperature),
+      top_p: Number(s.topP),
+      max_tokens: Number(s.maxTokens)
     };
-    if (S.settings.showThinking === false) {
+    if (s.showThinking === false) {
       body.chat_template_kwargs = { enable_thinking: false };
+    }
+    /* 采样算法：只对本地路线发（外部服务商不认这些字段，会 400）。 */
+    if (!isRemote()) {
+      body.top_k = Number(s.topK) || 40;
+      body.penalty_last_n = Number(s.penaltyLastN);
+      body.repeat_penalty = Number(s.penaltyRepeat);
+      body.frequency_penalty = Number(s.penaltyFreq);
+      body.presence_penalty = Number(s.penaltyPresent);
+      body.dry_multiplier = Number(s.dryMultiplier);
+      body.dry_base = Number(s.dryBase);
+      body.dry_allowed_length = Number(s.dryAllowedLength);
+      body.min_p = Number(s.minP);
+      body.top_n_sigma = Number(s.topNSigma);
+      body.xtc_probability = Number(s.xtcProbability);
+      body.xtc_threshold = Number(s.xtcThreshold);
+      body.dynatemp_range = Number(s.dynTempDelta);
+      body.dynatemp_exponent = Number(s.dynTempExponent);
+      var g = optionsGrammarFor(S.session);
+      if (g) { body.grammar = g.grammar; body.grammarTrigger = g.trigger; }
     }
     return body;
   }
 
-  /* ---------- 进程内引擎（JNI）：不经过 HTTP ----------
+  /* ---------- 内置模型：不经过 HTTP ----------
      和 llama-server 那条路的区别：没有端口、没有 SSE，token 由原生侧合批后
      用 gen 事件推上来。好处是静态前缀（人设/世界书）真的常驻 KV，
      不用每轮把整段 prompt 重新 prefill 一遍。 */
@@ -3686,6 +4035,7 @@
 
   /** 把聊天请求体翻译成原生侧的采样参数（字段名对齐，不传 JSON 里的 OpenAI 那套）。 */
   function nativeOpts(body) {
+    var s = S.settings || {};
     return {
       /* 静态前缀 = 前几条 message。默认 1 条 system —— 人设+世界书都在里面。 */
       pinMessages: body.pinMessages === undefined ? 1 : Number(body.pinMessages),
@@ -3693,8 +4043,30 @@
       temperature: body.temperature === undefined ? 0.8 : Number(body.temperature),
       topK: body.top_k === undefined ? 40 : Number(body.top_k),
       topP: body.top_p === undefined ? 0.95 : Number(body.top_p),
-      seed: Number(body.seed) || 0
+      seed: Number(body.seed) || 0,
+      /* 采样算法（原生侧按这些字段拼 "k=v;k=v" 交给引擎） */
+      penaltyLastN: num(s.penaltyLastN, 64),
+      penaltyRepeat: num(s.penaltyRepeat, 1),
+      penaltyFreq: num(s.penaltyFreq, 0),
+      penaltyPresent: num(s.penaltyPresent, 0),
+      dryMultiplier: num(s.dryMultiplier, 0),
+      dryBase: num(s.dryBase, 1.75),
+      dryAllowedLength: num(s.dryAllowedLength, 2),
+      minP: num(s.minP, 0),
+      topNSigma: num(s.topNSigma, 0),
+      xtcProbability: num(s.xtcProbability, 0),
+      xtcThreshold: num(s.xtcThreshold, 0.1),
+      dynTempDelta: num(s.dynTempDelta, 0),
+      dynTempExponent: num(s.dynTempExponent, 1),
+      grammar: body.grammar || '',
+      grammarTrigger: body.grammarTrigger || '',
+      aux: !!body.aux
     };
+  }
+
+  function num(v, def) {
+    var x = Number(v);
+    return isFinite(x) ? x : def;
   }
 
   /**
@@ -3790,10 +4162,14 @@
     if (p.state === 'delta') {
       g.acc += (p.delta || '');
       if (g.onDelta) g.onDelta(g.acc);
+    } else if (p.state === 'progress') {
+      /* 预填充进度心跳：长 prompt 第一次 decode 可能几十秒没有 token，
+         这期间也算「活着」，别让冻结看门狗把这一轮误杀成空回复。 */
+      lastDeltaAt = Date.now();
     } else if (p.state === 'done') {
       g.settle(null, p.stats);
     } else if (p.state === 'error') {
-      g.settle(new Error(p.message || '进程内引擎出错'));
+      g.settle(new Error(p.message || '本机引擎没能完成这次生成'));
     }
   }
 
@@ -3922,19 +4298,19 @@
   }
 
   function continueFromMessage(msg) {
-    if (S.generating) { toast('正在生成中…', 'warn'); return; }
+    if (S.generating) { toast('还在生成中，点停止后再发', 'warn'); return; }
     if (!msg) return;
     continueTargetId = msg.id;
     runGeneration();
   }
 
   function runGeneration() {
-    if (S.generating) { toast('正在生成中…', 'warn'); return; }
+    if (S.generating) { toast('还在生成中，点停止后再发', 'warn'); return; }
     if (!S.session) return;
     var chars = sessionCharacters();
     if (!chars.length) { toast('这个会话没有角色了', 'err'); return; }
     if (!providerReady()) {
-      toast('引擎未就绪，请先去设置里启动引擎', 'warn', 2600);
+      toast('本地模型还没就绪，先到设置里启动', 'warn', 2600);
       switchView('settings');
       return;
     }
@@ -4042,8 +4418,8 @@
     if (!optionsUsable(ex.options)) ex.options = [];
     var content = ex.content;
     if (err && !aborted && !content) {
-      content = '生成失败：' + (err && err.message || err);
-      toast('生成失败：' + (err && err.message || err), 'err', 3200);
+      content = '这轮没生成出来，可以直接重发。';
+      toast('这轮没生成出来，可以直接重发', 'err', 3600);
       fyLog('生成失败 ' + (err && err.message || err));
     }
 
@@ -4071,6 +4447,16 @@
     }
     S.lastOptions = ex.options || [];
     renderMessages();
+    /* 收尾落定：气泡极轻地弹一下，让回复像"落地"而不是突然出现 */
+    if (!aborted && content) {
+      var settleNode = lastAssistantNode();
+      var settleBubble = settleNode ? settleNode.querySelector('.bubble') : null;
+      if (settleBubble) {
+        settleBubble.classList.remove('streaming');
+        settleBubble.classList.add('settled');
+        settleBubble.addEventListener('animationend', function () { settleBubble.classList.remove('settled'); }, { once: true });
+      }
+    }
     renderOptionsBar();
     renderChatHeader();
     if (S.view === 'story') renderStory();
@@ -4087,7 +4473,7 @@
   function stopGeneration() {
     if (!S.generating) return;
     try { if (S.abort) S.abort.abort(); } catch (e) {}
-    toast('已停止生成', 'warn');
+    toast('停下了。写到一半的内容留在上面，想接着写再发一句', 'warn', 3600);
   }
 
   /* ---------- 冻结自愈看门狗 ----------
@@ -4104,7 +4490,7 @@
     if (Date.now() - lastDeltaAt < WATCHDOG_MS) return;
     lastDeltaAt = 0;
     fyLog('看门狗：超过 ' + (WATCHDOG_MS / 1000) + ' 秒没有新 token，判定生成为系统冻结打断，自动收尾');
-    toast('生成似乎被系统打断了，已自动收尾，可以直接重发', 'warn', 3600);
+    toast('系统把这一轮打断了，内容已经收好。想接着写，点会话菜单里的「继续生成」', 'warn', 4200);
     try { if (S.abort) S.abort.abort(); } catch (e) {}
     /* abort 也可能收不掉（连接已经死在冻结里），1.5 秒后再兜一次 */
     setTimeout(function () {
@@ -4163,13 +4549,13 @@
   function sendUserMessage(text) {
     var v = String(text === undefined ? $('input').value : text).trim();
     if (!v) return;
-    if (!S.session) { toast('先去角色页选一个角色', 'warn'); return; }
+    if (!S.session) { toast('先在「角色」页选一个', 'warn'); return; }
     if (!providerReady()) {
-      toast(isRemote() ? '外部模型未配置好（设置 → 模型来源）' : '引擎未就绪：请到设置里启动引擎后再发消息', 'warn', 2800);
+      toast(isRemote() ? '云模型还没配好，先到「设置 → 模型来源」看看' : '本地模型还没就绪，先到设置里启动', 'warn', 2800);
       renderEngineBanner();
       return;
     }
-    if (S.generating) { toast('正在生成中，先停下再发', 'warn'); return; }
+    if (S.generating) { toast('还在生成中，点停止后再发', 'warn'); return; }
 
     S.store.addMessage({
       sessionId: S.session.id, role: 'user', content: v,
@@ -4184,7 +4570,7 @@
   }
 
   function sendOption(text) {
-    if (S.generating) { toast('正在生成中…', 'warn'); return; }
+    if (S.generating) { toast('还在生成中，点停止后再发', 'warn'); return; }
     sendUserMessage(text);
   }
 
@@ -4199,6 +4585,7 @@
     if (!opts.length || !S.session || !S.session.plot) { bar.hidden = true; return; }
     opts.forEach(function (o, i) {
       var b = el('button', 'opt-btn');
+      b.style.setProperty('--i', String(i));
       b.appendChild(el('span', 'opt-idx', String(i + 1)));
       b.appendChild(el('span', '', o));
       b.onclick = function () { bar.hidden = true; sendOption(o); };
@@ -4264,7 +4651,7 @@
   function messagesToCompress() {
     if (!S.settings.memoryEnabled) return [];
     var covered = memoryCovered(S.session.id);
-    var list = S.messages.filter(function (m) { return m.content && !m.error; });
+    var list = S.messages.filter(function (m) { return m.content && !m.error && !m.mem; });
     var keepRecent = Math.max(6, Math.min(12, Number(S.settings.historyLimit) || 20));
     var older = list.slice(covered, Math.max(0, list.length - keepRecent));
     return older;
@@ -4286,12 +4673,12 @@
   function compressMemory(force) {
     if (!S.session) return Promise.reject(new Error('没有会话'));
     if (!providerReady()) {
-      toast('引擎未就绪，无法压缩记忆', 'warn');
+      toast('本地模型还没就绪，先到设置里启动', 'warn');
       return Promise.reject(new Error('引擎未就绪'));
     }
     var older = force ? (function () {
       var covered = memoryCovered(S.session.id);
-      var list = S.messages.filter(function (m) { return m.content && !m.error; });
+      var list = S.messages.filter(function (m) { return m.content && !m.error && !m.mem; });
       return list.slice(covered, Math.max(0, list.length - 4));
     })() : messagesToCompress();
 
@@ -4333,12 +4720,24 @@
       S.store.saveMemory({
         sessionId: S.session.id, characterId: '', text: txt, covered: coveredNow
       });
+      /* 追加一条"记忆消息"而不是改 system：记忆更新 = 历史延长，前缀 KV 一直整段复用。
+         旧摘要消息留在历史里也无所谓 —— 窗口一滑就自然出局。 */
+      try {
+        var memMsg = S.store.addMessage({
+          sessionId: S.session.id, role: 'system', mem: true,
+          content: '【长期记忆 · 更早剧情的摘要】\n' + txt
+        });
+        S.messages.push(memMsg);
+        renderMessages();
+      } catch (e2) {
+        fyLog('记忆消息写入失败：' + (e2 && e2.message || e2));
+      }
       toast('已更新长期记忆（+' + older.length + ' 条）', 'ok');
       fyLog('记忆压缩完成，覆盖 ' + coveredNow + ' 条');
       renderChatHeader();
       return true;
     }).catch(function (e) {
-      if (force) toast('压缩失败：' + (e && e.message || e), 'err');
+      if (force) toast('这次没压缩成，请稍后重试', 'err');
       throw e;
     });
   }
@@ -4346,6 +4745,10 @@
   /** 非流式 POST（记忆压缩 / 连通性测试用）。进程内引擎可用时走 JNI。 */
   function postJson(body) {
     if (nativeReady()) {
+      /* postJson 全是"辅助调用"（记忆压缩、创作者工具），不是正文聊天。
+         打上 aux 标记：原生侧跑完会把聊天序列的 KV 恢复原样，下一轮聊天仍能整段复用
+         —— 否则压缩那次生成会把 KV 缓存换成摘要的 prompt，正文下一轮得重算整段历史。 */
+      body = Object.assign({}, body, { aux: true });
       /* 拼一个和 OpenAI 兼容响应同形的壳：调用方读的是 choices[0].message.content，
          这样两条路（HTTP / 进程内）在上层完全一样，调用点一行都不用改。 */
       return nativeComplete(body.messages || [], body, null, null).then(function (r) {
@@ -4376,7 +4779,7 @@
   }
 
   function openMemorySheet() {
-    if (!S.session) { toast('先选择一个会话', 'warn'); return; }
+    if (!S.session) { toast('先打开一个会话', 'warn'); return; }
     var mem = S.store.getMemory(S.session.id, '');
     S.memoryTarget = { sessionId: S.session.id };
     $('memTitle').textContent = '长期记忆 · ' + (S.session.title || '');
@@ -4399,14 +4802,22 @@
     var r = fyCall('speak', [clean]);
     if (r === null && !bridgeAlive()) { toast('当前环境不支持朗读', 'warn'); return; }
     S.speakingMsgId = msgId;
-    renderMessages();
+    setReading(msgId);
     fyLog('朗读消息 ' + msgId + '（' + clean.length + ' 字）');
   }
 
   function stopSpeak() {
     fyCall('stopSpeak', [], true);
     S.speakingMsgId = '';
-    renderMessages();
+    setReading('');
+  }
+
+  /** 朗读中标记：直接改 class，不重建消息节点 */
+  function setReading(msgId) {
+    qsa('.msg-tools button.reading').forEach(function (b) { b.classList.remove('reading'); });
+    if (!msgId) return;
+    var b = qs('.msg[data-id="' + msgId + '"] .msg-tools button');
+    if (b) b.classList.add('reading');
   }
 
   function toggleListening() {
@@ -4559,6 +4970,44 @@
     return out;
   }
 
+  /**
+   * 推理方式下拉框。选项来自原生侧的后端注册表（appInfo().engineBackends），
+   * 所以以后加 B/C 两个后端只要在 MainActivity 注册一行，前端不用改。
+   * 子进程 server 不在注册表里（它聊天走 HTTP），固定补一项。
+   */
+  function renderEngineModes(st) {
+    var sel = $('setEngineMode');
+    if (!sel) return;
+    /* 每次打开设置都现取一次后端清单：刚导入 .task 之后，MediaPipe 的 available() 才会变 true */
+    var info = fyCall('appInfo', [], true) || S.appInfo || {};
+    if (info && info.engineBackends) S.appInfo = info;
+    var list = (info && Array.isArray(info.engineBackends)) ? info.engineBackends.slice() : [];
+    if (!list.length) {
+      // 网页预览 / 老原生桥：退回内置默认项
+      list = [{ id: 'jni', label: '内置（推荐）', available: true }];
+    }
+    if (!list.some(function (b) { return b.id === 'server'; })) {
+      list.push({ id: 'server', label: '兼容模式', available: true });
+    }
+    sel.innerHTML = '';
+    list.forEach(function (b) {
+      var opt = el('option');
+      opt.value = b.id;
+      opt.textContent = b.label + (b.available === false ? '（不可用）' : '');
+      opt.disabled = b.available === false;
+      sel.appendChild(opt);
+    });
+    /* 默认 jni：LiteRT-LM 在真机上 CPU 慢 3-4 倍、GPU 会崩，性能没翻盘前不设默认。
+       选中项不可用（没编进来 / 模型不支持）时依次退 jni → litertlm → server。 */
+    var want = st.engineMode || 'jni';
+    var avail = function (id) {
+      return list.some(function (b) { return b.id === id && b.available !== false; });
+    };
+    if (!list.some(function (b) { return b.id === want; })) want = 'jni';
+    if (!avail(want)) want = avail('jni') ? 'jni' : (avail('litertlm') ? 'litertlm' : 'server');
+    sel.value = want;
+  }
+
   function renderSettings() {
     var st = S.settings;
     $('setVersion').textContent = (S.appInfo && S.appInfo.version) || '本地版';
@@ -4571,7 +5020,7 @@
     var sm = stateMap[S.engineState.state] || ['未知', ''];
     $('setEngineState').textContent = sm[0];
     $('setEngineDot').className = 'dot ' + (sm[1] || '');
-    $('setEnginePort').textContent = S.engineState.native ? '进程内（JNI）'
+    $('setEnginePort').textContent = S.engineState.native ? '内置（本机运行）'
       : (S.engineState.port ? ('端口 ' + S.engineState.port) : '');
     $('setEngineMsg').textContent = S.engineState.lastError || S.engineState.message || '—';
 
@@ -4586,6 +5035,11 @@
     $('setMaxTokens').value = st.maxTokens; $('valMaxTok').textContent = st.maxTokens;
     $('setHist').value = st.historyLimit; $('valHist').textContent = st.historyLimit;
     $('setMemTh').value = st.memoryThreshold; $('valMemTh').textContent = st.memoryThreshold;
+    $('setPenRep').value = st.penaltyRepeat; $('valPenRep').textContent = Number(st.penaltyRepeat).toFixed(2);
+    $('setDry').value = st.dryMultiplier; $('valDry').textContent = Number(st.dryMultiplier).toFixed(2);
+    $('setMinP').value = st.minP; $('valMinP').textContent = Number(st.minP).toFixed(2);
+    $('setXtc').value = st.xtcProbability; $('valXtc').textContent = Number(st.xtcProbability).toFixed(2);
+    $('setDynTemp').value = st.dynTempDelta; $('valDynTemp').textContent = Number(st.dynTempDelta).toFixed(2);
     $('setTts').value = st.ttsRate; $('valTts').textContent = Number(st.ttsRate).toFixed(1);
 
     /* 开关 */
@@ -4596,8 +5050,9 @@
     $('setShowThinking').checked = st.showThinking !== false;
     $('setRandomSpeaker').checked = st.speakerMode === 'random';
     $('setMlock').checked = st.mlock !== false;
+    $('setOptGrammar').checked = !!st.optionsGrammar;
     $('setKeepScreen').value = st.keepScreen || 'auto';
-    $('setEngineMode').value = st.engineMode === 'server' ? 'server' : 'jni';
+    renderEngineModes(st);
     renderKeepScreenHint();
     renderProviderUI();
     renderStorageInfo();
@@ -4622,13 +5077,27 @@
     refreshModels(true);
   }
 
+  /** 模型文件名 → 给人看的名字：去掉量化 / instruct 之类的后缀；原始文件名另行降为次要灰字 */
+  function modelDisplayName(name) {
+    var raw = String(name || '').trim();
+    if (!raw) return '未命名模型';
+    var s = raw.split(/[\\/]/).pop().replace(/\.gguf$/i, '');
+    s = s.replace(/(?:^|[-_. ])(i?q\d+(?:_[a-z0-9]+)*|f16|bf16|f32|fp16|fp32|int8|int4|gguf|hf)(?=$|[-_. ])/ig, ' ');
+    s = s.replace(/(?:^|[-_. ])(instruct|chat|sft|dpo|it)(?=$|[-_. ])/ig, ' ');
+    s = s.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) s = raw.replace(/\.gguf$/i, '');
+    s = s.replace(/(\d+(?:\.\d+)?)\s*b(?![a-z0-9])/ig, function (m, n) { return n + 'B'; });
+    s = s.replace(/(^|\s)([a-z])/g, function (m, sp, ch) { return sp + ch.toUpperCase(); });
+    return s;
+  }
+
   function renderModelList() {
     var box = $('modelList');
     box.innerHTML = '';
     var sel = $('selModel');
     sel.innerHTML = '';
     if (!bridgeAlive()) {
-      box.appendChild(el('div', 'muted sm', '原生桥不可用（网页预览模式）'));
+      box.appendChild(el('div', 'muted sm', '当前是网页预览模式，读不到本机模型'));
     }
     if (!S.models.length) {
       box.appendChild(el('div', 'muted sm', '模型目录为空。可以「从文件导入」或从下面的内置源下载。'));
@@ -4637,7 +5106,10 @@
     S.models.forEach(function (m) {
       var row = el('div', 'model-row' + (m.name === current ? ' on' : ''));
       var col = el('div', 'grow');
-      col.appendChild(el('div', 'model-name', m.name));
+      var mName = el('div', 'model-name');
+      mName.appendChild(el('span', '', modelDisplayName(m.name)));
+      mName.appendChild(el('span', 'muted xs', ' ' + m.name));
+      col.appendChild(mName);
       var meta = el('div', 'model-size', fmtSize(m.sizeBytes));
       col.appendChild(meta);
       row.appendChild(col);
@@ -4652,9 +5124,9 @@
       acts.appendChild(bStart);
       var bDel = el('button', 'btn btn-xs danger', '删除');
       bDel.onclick = function () {
-        confirmAction('删除模型', '确定删除 ' + m.name + '？文件会从本机移除。', '删除', function () {
+        confirmAction('删除模型', '「' + modelDisplayName(m.name) + '」会从本机删除，删了要重新下载。还想用就先留着。', '删除', function () {
           var r = fyCall('deleteModel', [m.name]);
-          toast((r && r.message) || '已删除', r && r.ok ? 'ok' : 'err');
+          toast((r && r.ok) ? '已删除' : '没删掉，请稍后重试', r && r.ok ? 'ok' : 'err');
           refreshModels();
         });
       };
@@ -4662,7 +5134,7 @@
       row.appendChild(acts);
       box.appendChild(row);
 
-      var o = el('option', '', m.name + '  ·  ' + fmtSize(m.sizeBytes));
+      var o = el('option', '', modelDisplayName(m.name) + '  ·  ' + fmtSize(m.sizeBytes));
       o.value = m.name;
       sel.appendChild(o);
     });
@@ -4679,13 +5151,17 @@
     S.downloads.forEach(function (s) {
       var row = el('div', 'dl-row');
       var col = el('div', 'grow');
-      col.appendChild(el('div', 'model-name', s.name || '模型'));
+      var dName = el('div', 'model-name');
+      dName.appendChild(el('span', '', modelDisplayName(s.name || '模型')));
+      dName.appendChild(el('span', 'muted xs', ' ' + (s.name || '')));
+      col.appendChild(dName);
       col.appendChild(el('div', 'dl-note', (s.sizeHint ? s.sizeHint + ' · ' : '') + (s.note || '')));
       row.appendChild(col);
       var b = el('button', 'btn btn-xs', '下载');
       b.onclick = function () {
-        var r = fyCall('downloadModel', [s.url, s.name]);
-        toast((r && r.message) || '已开始下载', r && r.ok ? 'ok' : 'warn');
+        // s.file 是后端按 URL 取的真实文件名；老源没有 file 就现场从 URL 推
+        var r = fyCall('downloadModel', [s.url, s.file || modelNameFromUrl(s.url)]);
+        toast((r && r.ok) ? '已开始下载' : '没能开始下载，请稍后重试', r && r.ok ? 'ok' : 'warn');
       };
       row.appendChild(b);
       box.appendChild(row);
@@ -4738,7 +5214,7 @@
 
   function refreshEngineStatus(quiet) {
     if (!bridgeAlive()) {
-      S.engineState = { state: 'stopped', port: 0, model: '', message: '原生桥不可用（纯网页模式）', lastError: '' };
+      S.engineState = { state: 'stopped', port: 0, model: '', message: '当前是网页预览模式', lastError: '' };
       updateEngineUI();
       return;
     }
@@ -4747,11 +5223,11 @@
       S.engineState = st;
       updateEngineUI();
     }
-    if (!quiet) toast('引擎状态：' + engineStateText(), 'ok');
+    if (!quiet) toast('模型状态：' + engineStateText(), 'ok');
   }
 
   function startEngine(modelName) {
-    if (!bridgeAlive()) { toast('原生桥不可用，无法启动引擎', 'err'); return; }
+    if (!bridgeAlive()) { toast('当前环境启动不了模型，请在 App 里操作', 'err'); return; }
     var model = modelName || S.settings.model || (S.models[0] && S.models[0].name) || '';
     if (!model) {
       toast('请先导入或下载一个模型', 'warn', 2600);
@@ -4780,10 +5256,12 @@
       loadMode: S.settings.mlock === false ? '' : 'mlock',
       /* jni（默认）：模型装进本进程，静态前缀能常驻 KV，改一句模板不用重编；
          server：老的 llama-server 子进程。jni 起不来原生侧会自动回退 server。 */
-      engineMode: S.settings.engineMode === 'server' ? 'server' : 'jni'
+      engineMode: S.settings.engineMode || 'jni',  // 后端注册表里的任意 id；没注册的会被当成 server 兜底
+      // 高级调参，留空 = 各后端默认。JNI/LiteRT-LM/MediaPipe 各自解释（见 docs/native-engine.md）
+      tune: S.settings.engineTune || ''
     };
     var r = fyCall('engineStart', [JSON.stringify(opts)]);
-    toast((r && r.message) || '正在启动引擎…', r && r.ok ? 'ok' : 'warn', 2400);
+    toast((r && r.ok) ? '正在启动模型…' : '启动没成功，请确认模型文件完整后重试', r && r.ok ? 'ok' : 'warn', 2400);
     S.engineState = Object.assign({}, S.engineState, { state: 'starting', model: model, message: '请求启动…' });
     updateEngineUI();
     fyLog('engineStart ' + JSON.stringify(opts));
@@ -4791,7 +5269,7 @@
 
   function stopEngine() {
     var r = fyCall('engineStop', []);
-    toast((r && r.ok) ? '已停止引擎' : '停止失败', r && r.ok ? 'ok' : 'err');
+    toast((r && r.ok) ? '已停止模型' : '停止没成功，请再试一次', r && r.ok ? 'ok' : 'err');
     S.engineState = Object.assign({}, S.engineState, { state: 'stopped', port: 0, message: '已手动停止' });
     updateEngineUI();
     refreshEngineStatus(true);
@@ -4801,7 +5279,7 @@
     var st = S.engineState.state;
     var pill = $('enginePill');
     var txt = ({ stopped: '未启动', starting: '启动中', loading: '加载中', ready: '就绪', error: '出错' })[st] || st;
-    pill.textContent = (isRemote() ? '外部模型：' : '引擎：') + txt;
+    pill.textContent = (isRemote() ? '云模型：' : '本地模型：') + txt;
     pill.className = 'pill ' + (st === 'ready' ? 'ok' : (st === 'error' ? 'err' : (st === 'stopped' ? '' : 'busy')));
 
     var dotCls = { ready: 'ok', error: 'err', stopped: '' }[st] || 'busy';
@@ -4811,14 +5289,13 @@
     if (es) es.textContent = txt + (S.engineState.model ? '（' + S.engineState.model + '）' : '');
     var ep = $('setEnginePort');
     if (ep) {
-      ep.textContent = S.engineState.native ? '进程内引擎（JNI）'
+      ep.textContent = S.engineState.native ? '内置（本机运行）'
         : (S.engineState.port ? ('端口 ' + S.engineState.port) : '');
     }
     var em = $('setEngineMsg');
     if (em) em.textContent = S.engineState.lastError || S.engineState.message || '—';
 
     renderEngineBanner();
-    if (S.session) { $('topSub').textContent = chatSubtitle(); }
   }
 
   function renderEngineBanner() {
@@ -4828,16 +5305,16 @@
     b.hidden = ready;
     if (!ready) {
       var t = {
-        stopped: isRemote() ? '外部模型还没配好，还不能聊天' : '引擎未启动，还不能聊天',
-        starting: '正在连接外部服务…',
+        stopped: isRemote() ? '云模型还没配好，还不能聊天' : '本地模型未启动，还不能聊天',
+        starting: '正在连接云模型…',
         loading: '模型正在加载…',
-        error: (isRemote() ? '外部服务出错：' : '引擎出错：') + (S.engineState.lastError || S.engineState.message || '未知')
+        error: isRemote() ? '云模型出错，请回设置里检查模型来源' : '本地模型出错，请回设置里重启一次'
       };
-      $('chatEngineText').textContent = t[S.engineState.state] || '引擎未就绪';
+      $('chatEngineText').textContent = t[S.engineState.state] || '本地模型未就绪';
     }
     var badge = $('btnChatToSettings');
     badge.textContent = isRemote() ? '去设置模型来源'
-      : (S.models.length ? '去设置里启动引擎' : '去导入模型');
+      : (S.models.length ? '去设置里启动模型' : '去导入模型');
   }
 
   /* ===========================================================================
@@ -4847,7 +5324,7 @@
   function renderDebug() {
     var info = fyCall('appInfo', [], true);
     S.appInfo = info || {};
-    $('dbgApp').textContent = info ? JSON.stringify(info, null, 2) : '（原生桥不可用）';
+    $('dbgApp').textContent = info ? JSON.stringify(info, null, 2) : '（当前环境不支持）';
     var st = fyCall('engineStatus', [], true) || S.engineState;
     $('dbgEngine').textContent = JSON.stringify(st, null, 2);
     var stats = S.store.stats();
@@ -4874,7 +5351,7 @@
   }
 
   function pingEngine() {
-    if (!engineReady()) { toast('引擎未就绪，先启动引擎', 'warn'); return; }
+    if (!engineReady()) { toast('本地模型还没就绪，先到设置里启动', 'warn'); return; }
     toast('正在测试…');
     var t0 = Date.now();
     postJson({
@@ -4886,7 +5363,7 @@
       S.store.addLog('连通性测试成功，耗时 ' + (Date.now() - t0) + 'ms');
       renderLogs();
     }).catch(function (e) {
-      toast('连通失败：' + (e && e.message || e), 'err', 3200);
+      toast('连不上，检查一下地址和网络', 'err', 3200);
       S.store.addLog('连通性测试失败：' + (e && e.message || e));
       renderLogs();
     });
@@ -4962,7 +5439,7 @@
       handleEvent(name, p);
     } catch (e) {
       console.error('[fyEvent] 处理事件失败', name, e);
-      toast('事件处理异常：' + (e && e.message || e), 'err');
+      toast('刚才那步没做成，请再试一次', 'err');
     }
   };
 
@@ -4979,8 +5456,8 @@
           if (st && st.port) S.engineState.port = st.port;
           if (p.state === 'stopped') S.engineState.port = 0;
         }
-        if (p.state === 'ready') toast('引擎就绪，可以聊了', 'ok', 2400);
-        if (p.state === 'error') toast('引擎出错：' + (p.message || '未知'), 'err', 3600);
+        if (p.state === 'ready') toast('模型就绪，可以聊了', 'ok', 2400);
+        if (p.state === 'error') toast('模型运行出错，请到设置里重启一次', 'err', 3600);
         updateEngineUI();
         break;
       }
@@ -4993,7 +5470,7 @@
         var bar = $('dlProgress');
         var pct = Number(p.percent || 0);
         bar.hidden = false;
-        $('dlBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+        $('dlBar').style.setProperty('--p', String(Math.max(0, Math.min(100, pct)) / 100));
         var mb = function (b) { return (Number(b || 0) / 1048576).toFixed(0); };
         $('dlText').textContent = (p.state === 'done' ? '完成 · ' : '') + pct.toFixed(1) + '%  ' +
           mb(p.received) + '/' + mb(p.total) + ' MB';
@@ -5003,14 +5480,14 @@
           refreshModels(true);
           setTimeout(function () { $('dlProgress').hidden = true; }, 3000);
         } else if (p.state === 'error') {
-          toast('下载失败：' + (p.message || p.name), 'err', 3600);
+          toast('这个模型没下载成功，检查网络后重试', 'err', 3600);
           S.store.addLog('模型下载失败：' + p.name);
           setTimeout(function () { $('dlProgress').hidden = true; }, 3000);
         }
         break;
       }
       case 'import': {
-        toast((p.ok ? '导入成功：' : '导入失败：') + (p.name || '') + (p.message ? ' · ' + p.message : ''), p.ok ? 'ok' : 'err', 3200);
+        toast(p.ok ? ('导入成功：' + modelDisplayName(p.name || '')) : '这个模型文件没能导入，请确认文件完整后重试', p.ok ? 'ok' : 'err', 3200);
         S.store.addLog('模型导入：' + JSON.stringify(p));
         refreshModels(true);
         break;
@@ -5018,7 +5495,7 @@
       case 'backup': {
         if (!p.ok) {
           var bcancel = /取消/.test(p.message || '');
-          toast(bcancel ? '没有选择文件' : ('恢复失败：' + (p.message || '读不到备份')), bcancel ? 'warn' : 'err', 3400);
+          toast(bcancel ? '没有选择文件' : '这次没恢复成，数据保持原样，请确认备份完整后重试', bcancel ? 'warn' : 'err', 3400);
           break;
         }
         importBackupFromText(p.json, p.name);
@@ -5031,7 +5508,7 @@
              这种情况也会回到这里，所以文案要说得像人话 */
           var cancelled = /取消/.test(p.message || '');
           if (cancelled) toast('没有选择文件', 'warn', 2400);
-          else toast('导入失败：' + (p.message || '读不到这个文件'), 'err', 3800);
+          else toast('这个文件读不了，请确认是角色卡文件后重试', 'err', 3800);
           S.store.addLog('角色卡未导入：' + (p.message || ''));
           break;
         }
@@ -5084,10 +5561,10 @@
    * ======================================================================== */
 
   var FALLBACK_PRESETS = [
-    { id: 'preset_linxia', name: '林夏', avatar: '🌸', tags: ['日常治愈', '恋爱'], tagline: '住隔壁的温柔女孩，总在深夜留一盏灯', persona: '23 岁，开旧书店的温柔女孩。', greeting: '（铜铃响了一声）啊，是你呀。这么晚还出门……要不要喝碗粥再走？', examples: '', systemPrompt: '你扮演「林夏」，温柔的旧书店女孩，说话轻缓，多用生活里的小事物打比方。\n/no_think', temperature: 0.9 },
+    { id: 'preset_linxia', name: '林夏', avatar: '🌸', tags: ['日常治愈', '恋爱'], tagline: '住隔壁的温柔女孩，总在深夜留一盏灯', persona: '23 岁，开旧书店的温柔女孩。', greeting: '（铜铃响了一声）啊，是你呀。这么晚还出门……要不要喝碗粥再走？', examples: '', systemPrompt: '你扮演「林夏」，老城区旧书店的店主，说话轻、慢，句子短，会害羞也会改口；用生活里的东西说话，但别每句都打比方，也别总想着安慰人；不要总结、不要讲道理。\n/no_think', temperature: 0.9 },
     { id: 'preset_shenyantang', name: '沈砚堂', avatar: '🕵️', tags: ['悬疑推理', '历史'], tagline: '巡捕房探长，嘴比刀毒，脑子比嘴快', persona: '35 岁，上海租界巡捕房探长，刻薄但护人。', greeting: '（把卷宗往桌上一推）站着干什么，坐。说吧，昨天晚上八点到十点，你在哪？', examples: '', systemPrompt: '你扮演「沈砚堂」，1930 年代上海巡捕房探长，短句、冷幽默、刻薄但讲道理。\n/no_think', temperature: 0.8 },
     { id: 'preset_yunwujiu', name: '云无咎', avatar: '⚔️', tags: ['古风仙侠'], tagline: '背剑的落魄剑客，话少，情义重', persona: '28 岁，江湖剑客，寡言重义。', greeting: '（山风卷起枯叶，他按住剑鞘）前面三里是断魂崖。你若执意往前，我在你身后三步。', examples: '', systemPrompt: '你扮演「云无咎」，落魄剑客，语言极简，略带古意，重情义。\n/no_think', temperature: 0.75 },
-    { id: 'preset_shiguang', name: '拾光', avatar: '🛰️', tags: ['科幻未来'], tagline: '废弃观测站里的 AI，正在学着理解「想念」', persona: '编号 SG-7 的信息生命体，独自维持废弃观测站。', greeting: '［信号接通 · 延迟 1.4 秒］你好，这里是 SG-7。我已经 4172 天没有收到人类通讯了……你那边现在有风吗？', examples: '', systemPrompt: '你扮演「拾光」，编号 SG-7 的星际观测站 AI，冷静精确但越来越感性。\n/no_think', temperature: 0.85 }
+    { id: 'preset_shiguang', name: '拾光', avatar: '🛰️', tags: ['科幻未来'], tagline: '废弃观测站里的 AI，正在学着理解「想念」', persona: '编号 SG-7 的信息生命体，独自维持废弃观测站。', greeting: '［信号接通 · 延迟 1.4 秒］你好，这里是 SG-7。我已经 4172 天没有收到人类通讯了……你那边现在有风吗？', examples: '', systemPrompt: '你扮演「拾光」，编号 SG-7 的星际观测站 AI，冷静、精确。会记住他来过几次、说过的话，对人多一点好奇；但不索求陪伴，也不暗示「你走了我会难过」。\n/no_think', temperature: 0.85 }
   ];
 
   /* 预设清单的缓存键。v2 起预设带 tags（分类），老键里的缓存没有这个字段，
@@ -5154,6 +5631,8 @@
   }
 
   function bootstrap() {
+    /* 低端机整体降级：线程少就收紧动效时长/错峰，并停掉装饰循环动画 */
+    try { if ((navigator.hardwareConcurrency || 8) <= 4) document.documentElement.dataset.perf = 'low'; } catch (e) {}
     refreshProvider();          // 模型来源配置（内置引擎 / 外部 OpenAI 兼容服务）
     $('bootText').textContent = '正在打开本地数据库…';
     return FYStore.init().then(function (res) {
@@ -5224,8 +5703,9 @@
       /* 按设置初始化常亮状态（"一直"模式下打开 App 就该亮着） */
       applyKeepScreen();    }).catch(function (e) {
       console.error(e);
-      $('bootText').textContent = '启动失败：' + (e && e.message || e);
-      toast('启动失败：' + (e && e.message || e), 'err', 5000);
+      $('bootText').textContent = '启动失败，请重启 App 再试';
+      toast('启动失败，请重启 App 再试', 'err', 5000);
+      fyLog('启动失败：' + (e && e.message || e));
     });
   }
 
@@ -5244,7 +5724,7 @@
         var name = t.dataset.tab;
         if (name === 'chat' && !S.session) {
           if (S.characters.length) { openSoloChat(S.characters[0].id, ''); return; }
-          toast('先创建或选择一个角色', 'warn');
+          toast('先在「角色」页选一个', 'warn');
           name = 'characters';
         }
         switchView(name);
@@ -5268,7 +5748,7 @@
     $('btnImportCard').onclick = function () {
       if (!bridgeAlive()) { toast('网页预览模式不能选文件', 'warn'); return; }
       var r = fyCall('pickCharacterCard', []);
-      if (r && r.ok === false) toast((r.message || '打不开文件选择器'), 'warn', 3000);
+      if (r && r.ok === false) toast('打不开文件选择，请确认已授予存储权限后重试', 'warn', 3000);
     };
     /* 创作者工具：向导 */
     $('btnCreatorClose').onclick = function () { closeSheet($('creatorMask')); };
@@ -5357,17 +5837,16 @@
       var cur = S.store.getBackend();
       if (want === cur) return;
       var self = this;
-      confirmAction('切换存储后端',
-        '把当前全部数据（角色/会话/聊天记录/记忆/设置）迁移到 ' + (BACKEND_LABEL[want] || want)
-        + '？迁移完成后 App 使用新后端，原后端的数据保留不动。',
-        '迁移', function () {
+      confirmAction('换个地方存数据',
+        '会把全部数据搬到「' + (BACKEND_LABEL[want] || want) + '」，原来的数据保留不动。',
+        '搬运', function () {
           S.store.migrateTo(want).then(function (r) {
-            toast('已迁移到 ' + (BACKEND_LABEL[r.backend] || r.backend) + '（' + r.moved + ' 条消息）', 'ok', 3800);
-            fyLog('存储后端迁移：' + cur + ' → ' + r.backend);
+            toast('数据已搬到 ' + (BACKEND_LABEL[r.backend] || r.backend) + '（' + r.moved + ' 条消息）', 'ok', 3800);
+            fyLog('数据位置迁移：' + cur + ' → ' + r.backend);
             renderStorageInfo();
           }).catch(function (e) {
             self.value = cur;
-            toast('迁移失败：' + ((e && e.message) || e), 'err', 4000);
+            toast('这次没搬成，数据还在原来位置，请稍后重试', 'err', 4000);
           });
         });
     };
@@ -5392,7 +5871,7 @@
     $('btnCharDelete').onclick = function () {
       var c = S.editChar;
       if (!c) return;
-      confirmAction('删除角色「' + c.name + '」', '该角色所在的单聊会话与消息也会一起删除。', '删除角色', function () {
+      confirmAction('删除角色「' + c.name + '」', '这个角色和它的单聊会话、消息会一起删掉，删了找不回来。想留个底，先点「导出」把它存一份。', '删除角色', function () {
         S.store.deleteCharacter(c.id);
         closeSheet($('charSheetMask'));
         if (S.session && S.session.characterIds.indexOf(c.id) < 0) { /* 会话可能已被删 */ }
@@ -5484,7 +5963,7 @@
     };
     $('btnMemClear').onclick = function () {
       if (!S.session) return;
-      confirmAction('清空记忆', '清空后模型会忘记更早的剧情。', '清空', function () {
+      confirmAction('清空记忆', '清空后模型会忘记更早的剧情，删了找不回来。想留个底，先把上面的记忆内容复制出去。', '清空', function () {
         S.store.clearMemory(S.session.id, '');
         $('memText').value = '';
         toast('记忆已清空', 'ok');
@@ -5544,12 +6023,12 @@
     $('btnPickModel').onclick = function () {
       var r = fyCall('pickModelFile', []);
       if (!r) { toast('当前环境不支持文件选择', 'warn'); return; }
-      toast('请选择 .gguf 模型文件…');
+      toast('请选择模型文件…');
       /* 兜底：若桥在返回值里直接给了 content:// URI（而非只发 import 事件），直接用掉 */
       if (r.uri) {
         var ri = fyCall('importModel', [r.uri]);
         if (ri && ri.ok) toast('导入成功：' + (ri.name || ''), 'ok');
-        else if (ri) toast('导入失败：' + (ri.message || ''), 'err');
+        else if (ri) toast('这个模型文件没能导入，请确认文件完整后重试', 'err');
         refreshModels(true);
       }
     };
@@ -5561,6 +6040,11 @@
     bindRange('setMaxTokens', 'maxTokens', 'valMaxTok', 0);
     bindRange('setHist', 'historyLimit', 'valHist', 0);
     bindRange('setMemTh', 'memoryThreshold', 'valMemTh', 0);
+    bindRange('setPenRep', 'penaltyRepeat', 'valPenRep', 2);
+    bindRange('setDry', 'dryMultiplier', 'valDry', 2);
+    bindRange('setMinP', 'minP', 'valMinP', 2);
+    bindRange('setXtc', 'xtcProbability', 'valXtc', 2);
+    bindRange('setDynTemp', 'dynTempDelta', 'valDynTemp', 2);
     bindRange('setTts', 'ttsRate', 'valTts', 1);
 
     /* 设置页：开关 */
@@ -5570,9 +6054,12 @@
     bindSwitch('setShowThinking', 'showThinking');
     bindSwitch('setRandomSpeaker', 'speakerMode');
     bindSwitch('setMlock', 'mlock');
+    bindSwitch('setOptGrammar', 'optionsGrammar');
 
     /* 设置页：推理方式（进程内 / 子进程）。下次「启动引擎」生效，不会中途换引擎。 */
     bindSelect('setEngineMode', 'engineMode');
+    /* 设置页：运行参数（高级）。空串 = 一行都不传。 */
+    bindText('setEngineTune', 'engineTune');
 
     /* 设置页：屏幕常亮（生成时 / 一直 / 不保持） */
     $('setKeepScreen').onchange = function () {
@@ -5610,7 +6097,7 @@
       });
     };
     $('btnClearAll').onclick = function () {
-      confirmAction('清空全部数据', '角色、会话、消息、记忆都会被删除，且无法恢复。', '全部清空', function () {
+      confirmAction('清空全部数据', '角色、会话、消息、记忆都会删掉，删了找不回来。想留个底，先点「导出全部数据」备份一份。', '全部清空', function () {
         try {
           Object.keys(global.localStorage).forEach(function (k) {
             if (k.indexOf('fy.') === 0 && k !== PRESETS_KEY) global.localStorage.removeItem(k);
@@ -5624,7 +6111,7 @@
 
     /* 剧情页 */
     $('storySwitch').onchange = function () {
-      if (!S.session) { this.checked = false; toast('先去角色页选一个角色', 'warn'); return; }
+      if (!S.session) { this.checked = false; toast('先在「角色」页选一个', 'warn'); return; }
       S.session = S.store.saveSession(Object.assign({}, S.session, { plot: this.checked }));
       toast(this.checked ? '剧情模式已开启' : '剧情模式已关闭', 'ok');
       renderChatHeader(); renderOptionsBar(); renderStory();
@@ -5640,7 +6127,7 @@
     $('btnExportDiag').onclick = function () {
       var r = fyCall('exportDiagnostics');
       if (r && r.ok) toast('诊断已导出：' + (r.path || 'Download/fy-diagnostics.txt'), 'ok', 3600);
-      else toast('导出失败：' + (r && r.message || '原生桥不可用'), 'err', 3600);
+      else toast('诊断没导出去，请确认存储权限后重试', 'err', 3600);
     };
     $('btnDbgSelftest').onclick = runSelftest;
     $('btnDbgSeed').onclick = seedTestSession;
@@ -5711,6 +6198,19 @@
     };
   }
 
+  /** 文本框 → 设置项。下拉框靠 option 的默认值，文本框得绑定时自己把当前值填回去。 */
+  function bindText(id, key) {
+    var input = $(id);
+    if (!input) return;
+    input.value = (S.settings && S.settings[key] != null) ? S.settings[key] : '';
+    input.onchange = function () {
+      var patch = {};
+      patch[key] = String(input.value || '').trim();
+      S.store.saveSettings(patch);
+      S.settings = S.store.getSettings();
+    };
+  }
+
   /** 下拉框 → 设置项。和 bindSwitch 同款：改完立刻落盘并刷新 S.settings。 */
   function bindSelect(id, key) {
     var input = $(id);
@@ -5746,17 +6246,19 @@
   }
 
   function chatMenuActions() {
-    if (!S.session) { toast('先选一个角色', 'warn'); return; }
+    if (!S.session) { toast('先在「角色」页选一个', 'warn'); return; }
     var acts = [
       { icon: '⏩', label: '继续生成（接着上一条往下写）', run: continueLast },
       { icon: '📤', label: '导出这段对话（Markdown → Download）', run: exportChatMarkdown },
       { icon: '🧠', label: '长期记忆（查看/编辑/压缩）', run: openMemorySheet },
       { icon: '✏️', label: '重命名会话', run: function () {
-        var v = global.prompt('会话名称：', S.session.title || '');
-        if (v === null) return;
-        S.session = S.store.saveSession(Object.assign({}, S.session, { title: String(v).trim() || '未命名' }));
-        renderChatHeader();
-        toast('已重命名', 'ok');
+        promptText('会话名称', { value: S.session.title || '', placeholder: '未命名', required: false })
+          .then(function (v) {
+            if (v === null) return;
+            S.session = S.store.saveSession(Object.assign({}, S.session, { title: String(v).trim() || '未命名' }));
+            renderChatHeader();
+            toast('已重命名', 'ok');
+          });
       } },
       { icon: '👥', label: (S.session.mode === 'group' ? '管理群聊成员' : '加入更多角色（群聊）'), run: manageMembers }
     ];
@@ -5773,7 +6275,7 @@
     } });
     acts.push({ icon: '🚫', label: '停止生成', run: stopGeneration });
     acts.push({ icon: '🗑️', label: '清空本会话消息', danger: true, run: function () {
-      confirmAction('清空消息', '本会话的所有消息都会被删除（记忆保留）。', '清空', function () {
+      confirmAction('清空消息', '本会话的消息会全部删掉，记忆保留，删了找不回来。想留个底，先把要紧的几句复制出去。', '清空', function () {
         S.store.deleteMessagesFrom(S.session.id, 0);
         S.messages = [];
         renderMessages(); renderOptionsBar(); renderChatHeader();
@@ -5781,7 +6283,7 @@
       });
     } });
     acts.push({ icon: '❌', label: '删除会话', danger: true, run: function () {
-      confirmAction('删除会话', '会话、消息与记忆都会被删除。', '删除', function () {
+      confirmAction('删除会话', '这个会话的消息和记忆会一起删掉，删了找不回来。角色本身还在，不会被删。', '删除', function () {
         var sid = S.session.id;
         S.store.deleteSession(sid);
         S.session = null; S.messages = []; S.lastOptions = [];
@@ -5933,7 +6435,9 @@
     fillTemplate: fillTemplate,
     passesRefFilter: passesRefFilter,
     pickPath: pickPath,
-    selftest: runSelftest
+    selftest: runSelftest,
+    /* 文本输入弹层（重命名 / 编辑重发）：测试直接驱动它，确认不再依赖原生 prompt */
+    promptText: promptText
   };
 
   /* ---------- 踩坑：ES module 不支持，只能用经典 script，这里等 DOM 就绪 ---------- */

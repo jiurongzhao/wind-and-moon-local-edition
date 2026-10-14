@@ -41,6 +41,11 @@ public class MainActivity extends Activity {
     private WebView web;
     private AssetServer server;
     private Engine engine;
+    /**
+     * 进程内推理后端注册表（jni / onnx / java…）。
+     * 子进程 server 不进这张表：聊天走 HTTP，前端用 native=false 分辨，见 EngineRegistry 注释。
+     */
+    private EngineRegistry registry;
     private ModelStore models;
     private Speech speech;
     private volatile boolean uiReady = false;
@@ -77,6 +82,14 @@ public class MainActivity extends Activity {
     /** 同一时刻只允许一轮原生生成：llama_context 不是可重入的，并发进去就是崩。 */
     private final java.util.concurrent.atomic.AtomicBoolean nativeBusy =
             new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /* ---------- 调试用无头测试入口的状态（只 debug 构建注册） ---------- */
+    private final Object devLock = new Object();
+    private final StringBuilder devTokens = new StringBuilder();
+    private volatile boolean devCapturing = false;
+    private volatile String devStats = "";
+    private volatile String devErr = "";
+    private android.content.BroadcastReceiver devReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -120,6 +133,43 @@ public class MainActivity extends Activity {
 
         models = new ModelStore(this);
 
+        /* 进程内引擎注册进后端表。以后 B（纯 Java）/ C（ONNX）就是在这里多注册一行，
+           Bridge 的调度与前端分叉都不用动。 */
+        registry = new EngineRegistry();
+        registry.register(new JniEngineBackend(this));
+        /* 本地推理单栈：LiteRT-LM。源码在 optional/litertlm/，只有 third_party/litertlm/ 存在时
+           才编得进来；反射注册，默认构建没有这个类也不会炸。 */
+        try {
+            Class<?> lm = Class.forName("com.fy.local.LitertLmBackend");
+            registry.register((EngineBackend) lm.getDeclaredConstructor(MainActivity.class).newInstance(this));
+        } catch (Throwable ignored) {
+            // 默认构建没带 LiteRT-LM：正常路径
+        }
+        /* B / C 两条路：调研过、结论写进 docs/engine-backends.md，这一版只"留位"：
+           available()=false → 设置页显示「不可用」并禁用，启动引擎时自动兜底子进程。 */
+        registry.register(new PlaceholderBackend("java", "纯 Java 方式",
+                "这版还不支持：实测在手机上太慢"));
+        registry.register(new PlaceholderBackend("onnx", "另一套模型格式",
+                "这版还不支持：要换一套模型文件，手机上也太慢"));
+        /* C 路线的真后端：源码在 optional/mediapipe/，只有 third_party/mediapipe/ 存在时
+           build.sh 才编进来。反射注册，默认构建没有这个类也不会炸。 */
+        try {
+            Class<?> mp = Class.forName("com.fy.local.MediaPipeBackend");
+            registry.register((EngineBackend) mp.getDeclaredConstructor(MainActivity.class).newInstance(this));
+        } catch (Throwable ignored) {
+            // 默认构建没有 MediaPipe：正常路径
+        }
+
+        /* 调试构建额外注册一个无头测试广播：让真机测试不用抢用户屏幕（见 registerDevReceiver）。 */
+        if (isDevBuild()) {
+            try { registerDevReceiver(); } catch (Throwable t) { Log.w(TAG, "dev 入口注册失败", t); }
+            /* 光有广播接收器不够：HyperOS 的 Greezer 会把 cached 进程冻住、直接拒发广播
+               （dumpsys 里能看到 "Greezer Denial"）。所以调试构建一启动就把前台服务立起来，
+               进程变成 foreground-service 级别，切到别的 App 也不会被冻，无头测试才收得到。
+               startForegroundService 在 App 前台时是允许的；服务自己 onCreate 里马上 startForeground。 */
+            startFyService();
+        }
+
         // 启动就自检一次引擎（跑 --version，不加载模型），结果写进日志和 appInfo，
         // 万一真机上拉不起来，调试页能直接看到断在哪一步。
         engine.selfCheck();
@@ -138,6 +188,11 @@ public class MainActivity extends Activity {
 
                 @Override
                 public void onDone(String stats) {
+                }
+
+                @Override
+                public void onProgress(int done, int total) {
+                    onNativeProgress(done, total);
                 }
             });
         } catch (Throwable t) {
@@ -213,7 +268,7 @@ public class MainActivity extends Activity {
             Log.i(TAG, "已加载前端 http://127.0.0.1:" + port + "/index.html");
         } catch (Exception e) {
             Log.e(TAG, "资源服务器启动失败", e);
-            Toast.makeText(this, "资源服务器启动失败: " + e, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "界面资源没能加载，请重启应用后再试", Toast.LENGTH_LONG).show();
         }
 
         // 麦克风权限改成惰性申请：点语音输入时才要（发布审核不喜欢"一启动就索权"）。
@@ -312,6 +367,28 @@ public class MainActivity extends Activity {
         return nativeBusy.get();
     }
 
+    // ---------- 推理后端注册表（"留门"） ----------
+
+    /** 全部进程内后端（按注册顺序）。 */
+    public EngineRegistry backends() {
+        return registry;
+    }
+
+    /** 按 id 取后端；没注册过返回 null（调用方据此回退到子进程 server）。 */
+    public EngineBackend backend(String id) {
+        return registry == null ? null : registry.get(id);
+    }
+
+    /** 当前在跑 / 正在起的进程内后端，engineStatus 报的就是它。 */
+    public EngineBackend activeInProcessBackend() {
+        return registry == null ? null : registry.active();
+    }
+
+    /** 聊天该用哪个进程内后端。 */
+    public EngineBackend inProcessBackendForChat() {
+        return registry == null ? null : registry.forChat();
+    }
+
     /**
      * 放弃进程内引擎（回退子进程时用）。
      * 只清状态、不推事件：回退时推一条"已停止"会让前端先闪一下 stopped，
@@ -401,10 +478,31 @@ public class MainActivity extends Activity {
         nativeBusy.set(false);
     }
 
+    /** 原生侧预填充每推进一块调一次：给前端看门狗续命，别把长 prefill 当成卡死。 */
+    private void onNativeProgress(int done, int total) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("id", genId);
+            o.put("state", "progress");
+            o.put("done", done);
+            o.put("total", total);
+        } catch (Exception ignored) {
+        }
+        pushEvent("gen", o);
+    }
+
+    /** 给其它进程内后端（如 MediaPipe）推 token 用：和 JNI 那条共用同一套合批/事件。 */
+    public void nativeToken(String piece) {
+        onNativeToken(piece);
+    }
+
     /** 原生侧每出一个 token 调一次（在推理线程上，所以只碰锁和 pushEvent）。 */
     private void onNativeToken(String piece) {
         synchronized (genBuf) {
             genBuf.append(piece);
+        }
+        if (devCapturing) {
+            synchronized (devLock) { devTokens.append(piece); }
         }
         flushNativeGen(false);
     }
@@ -441,12 +539,28 @@ public class MainActivity extends Activity {
         try {
             o.put("id", genId);
             o.put("state", err ? "error" : "done");
-            if (err) o.put("message", statsJson);
+            if (err) o.put("message", nativeErrorMessage(statsJson));
             else o.put("stats", new JSONObject(statsJson == null || statsJson.isEmpty() ? "{}" : statsJson));
         } catch (Exception ignored) {
         }
+        if (devCapturing) {
+            synchronized (devLock) { devStats = statsJson == null ? "" : statsJson; }
+        }
         pushEvent("gen", o);
         endNativeGen();
+    }
+
+    /** 原生侧的错误可能只有一句英文（如 engine not loaded），这里翻成人话再给前端。 */
+    private static String nativeErrorMessage(String statsJson) {
+        String detail = null;
+        try {
+            detail = new JSONObject(statsJson).optString("error", "");
+        } catch (Exception ignored) {
+        }
+        if (detail != null && detail.contains("engine not loaded")) {
+            return "模型还没加载好，请回设置页重新选一次模型";
+        }
+        return "这次回答没能生成，请重新发送";
     }
 
     /** 一轮生成以异常告终（nativeChat 抛出来，或者压根没起来）。 */
@@ -456,11 +570,199 @@ public class MainActivity extends Activity {
         try {
             o.put("id", genId);
             o.put("state", "error");
-            o.put("message", message == null ? "未知错误" : message);
+            o.put("message", message == null ? "这次回答没能生成，请重新发送" : message);
         } catch (Exception ignored) {
+        }
+        if (devCapturing) {
+            synchronized (devLock) { devErr = message == null ? "error" : message; }
         }
         pushEvent("gen", o);
         endNativeGen();
+    }
+
+    // ---------- 调试用无头测试入口（只 debug 构建注册） ----------
+    /* WebView CDP 只在 Activity 前台时才有 target，测试会抢用户屏幕。这里注册一个导出广播：
+       进程活着（测试期间用前台服务保活）时，就能在后台加载模型 / 跑一轮对话，把结果写到
+       files/devtest/result.json，测试脚本用 run-as 读 —— 用户可以用别的 App，不受打扰。
+       命令：
+         am broadcast -a com.fy.local.DEVTEST --es cmd load  --es id litertlm --es model X \
+            --ei ctx 4096 --ei threads 4 --es tune thinking=off
+         am broadcast -a com.fy.local.DEVTEST --es cmd chat --es id litertlm --ei maxTokens 160 \
+            --es messages '[{"role":"system","content":"..."},{"role":"user","content":"..."}]' */
+
+    private void registerDevReceiver() {
+        devReceiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(android.content.Context c, Intent it) { onDevIntent(it); }
+        };
+        android.content.IntentFilter f = new android.content.IntentFilter("com.fy.local.DEVTEST");
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(devReceiver, f, android.content.Context.RECEIVER_EXPORTED);
+            } else {
+                registerReceiver(devReceiver, f);
+            }
+            Log.i(TAG, "dev 无头测试广播已注册");
+        } catch (Throwable t) {
+            Log.w(TAG, "dev 广播注册失败", t);
+        }
+    }
+
+    private void onDevIntent(Intent it) {
+        final String cmd = it.getStringExtra("cmd");
+        final String id = it.getStringExtra("id");
+        final String model = it.getStringExtra("model");
+        final int ctx = it.getIntExtra("ctx", 4096);
+        final int threads = it.getIntExtra("threads", 4);
+        final String tune = it.getStringExtra("tune");
+        final int maxTokens = it.getIntExtra("maxTokens", 160);
+        final String configsB64 = it.getStringExtra("configsB64");
+        String mTmp = it.getStringExtra("messages");
+        final String mb64 = it.getStringExtra("messagesB64");
+        if (mb64 != null && !mb64.isEmpty()) {
+            try { mTmp = new String(android.util.Base64.decode(mb64, android.util.Base64.NO_WRAP), "UTF-8"); }
+            catch (Throwable ignored) { }
+        }
+        final String messages = mTmp;
+        final String opts = it.getStringExtra("opts");
+        new Thread(() -> {
+            JSONObject r = new JSONObject();
+            try {
+                r.put("cmd", cmd);
+                startFyService();
+                if ("load".equals(cmd)) devLoad(id, model, ctx, threads, tune, r);
+                else if ("chat".equals(cmd)) devChat(id, messages, opts, maxTokens, r);
+                else if ("bench".equals(cmd)) devBench(configsB64, r);
+                else if ("status".equals(cmd)) r.put("backends", backends() == null ? "" : backends().summary());
+                else r.put("error", "unknown cmd " + cmd);
+            } catch (Throwable t) {
+                try { r.put("error", String.valueOf(t)); } catch (Exception ignored) { }
+            }
+            writeDevResult(r.toString());
+        }, "fy-devtest").start();
+    }
+
+    private void startFyService() {
+        try {
+            Intent si = new Intent(this, FyService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(si);
+            else startService(si);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void devLoad(String id, String model, int ctx, int threads, String tune, JSONObject r) throws Exception {
+        EngineBackend b = backend(id);
+        if (b == null) { r.put("error", "unknown backend " + id); return; }
+        if (!b.available()) { r.put("error", "backend unavailable"); return; }
+        String abs = new java.io.File(models().dir(), model).getAbsolutePath();
+        b.start(abs, ctx, threads, false, tune, () -> { });   // 不自动回退子进程
+        long t0 = System.currentTimeMillis();
+        while (System.currentTimeMillis() - t0 < 240000) {
+            String st = b.state();
+            if ("ready".equals(st) || "error".equals(st) || "stopped".equals(st)) break;
+            Thread.sleep(300);
+        }
+        r.put("id", b.id());
+        r.put("state", b.state());
+        r.put("message", b.message() == null ? "" : b.message());
+        r.put("loadMs", b.loadMs());
+        r.put("model", b.model() == null ? "" : b.model());
+    }
+
+    private void devChat(String id, String messagesJson, String optsJson, int maxTokens, JSONObject r) throws Exception {
+        EngineBackend b = id != null ? backend(id) : inProcessBackendForChat();
+        if (b == null || !b.available()) { r.put("error", "backend unavailable"); return; }
+        org.json.JSONArray arr = new org.json.JSONArray(messagesJson == null || messagesJson.isEmpty() ? "[]" : messagesJson);
+        String[] flat = new String[arr.length() * 2];
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject m = arr.getJSONObject(i);
+            flat[i * 2] = m.optString("role", "user");
+            flat[i * 2 + 1] = m.optString("content", "");
+        }
+        EngineBackend.ChatOptions o = new EngineBackend.ChatOptions();
+        o.maxTokens = maxTokens;
+        JSONObject op = new JSONObject(optsJson == null || optsJson.isEmpty() ? "{}" : optsJson);
+        o.temperature = (float) op.optDouble("temperature", 0.8);
+        o.topK = op.optInt("topK", 40);
+        o.topP = (float) op.optDouble("topP", 0.95);
+        o.seed = op.optInt("seed", 0);
+        o.pinMessages = op.optInt("pinMessages", 1);
+        synchronized (devLock) {
+            devTokens.setLength(0);
+            devStats = "";
+            devErr = "";
+            devCapturing = true;
+        }
+        String gid = b.chat(flat, o);
+        r.put("genId", gid == null ? "" : gid);
+        if (gid == null) {
+            synchronized (devLock) { devCapturing = false; }
+            r.put("error", "busy");
+            return;
+        }
+        long t0 = System.currentTimeMillis();
+        while (nativeGenerating() && System.currentTimeMillis() - t0 < 300000) Thread.sleep(100);
+        synchronized (devLock) {
+            devCapturing = false;
+            r.put("text", devTokens.toString());
+            if (devStats != null && !devStats.isEmpty()) r.put("stats", new JSONObject(devStats));
+            if (devErr != null && !devErr.isEmpty()) r.put("genError", devErr);
+        }
+    }
+
+
+    /**
+     * 一次性跑完整套基准（configsB64 = base64(JSON 数组)）。为什么要"一次广播跑完"：
+     * HyperOS 会把 cached 进程冻住并拒发后续广播，逐条广播会卡死；这里只在收到一条广播时
+     * 起一个线程把整串跑完，逐行 append 到 files/devtest/bench.jsonl，最后写 {"done":true}。
+     */
+    private void devBench(String configsB64, JSONObject r) throws Exception {
+        if (configsB64 == null || configsB64.isEmpty()) { r.put("error", "no configs"); return; }
+        java.io.File d = new java.io.File(getFilesDir(), "devtest");
+        d.mkdirs();
+        java.io.File out = new java.io.File(d, "bench.jsonl");
+        org.json.JSONArray cfgs = new org.json.JSONArray(
+                new String(android.util.Base64.decode(configsB64, android.util.Base64.NO_WRAP), "UTF-8"));
+        java.io.FileWriter w = new java.io.FileWriter(out, false);
+        w.write("{\"start\":" + cfgs.length() + "}\n");
+        w.flush();
+        for (int i = 0; i < cfgs.length(); i++) {
+            JSONObject c = cfgs.getJSONObject(i);
+            JSONObject line = new JSONObject();
+            try {
+                JSONObject lr = new JSONObject();
+                devLoad(c.optString("id"), c.optString("model"), 4096, c.optInt("threads", 4),
+                        c.optString("tune", ""), lr);
+                line.put("load", lr);
+                JSONObject cr = new JSONObject();
+                devChat(c.optString("id"), c.optString("messages", "[]"), "{}",
+                        c.optInt("maxTokens", 160), cr);
+                line.put("chat", cr);
+            } catch (Throwable t) {
+                line.put("error", String.valueOf(t));
+            }
+            line.put("id", c.optString("id"));
+            line.put("model", c.optString("model"));
+            line.put("tune", c.optString("tune", ""));
+            line.put("threads", c.optInt("threads", 4));
+            w.write(line.toString() + "\n");
+            w.flush();
+        }
+        w.write("{\"done\":true}\n");
+        w.close();
+        r.put("done", true);
+    }
+
+    private void writeDevResult(String json) {
+        try {
+            java.io.File d = new java.io.File(getFilesDir(), "devtest");
+            d.mkdirs();
+            java.io.FileWriter w = new java.io.FileWriter(new java.io.File(d, "result.json"), false);
+            w.write(json);
+            w.close();
+        } catch (Throwable t) {
+            Log.w(TAG, "写 dev 结果失败", t);
+        }
     }
 
     /** 把「自检 + 引擎状态 + 日志 + 模型列表」写成 txt 落到 Download/（后台线程）。 */
@@ -548,9 +850,9 @@ public class MainActivity extends Activity {
             return;
         }
         String text;
-        if ("starting".equals(state)) text = "正在启动引擎…";
+        if ("starting".equals(state)) text = "正在启动本地模型…";
         else if ("loading".equals(state)) text = "正在加载模型…";
-        else text = (message != null && !message.isEmpty()) ? message : "引擎就绪，可以开始聊了";
+        else text = (message != null && !message.isEmpty()) ? message : "本地模型就绪，可以开始聊了";
         try {
             maybeRequestNotifPermission();
             Intent i = new Intent(this, FyService.class).putExtra(FyService.EXTRA_TEXT, text);
@@ -586,7 +888,7 @@ public class MainActivity extends Activity {
                 i.setType("*/*");
                 startActivityForResult(i, REQ_FILE);
             } catch (Exception e) {
-                toast("无法打开文件选择器: " + e);
+                toast("打不开文件选择，请确认已授予存储权限后重试");
             }
         });
     }
@@ -609,7 +911,7 @@ public class MainActivity extends Activity {
                 i.setType("*/*");
                 startActivityForResult(i, requestCode);
             } catch (Exception e) {
-                toast("无法打开文件选择器: " + e);
+                toast("打不开文件选择，请确认已授予存储权限后重试");
             }
         });
     }
@@ -639,7 +941,7 @@ public class MainActivity extends Activity {
                     try {
                         o.put("ok", false);
                         o.put("name", display);
-                        o.put("message", String.valueOf(t.getMessage() == null ? t : t.getMessage()));
+                        o.put("message", "这个文件读不了，换一个再试");
                     } catch (Exception ignored) {
                     }
                 }
@@ -668,7 +970,7 @@ public class MainActivity extends Activity {
                     try {
                         o.put("ok", false);
                         o.put("name", bname);
-                        o.put("message", String.valueOf(t.getMessage() == null ? t : t.getMessage()));
+                        o.put("message", "这个文件读不了，换一个再试");
                     } catch (Exception ignored) {
                     }
                 }
@@ -717,7 +1019,7 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == REQ_MIC) {
             boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
-            toast(granted ? "麦克风权限已允许" : "没有麦克风权限，语音输入不可用");
+            toast(granted ? "麦克风已开，可以语音输入了" : "没有麦克风权限，语音就用不了。去系统设置里允许「麦克风」，回来再点一次");
         } else if (requestCode == REQ_NOTIF) {
             // 没授权也能跑前台服务，只是通知栏不显示，这里不打扰用户
             Log.i(TAG, "通知权限结果: " + (results.length > 0 ? results[0] : -1));

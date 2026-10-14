@@ -272,7 +272,7 @@ public class AssetServer {
             Log.w(TAG, "代理失败: " + e);
             try {
                 if (out != null) {
-                    byte[] msg = ("代理失败: " + e).getBytes("UTF-8");
+                    byte[] msg = "连不上这个服务，请检查地址和网络".getBytes("UTF-8");
                     writeHeaders(out, "502 Bad Gateway", "text/plain; charset=utf-8", msg.length);
                     out.write(msg);
                     out.flush();
@@ -297,13 +297,13 @@ public class AssetServer {
             out = sock.getOutputStream();
 
             if (!"GET".equalsIgnoreCase(method)) {
-                replyText(out, "405 Method Not Allowed", "只支持 GET");
+                replyText(out, "405 Method Not Allowed", "请求方式不对");
                 return;
             }
 
             String target = queryParam(rawQuery, "url");
             if (target == null || target.trim().isEmpty()) {
-                replyText(out, "400 Bad Request", "缺少 url 参数");
+                replyText(out, "400 Bad Request", "缺少 url，没给出要下载的地址");
                 return;
             }
             target = target.trim();
@@ -312,7 +312,7 @@ public class AssetServer {
             try {
                 url = new URL(target);
             } catch (Exception e) {
-                replyText(out, "400 Bad Request", "地址不合法：" + e.getMessage());
+                replyText(out, "400 Bad Request", "这个地址打不开，检查一下链接是否完整");
                 return;
             }
 
@@ -324,7 +324,7 @@ public class AssetServer {
             boolean loopbackTest = allowLoopbackHttp && "http".equals(scheme) && isLoopbackHost(url.getHost());
             if (!https && !loopbackTest) {
                 replyText(out, "400 Bad Request",
-                        "只允许 https 地址（当前 " + (scheme.isEmpty() ? "没有 scheme" : scheme) + "）");
+                        "只允许 https 开头的地址，换一个链接再试");
                 return;
             }
 
@@ -341,8 +341,7 @@ public class AssetServer {
 
             int code = c.getResponseCode();
             if (code != HttpURLConnection.HTTP_OK) {
-                String msg = "上游返回 HTTP " + code
-                        + (c.getResponseMessage() != null ? (" " + c.getResponseMessage()) : "");
+                String msg = "这个服务返回了 " + code + "，请检查地址或稍后重试";
                 Log.w(TAG, "/fetch 上游非 200：" + code + " " + url.getHost());
                 replyText(out, "502 Bad Gateway", msg);
                 return;
@@ -352,7 +351,7 @@ public class AssetServer {
             long declared = -1;
             try { declared = c.getContentLengthLong(); } catch (Throwable ignored) { }
             if (declared > maxFetchBytes) {
-                replyText(out, "413 Payload Too Large", "上游响应 " + fmtBytes(declared) + "，超过上限 " + fmtBytes(maxFetchBytes));
+                replyText(out, "413 Payload Too Large", "这个文件有 " + fmtBytes(declared) + "，超过单次 " + fmtBytes(maxFetchBytes) + " 的上限");
                 return;
             }
 
@@ -370,7 +369,7 @@ public class AssetServer {
             }
             in.close();
             if (tooBig) {
-                replyText(out, "413 Payload Too Large", "上游响应超过上限 " + fmtBytes(maxFetchBytes));
+                replyText(out, "413 Payload Too Large", "这个文件超过了单次 " + fmtBytes(maxFetchBytes) + " 的上限");
                 return;
             }
 
@@ -385,7 +384,7 @@ public class AssetServer {
         } catch (Exception e) {
             Log.w(TAG, "/fetch 失败：" + e);
             try {
-                if (out != null) replyText(out, "502 Bad Gateway", "拉取失败：" + e);
+                if (out != null) replyText(out, "502 Bad Gateway", "下载失败，检查网络后重试");
             } catch (IOException ignored) {
             }
         } finally {

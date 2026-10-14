@@ -18,6 +18,7 @@ import java.util.List;
 public class NativeEngineJvmTest {
 
     static int pass = 0, fail = 0;
+    static int progressCalls = 0;
     static final List<String> streamed = new ArrayList<>();
 
     static void check(String name, boolean ok) {
@@ -64,7 +65,14 @@ public class NativeEngineJvmTest {
             @Override
             public void onDone(String statsJson) {
             }
+
+            @Override
+            public void onProgress(int done, int total) {
+                progressCalls++;
+            }
         });
+
+        check("NativeEngine.soLoaded()（available() 现在问的必须是这个，不是模型加载没）", NativeEngine.soLoaded());
 
         System.out.println("\n【1】加载");
         long ms = NativeEngine.load(model, ctx, 4, false);
@@ -146,6 +154,124 @@ public class NativeEngineJvmTest {
         check("第 2 轮复用了第 1 轮的全部（人设 + 历史）", rc2 == num(c1, "cache"),
                 "r2=" + rc2 + " 第1轮cache=" + num(c1, "cache"));
         check("复用的长度至少盖住静态前缀（人设常驻）", rc2 >= pin, "reused=" + rc2 + " pin=" + pin);
+
+        System.out.println("\n【4.7】前端滑窗口：丢掉最老一段后，后面的历史 KV 仍应复用（不是塌回前缀）");
+        /* 模拟 historyLimit 滑窗：把最老的一段 segA 从 prompt 里裁掉，最近一轮（含刚生成
+           的回复）保留。旧实现下公共前缀会塌回静态前缀（reused ≈ pin）；现在引擎应当
+           在旧序列里对齐到 segB 的起点、把前面那段删掉并前移，reused 至少盖住 segB。 */
+        String sys3 = "<|im_start|>system\n你叫林夏，是深夜书店的店员，说话短。<|im_end|>\n";
+        int pt3 = NativeEngine.setPrefix(sys3);
+        String segA = "<|im_start|>user\n这是要被裁掉的最老一段历史，写长一点好把前段 token 撑开，"
+                + "甲乙丙丁戊己庚辛壬癸。<|im_end|>\n"
+                + "<|im_start|>assistant\n收到，这段待会儿会被移除。子丑寅卯辰巳午未申酉戌亥。<|im_end|>\n";
+        String segB = "<|im_start|>user\n这段要保留。一二三四五六七八九十。<|im_end|>\n";
+        String tail = "<|im_start|>user\n再说一句<|im_end|>\n<|im_start|>assistant\n";
+        streamed.clear();
+        String b1 = NativeEngine.generate(sys3 + segA + segB + tail, 12, 0.0f, 0, 1.0f, 1);
+        String g1 = String.join("", streamed);
+        int cache1 = num(b1, "cache");
+        // 下一轮：segA 被裁掉，segB 与最近一轮（含 g1）保留，再接一条新用户消息
+        String next = sys3 + segB + tail + g1 + "<|im_end|>\n"
+                + "<|im_start|>user\n第三句<|im_end|>\n<|im_start|>assistant\n";
+        streamed.clear();
+        String b2 = NativeEngine.generate(next, 12, 0.0f, 0, 1.0f, 1);
+        System.out.println("  stats: " + b2);
+        check("裁窗口后不报错", !b2.contains("error"), b2);
+        check("裁窗口后复用的是保留的历史，不是只剩系统前缀",
+                num(b2, "reused") > pt3 + 16,
+                "reused=" + num(b2, "reused") + " prefix=" + pt3 + " 旧cache=" + cache1);
+        check("裁窗口后复用量小于旧 cache（确实把被裁那段删掉了）",
+                num(b2, "reused") < cache1,
+                "reused=" + num(b2, "reused") + " 旧cache=" + cache1);
+
+        System.out.println("\n【4.7b】上一条回复被前端裁尾后，滑窗口对齐仍能命中大部分历史");
+        NativeEngine.setPrefix(sys3);
+        streamed.clear();
+        String d1 = NativeEngine.generate(sys3 + segA + segB + tail, 12, 0.0f, 0, 1.0f, 1);
+        String dg1 = String.join("", streamed);
+        String dcut = dg1.length() > 3 ? dg1.substring(0, dg1.length() - 3) : dg1;
+        String dnext = sys3 + segB + tail + dcut + "<|im_end|>\n"
+                + "<|im_start|>user\n第三句<|im_end|>\n<|im_start|>assistant\n";
+        streamed.clear();
+        String d2 = NativeEngine.generate(dnext, 8, 0.0f, 0, 1.0f, 1);
+        System.out.println("  stats: " + d2);
+        check("回复尾巴被改后仍对齐到大部分历史（只重算被改的那几个 token）",
+                num(d2, "reused") > pt3 + 16,
+                "reused=" + num(d2, "reused") + " prefix=" + pt3);
+
+        System.out.println("\n【4.8】采样算法全家桶 + GBNF 语法约束");
+        /* 把所有采样器一次性打开：只要有一个签名/顺序错了，这里就会崩或 error。 */
+        String allSamplers = "pen_n=64;pen_rep=1.1;pen_freq=0.1;pen_pres=0.1;"
+                + "dry_mult=0.8;dry_base=1.75;dry_allowed=2;min_p=0.05;"
+                + "xtc_p=0.2;xtc_t=0.1;temp_delta=0.2;temp_exp=1";
+        streamed.clear();
+        String s4 = NativeEngine.generate(sys3 + segB + "<|im_start|>user\n说一句短话<|im_end|>\n"
+                        + "<|im_start|>assistant\n",
+                24, 0.8f, 40, 0.9f, 7, allSamplers, null, null);
+        System.out.println("  stats: " + s4);
+        check("全采样链不报错", !s4.contains("error"), s4);
+        check("全采样链能生成", num(s4, "gen") > 0, s4);
+
+        /* 严格语法：只允许数字。贪心采样下模型被逼着只能吐数字 —— 证明语法确实接进了采样链。
+           不用 "OK" 那种一生成完就闭合的语法：llama.cpp 在语法栈清空之后再 accept 下一个
+           token 会抛 std::runtime_error（真机/本地都踩过）。 */
+        streamed.clear();
+        String s5 = NativeEngine.generate(sys3 + "<|im_start|>user\n只回复一个数字，不要别的<|im_end|>\n"
+                        + "<|im_start|>assistant\n",
+                8, 0.0f, 40, 0.9f, 1, null, "root ::= [0-9]+", null);
+        String g5 = String.join("", streamed);
+        System.out.println("  语法约束输出: " + g5 + "  stats: " + s5);
+        check("GBNF 语法把输出限制成纯数字", g5.length() > 0 && g5.matches("[0-9]+"), "got=" + g5);
+
+        System.out.println("\n【4.9】预填充进度心跳（首轮不再被前端看门狗误杀）");
+        progressCalls = 0;
+        NativeEngine.setPrefix(sys3);
+        streamed.clear();
+        NativeEngine.generate(sys3 + segB + "<|im_start|>user\n再说一句<|im_end|>\n<|im_start|>assistant\n",
+                4, 0.8f, 40, 0.9f, 1, null, null, null);
+        check("预填充期间回调了进度（前端据此给看门狗续命）", progressCalls > 0,
+                "callbacks=" + progressCalls);
+
+        System.out.println("\n【4.10】辅助生成不破坏聊天缓存（记忆压缩不再让下一轮重算）");
+        NativeEngine.setPrefix(sys3);
+        String[] chat1 = { "system", sys3, "user", "你好" };
+        streamed.clear();
+        String x1 = NativeEngine.chat(chat1, 1, 8, 0.0f, 40, 0.9f, 1);
+        String reply1 = String.join("", streamed);
+        int cacheX1 = num(x1, "cache");
+        /* 辅助生成：完全不同的 prompt（模拟记忆压缩） */
+        String[] aux = { "system", "你是一个信息压缩助手，只输出摘要。", "user", "把它压缩成一句：甲乙丙丁戊己庚辛。" };
+        streamed.clear();
+        String a1 = NativeEngine.chatAux(aux, 1, 8, 0.0f, 40, 0.9f, 1);
+        check("辅助生成能正常出结果", !a1.contains("error"), a1);
+        /* 同一段聊天继续一轮：应当复用到 x1 结束时的整个 cache */
+        String[] chat2 = { "system", sys3, "user", "你好", "assistant", reply1, "user", "再说一句" };
+        streamed.clear();
+        String x2 = NativeEngine.chat(chat2, 1, 8, 0.0f, 40, 0.9f, 1);
+        int r2b = num(x2, "reused");
+        System.out.println("  chat1.cache=" + cacheX1 + "  chat2.stats=" + x2);
+        check("辅助生成后聊天下一轮仍整段复用（聊天 KV 被恢复）", r2b >= cacheX1,
+                "reused=" + r2b + " 之前 cache=" + cacheX1);
+
+        System.out.println("\n【4.11】n-gram 自投机：输出必须与不开时逐字节一致");
+        /* 自投机最容易出的错就是"省了 decode 但把分布改了"。贪心下同一段 prompt 跑两遍
+           （一遍 lookup=0、一遍 lookup=3），文本必须一字不差，同时确认草稿真的提了。 */
+        String copyPrompt = "<|im_start|>system\n你是复读机。<|im_end|>\n"
+                + "<|im_start|>user\n请一字不差地复述：甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥。<|im_end|>\n"
+                + "<|im_start|>assistant\n甲乙丙丁戊己庚辛";
+        NativeEngine.unload();
+        check("自投机对照：重新加载（lookup=0）", NativeEngine.load(model, 512, 4, false) >= 0);
+        streamed.clear();
+        String noSpecStats = NativeEngine.generate(copyPrompt, 24, 0.0f, 0, 1.0f, 1);
+        String noSpecText = String.join("", streamed);
+        NativeEngine.unload();
+        check("自投机对照：重新加载（lookup=3）", NativeEngine.load(model, 512, 4, false, "lookup=3") >= 0);
+        streamed.clear();
+        String specStats = NativeEngine.generate(copyPrompt, 24, 0.0f, 0, 1.0f, 1);
+        String specText = String.join("", streamed);
+        check("自投机输出与不开完全一致", noSpecText.length() > 0 && noSpecText.equals(specText),
+                "ns=" + noSpecText.replace("\n", "⏎") + " sp=" + specText.replace("\n", "⏎"));
+        check("自投机确实提了草稿（否则这条测试没意义）", num(specStats, "specDraft") > 0, specStats);
 
         System.out.println("\n【5】换角色 = 换前缀：缓存应当被清掉重来");
         int pt2 = NativeEngine.setPrefix("<|im_start|>system\n你叫沈砚堂，是古董店的掌柜。<|im_end|>\n");

@@ -41,7 +41,7 @@ public class CardIO {
         if (PngCardText.isPng(data)) {
             String text = PngCardText.extractPngText(data);
             if (text == null || text.trim().isEmpty()) {
-                throw new Exception("这张 PNG 里没有角色卡数据（只有带 chara 块的卡才行）");
+                throw new Exception("这个图片里没有角色卡信息，换一张再试");
             }
             return text;
         }

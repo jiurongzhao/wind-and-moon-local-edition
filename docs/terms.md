@@ -23,10 +23,11 @@
 我们授予你**个人的、非独占的、不可转让**的使用许可。
 你可以自由使用本 App 及其生成内容（包括用于创作），但不得：
 
-- 反编译、破解、去除版权标识后二次分发本 App（llama.cpp 等开源组件依其各自许可证另行授权）；
+- 反编译、破解、去除版权标识后二次分发本 App（LiteRT-LM、llama.cpp 等开源组件依其各自许可证另行授权）；
 - 将本 App 用于违反所在地法律法规的用途。
 
-本 App 内置的 llama.cpp 推理引擎以 **MIT 许可证**分发，版权归其作者所有。
+本 App 内置 **llama.cpp**（MIT，The ggml authors）与 **LiteRT-LM**（Apache-2.0，Google AI Edge）
+两套推理运行时，以双栈并存、可切换的方式提供，版权分别归其作者所有。第三方组件清单见 THIRD_PARTY_NOTICES.md。
 
 ## 4. 内容与责任
 

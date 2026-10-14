@@ -87,15 +87,15 @@
     engineStart: function (optsJson) {
       var opts = {};
       try { opts = JSON.parse(optsJson || '{}'); } catch (e) {}
-      if (state.status === 'ready') return j({ ok: true, message: '引擎已在运行' });
+      if (state.status === 'ready') return j({ ok: true, message: '模型已在运行' });
       var name = opts.model || state.models[0].name;
-      setStatus('starting', '正在启动 llama-server（mock）…');
+      setStatus('starting', '正在启动模型（预览）…');
       later(500, function () {
         setStatus('loading', '正在加载模型 ' + name + '（mock）…');
         later(900, function () {
           state.model = name;
           state.port = opts.port || 8080;
-          setStatus('ready', '引擎就绪（mock），端口 ' + state.port);
+          setStatus('ready', '模型就绪（预览），端口 ' + state.port);
           emit('log', { line: 'llama_server: listening on 127.0.0.1:' + state.port + ' (mock)' });
         });
       });
@@ -200,7 +200,7 @@
     /* 模型来源（浏览器预览：只有本地模拟，外部服务走不通） */
     getProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },
     setProvider: function () { return j({ mode: 'local', baseUrl: '', model: '', hasKey: false, ready: false }); },
-    testProvider: function () { return j({ ok: false, message: '浏览器预览模式无法连接外部服务' }); },
+    testProvider: function () { return j({ ok: false, message: '网页预览模式连不上云模型' }); },
 
     /* 浏览器预览模式没有原生 SQLite：如实报告不可用，让存储层自动跳过这个后端 */
     dbLoadAll: function () { return j({ ok: false, message: '浏览器模式没有 SQLite' }); },
@@ -255,7 +255,7 @@
       '“你说的这个，我记下了。”',
       '第 ' + Math.max(1, ctx.userCount) + ' 轮了，可我还是想听你再多说一点——' + String(ctx.lastUser).slice(0, 24) + '…那后来呢？',
       '',
-      '（这是 mock.js 生成的假回复，真机上会由本地 llama-server 流式输出。）'
+      '（这是 mock.js 生成的假回复，真机上会由本地模型流式输出。）'
     ];
     var body = lines.join('\n');
     if (ctx.wantOptions) {
@@ -357,7 +357,7 @@
       return Promise.reject(new Error('mock: 无网络能力'));
     }
     if (state.status !== 'ready') {
-      return Promise.reject(new Error('mock: 引擎未就绪（state=' + state.status + '），请先在设置里启动引擎'));
+      return Promise.reject(new Error('预览环境：模型还没就绪，请先在设置里启动'));
     }
     var body = {};
     try { body = JSON.parse((init && init.body) || '{}'); } catch (e) {}

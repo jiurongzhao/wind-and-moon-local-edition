@@ -7,9 +7,9 @@
 
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `FY.appInfo()` | — | `{version, abi, sdk, model, filesDir, nativeDir, modelDir}` | 设备与路径信息 |
+| `FY.appInfo()` | — | `{version, abi, sdk, model, filesDir, nativeDir, modelDir, backends, engineBackends}` | 设备与路径信息；`engineBackends` 是进程内后端清单 `[{id,label,available,inProcess}]`，设置页「推理方式」直接用它渲染 |
 | `FY.engineStatus()` | — | `{state, port, model, message, lastError, launchStrategy, native}` | `state`: `stopped`/`starting`/`loading`/`ready`/`error`；`native:true` = 进程内（JNI）引擎，此时 `port` 为 0 |
-| `FY.engineStart(optsJson)` | JSON 字符串 `{model, ctx, threads, gpuLayers, loadMode, engineMode}` | `{ok, message}` | 异步启动，进度通过事件推送；`engineMode: "jni"`（默认）走进程内引擎，`"server"` 走 llama-server 子进程 |
+| `FY.engineStart(optsJson)` | JSON 字符串 `{model, ctx, threads, gpuLayers, loadMode, engineMode}` | `{ok, message}` | 异步启动，进度通过事件推送；`engineMode` 是后端注册表里的任意 id（`"jni"` 默认 / `"onnx"` / `"java"`…），没注册或不可用时兜底走 `"server"`（llama-server 子进程） |
 | `FY.engineStop()` | — | `{ok}` | 停止推理（两种引擎都停） |
 | `FY.chat(messagesJson, optsJson)` | `[{role,content},…]`、`{pinMessages, maxTokens, temperature, topK, topP, seed, id}` | `{ok, id}` | **进程内引擎专用**：套模型自带模板后流式生成，token 走 `gen` 事件；没有 HTTP、没有端口 |
 | `FY.chatStop()` | — | `{ok}` | 停止当前这一轮生成 |
@@ -32,8 +32,9 @@
 | `FY.exitApp()` | — | `{ok}` | 退出 App |
 | `FY.log(msg)` | 文本 | — | 写 logcat，便于调试 |
 
-> `engineStatus()` 里还多返回一个 `launchStrategy` 字段：`"direct"`（直接 exec）
-> 或 `"linker64"`（用 `/system/bin/linker64` 加载）。真机上引擎起不来时，先看这个值。
+> `engineStatus()` 里还多返回一个 `launchStrategy` 字段：进程内后端报它的 id（`"jni"` 等），
+> 子进程报 `"direct"`（直接 exec）或 `"linker64"`（用 `/system/bin/linker64` 加载）。
+> 真机上引擎起不来时，先看这个值。
 
 ## 2. 异步事件（Java → JS）
 

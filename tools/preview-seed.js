@@ -124,6 +124,22 @@
         App.state.lastOptions = ['照片上的人我认识，是我母亲。', '先问她这本书是谁还回来的。', '假装没看见，把书合上。'];
         try { App.renderOptionsBar ? App.renderOptionsBar() : null; } catch (e) {}
       }
+    } else if (view === 'empty') {
+      /* 空状态：清掉所有角色，看"还没有角色"那张 */
+      App.state.store.listCharacters().forEach(function (c) { App.state.store.deleteCharacter(c.id); });
+      App.state.characters = [];
+      App.switchView('characters');
+      App.renderCharacters();
+    } else if (view === 'ask') {
+      App.switchView('chat');
+      var sAsk = App.state.store.listSessions()[0];
+      if (sAsk) App.openSessionById(sAsk.id);
+      /* 文本输入弹层（替代 window.prompt）：编辑重发就是多行 + 提示语的样子 */
+      App.promptText('编辑后重发', {
+        value: '（把那本书推到桌面中间，指腹压着书脊）闭馆前十分钟，我一般不说话。',
+        multiline: true,
+        hint: '确定后会删掉这条以及之后的消息，再用新内容重新生成。'
+      });
     } else if (view === 'settings') {
       App.switchView('settings');
     } else if (view === 'packs') {

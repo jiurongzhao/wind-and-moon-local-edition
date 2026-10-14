@@ -35,6 +35,14 @@ static int          g_cache_n    = 0;
 static int          g_cache_cap  = 0;
 
 static int g_n_ctx = 0;
+/* 逻辑批（预填充块大小）与本次加载的 tune。generate_text 要从 tune 里读 "chunk"。 */
+static int  g_n_batch = 0;
+static char g_load_tune[512] = {0};
+/* 自投机统计（每轮清零）：提了多少草稿 token、命中多少。 */
+static long g_spec_draft = 0;
+static long g_spec_accept = 0;
+/* 命中率太低的文本（普通散文）上自投机是净亏，所以探测一段后自动关掉本次生成。 */
+static int  g_spec_off = 0;
 static volatile int g_stop = 0;
 static int g_backends_ready = 0;
 
@@ -78,11 +86,71 @@ static void ensure_backends(void) {
 static JavaVM   *g_vm = NULL;
 static jclass    g_cls = NULL;
 static jmethodID g_midToken = NULL;
+static jmethodID g_midProgress = NULL;
 
 static long now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long) ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/* ================= 参数解析（"k=v;k=v" 一行） =================
+ *
+ * 前端把采样/加载参数压成一行传进来（不引 JSON 解析库）。generate_text 用下面几个取采样项，
+ * nativeLoad 用它们取 KV 量化 / Flash Attention / 物理批大小。认不得的键一律回落默认值。
+ */
+static float cfg_f(const char *cfg, const char *key, float def) {
+    if (!cfg) return def;
+    size_t klen = strlen(key);
+    const char *p = cfg;
+    while (p && *p) {
+        const char *sep = strchr(p, ';');
+        int is_match = (strncmp(p, key, klen) == 0 && p[klen] == '=');
+        if (is_match) return strtof(p + klen + 1, NULL);
+        if (!sep) break;
+        p = sep + 1;
+    }
+    return def;
+}
+static int cfg_i(const char *cfg, const char *key, int def) {
+    return (int) cfg_f(cfg, key, (float) def);
+}
+/* 取字符串值：返回指向 cfg 内部的指针，值一直到下一个 ';' 或串尾；没有该键返回 def。 */
+static const char *cfg_s(const char *cfg, const char *key, const char *def) {
+    if (!cfg) return def;
+    size_t klen = strlen(key);
+    const char *p = cfg;
+    while (p && *p) {
+        const char *sep = strchr(p, ';');
+        if (strncmp(p, key, klen) == 0 && p[klen] == '=') return p + klen + 1;
+        if (!sep) break;
+        p = sep + 1;
+    }
+    return def;
+}
+/* KV 缓存类型：f32 / f16 / q8_0 / q4_0 / q5_0 / q5_1。认不出返回 def。 */
+static enum ggml_type cfg_type(const char *cfg, const char *key, enum ggml_type def) {
+    const char *v = cfg_s(cfg, key, NULL);
+    if (!v || !v[0]) return def;
+    char buf[16];
+    size_t i = 0;
+    while (i + 1 < sizeof(buf) && v[i] && v[i] != ';') { buf[i] = v[i]; i++; }
+    buf[i] = 0;
+    if (!strcmp(buf, "f32"))  return GGML_TYPE_F32;
+    if (!strcmp(buf, "f16"))  return GGML_TYPE_F16;
+    if (!strcmp(buf, "q8_0")) return GGML_TYPE_Q8_0;
+    if (!strcmp(buf, "q4_0")) return GGML_TYPE_Q4_0;
+    if (!strcmp(buf, "q5_0")) return GGML_TYPE_Q5_0;
+    if (!strcmp(buf, "q5_1")) return GGML_TYPE_Q5_1;
+    return def;
+}
+/* 三态布尔：1/true/on、0/false/off；没有该键返回 def。 */
+static int cfg_bool(const char *cfg, const char *key, int def) {
+    const char *v = cfg_s(cfg, key, NULL);
+    if (!v || !v[0]) return def;
+    if (v[0] == '1' || strncmp(v, "true", 4) == 0 || strncmp(v, "on", 2) == 0) return 1;
+    if (v[0] == '0' || strncmp(v, "false", 5) == 0 || strncmp(v, "off", 3) == 0) return 0;
+    return def;
 }
 
 /* 把一段文本推给 Java 侧（NativeEngine.onToken）。回调抛异常就地清掉，别让它污染后续调用。 */
@@ -95,6 +163,17 @@ static void emit_piece(const char *piece) {
     (*env)->CallStaticVoidMethod(env, g_cls, g_midToken, s);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
     (*env)->DeleteLocalRef(env, s);
+}
+
+/* 预填充进度心跳：长 prompt 的第一次 decode 可能几十秒，期间没有任何 token 回调，
+   前端 60 秒「冻结看门狗」会把这一轮误判成卡死并 abort —— 真机首轮空回复就是这么来的。
+   每解码完一小块就报一次进度，前端据此给这一轮续命。 */
+static void emit_progress(int done, int total) {
+    if (!g_vm || !g_cls || !g_midProgress) return;
+    JNIEnv *env = NULL;
+    if ((*g_vm)->GetEnv(g_vm, (void **) &env, JNI_VERSION_1_6) != JNI_OK) return;
+    (*env)->CallStaticVoidMethod(env, g_cls, g_midProgress, (jint) done, (jint) total);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }
 
 /* 用 malloc 扩一个 token 缓冲（简单起见用 doubling）。 */
@@ -123,10 +202,12 @@ Java_com_fy_local_NativeEngine_nativeSystemInfo(JNIEnv *env, jclass cls) {
 /* 返回加载耗时（ms），失败 -1 */
 JNIEXPORT jlong JNICALL
 Java_com_fy_local_NativeEngine_nativeLoad(JNIEnv *env, jclass cls, jstring jpath,
-                                          jint nCtx, jint nThreads, jint nBatch, jboolean mlock) {
+                                          jint nCtx, jint nThreads, jint nBatch, jboolean mlock,
+                                          jstring jtune) {
     if (g_ctx) return -1;
 
     const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
+    const char *tune = jtune ? (*env)->GetStringUTFChars(env, jtune, NULL) : NULL;
     long t0 = now_ms();
 
     ensure_backends();
@@ -145,15 +226,44 @@ Java_com_fy_local_NativeEngine_nativeLoad(JNIEnv *env, jclass cls, jstring jpath
         g_model = llama_model_load_from_file(path, mp);
     }
     (*env)->ReleaseStringUTFChars(env, jpath, path);
-    if (!g_model) return -1;
+    if (!g_model) {
+        if (tune) (*env)->ReleaseStringUTFChars(env, jtune, tune);
+        return -1;
+    }
     g_vocab = llama_model_get_vocab(g_model);
 
     struct llama_context_params cp = llama_context_default_params();
     cp.n_ctx           = (uint32_t) nCtx;
     cp.n_batch         = (uint32_t) (nBatch > 0 ? nBatch : 512);
-    cp.n_ubatch        = cp.n_batch;
+    /* 物理批大小（预填充块大小）。默认等于 n_batch；小模型上单独调它有用，所以留一个 tune 口。 */
+    uint32_t ub = (uint32_t) cfg_i(tune, "ubatch", (int) cp.n_batch);
+    cp.n_ubatch        = ub > 0 ? ub : cp.n_batch;
     cp.n_threads       = nThreads;
     cp.n_threads_batch = nThreads;
+
+    /* KV 缓存量化 + Flash Attention（JNI 线路的提速开关）：
+       - type_k/type_v 默认跟着模型走（一般是 f16）；q8_0 把 KV 带宽砍掉约一半。
+         decode 是内存带宽受限，小模型上通常直接换到速度。
+       - 量化过的 KV 需要 Flash Attention 参与计算，所以用户没显式关 FA 时自动打开。
+       两个键只在 tune 里给了才生效，不传 tune 就是老行为。 */
+    int kv_set = (cfg_s(tune, "type_k", NULL) != NULL) || (cfg_s(tune, "type_v", NULL) != NULL);
+    cp.type_k = cfg_type(tune, "type_k", cp.type_k);
+    cp.type_v = cfg_type(tune, "type_v", cp.type_v);
+    int fa = cfg_i(tune, "flash_attn", (int) LLAMA_FLASH_ATTN_TYPE_AUTO);
+    if (kv_set && fa == (int) LLAMA_FLASH_ATTN_TYPE_AUTO) fa = (int) LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    cp.flash_attn_type = (enum llama_flash_attn_type) fa;
+    int kvu = cfg_bool(tune, "kv_unified", -1);
+    if (kvu >= 0) cp.kv_unified = kvu == 1;
+    int swaf = cfg_bool(tune, "swa_full", -1);
+    if (swaf >= 0) cp.swa_full = swaf == 1;
+
+    g_n_batch = (int) cp.n_batch;
+    if (tune) {
+        snprintf(g_load_tune, sizeof(g_load_tune), "%s", tune);
+    } else {
+        g_load_tune[0] = 0;
+    }
+    if (tune) { (*env)->ReleaseStringUTFChars(env, jtune, tune); tune = NULL; }
     g_ctx = llama_init_from_model(g_model, cp);
     if (!g_ctx) {
         /* context 建不起来（ctx 要的内存比模型还大时会发生）：模型也要还回去，
@@ -173,6 +283,7 @@ Java_com_fy_local_NativeEngine_nativeLoad(JNIEnv *env, jclass cls, jstring jpath
         if (local) {
             g_cls = (jclass) (*env)->NewGlobalRef(env, local);
             g_midToken = (*env)->GetStaticMethodID(env, g_cls, "onToken", "(Ljava/lang/String;)V");
+            g_midProgress = (*env)->GetStaticMethodID(env, g_cls, "onProgress", "(II)V");
             (*env)->DeleteLocalRef(env, local);
         }
     }
@@ -233,14 +344,170 @@ Java_com_fy_local_NativeEngine_nativeSetPrefix(JNIEnv *env, jclass cls, jstring 
  * text 在整个调用期间必须有效（nativeChat 传的是自己 malloc 的渲染结果）。
  * pin = 静态前缀的 token 数，这一段任何情况下都不许被 context-shift 丢掉。
  */
+/* 语法约束：给了 trigger 就用「懒语法」——生成里出现 trigger 之前完全不受限（正文自由），
+   出现之后才按 grammar 约束；没给 trigger 就用严格语法（整段输出都必须满足）。 */
+static struct llama_sampler *make_grammar(const char *grammar, const char *trigger) {
+    if (!grammar || !grammar[0]) return NULL;
+    if (trigger && trigger[0]) {
+        const char *patterns[1];
+        patterns[0] = trigger;
+        return llama_sampler_init_grammar_lazy_patterns(g_vocab, grammar, "root", patterns, 1, NULL, 0);
+    }
+    return llama_sampler_init_grammar(g_vocab, grammar, "root");
+}
+
+/* Z-algorithm：z[i] = s[0..] 与 s[i..] 的最长公共前缀长度，线性时间。
+   用在"滑窗口对齐"里一次算完新模式与旧 KV 序列的全部最长公共扩展（LCE）。 */
+static void z_function(const llama_token *s, int n, int *z) {
+    z[0] = n;
+    int l = 0, r = 0;
+    for (int i = 1; i < n; i++) {
+        int k = 0;
+        if (i < r) k = (z[i - l] < r - i) ? z[i - l] : r - i;
+        while (i + k < n && s[k] == s[i + k]) k++;
+        z[i] = k;
+        if (i + k > r) { l = i; r = i + k; }
+    }
+}
+
+/* ================= n-gram / prompt-lookup 自投机 =================
+ *
+ * llama.cpp 的公开 C API 不暴露投机解码（只有 common/ 与 examples/lookup 基于公开 API 自己实现），
+ * 所以这里手写一个"看历史猜下一段、一次 batch decode 验证"的版本：
+ *
+ *   1. 取 KV 末尾 look_n 个 token 当模式，往前找最近一次相同模式，把它后面一段当草稿；
+ *   2. 先用当前 logits 采样第一个 token：和草稿[0] 不符就照常单步（不亏，只是多一次采样）；
+ *   3. 相符就把整段草稿一次 batch decode（每个位置都要 logits），逐个采样验证：
+ *      采到的 token 和草稿一致就接受，不一致就停在那一位；
+ *   4. 被拒绝的草稿 token 从 KV 里删掉，只保留采定的那串。
+ *
+ * **分布不变**：每个真正吐出去的 token 都是在"当时正确的上下文"下从目标分布采样得到的
+ * （一致就复用草稿那份，不一致就用采到的那份），所以它只是省 decode，不改语义。
+ *
+ * 默认关（tune 的 lookup=0）。命中率低时它只是多算一次 batch，所以必须"量到正收益才开"。
+ */
+static void emit_piece_for(llama_token id) {
+    char piece[256];
+    int np = llama_token_to_piece(g_vocab, id, piece, (int) sizeof(piece), 0, true);
+    if (np > 0) { piece[np] = 0; emit_piece(piece); }
+}
+
+/* 返回本轮真正采定的 token 数；-1 = 这次没跑（调用方走普通单步，且本函数没消耗任何采样）。 */
+static int spec_step(struct llama_sampler *smpl, int look_n, int draft_max, int budget,
+                     long start_ms, long *first_ms) {
+    if (look_n < 1 || g_stop || budget < 2) return -1;
+    if (g_spec_off) return -1;
+    if (g_cache_n < look_n + 1) return -1;
+
+    /* 1. 找最近一次相同 n-gram，取后面一段当草稿（草稿里遇到 EOG 就截断） */
+    llama_token draft[16];
+    int pat = g_cache_n - look_n;
+    int best = -1;
+    for (int j = pat - look_n; j >= 0; j--) {
+        if (memcmp(g_cache + j, g_cache + pat, sizeof(llama_token) * (size_t) look_n) == 0) { best = j; break; }
+    }
+    if (best < 0) return -1;
+    int src = best + look_n;
+    int kmax = draft_max;
+    if (kmax > (int) (sizeof(draft) / sizeof(draft[0]))) kmax = (int) (sizeof(draft) / sizeof(draft[0]));
+    if (kmax > budget - 1) kmax = budget - 1;   /* 还要留一位给"bonus" */
+    int k = 0;
+    while (k < kmax && src + k < g_cache_n) {
+        llama_token t = g_cache[src + k];
+        if (llama_vocab_is_eog(g_vocab, t)) break;
+        draft[k++] = t;
+    }
+    if (k <= 0) return -1;
+    if (!ensure_cache_cap(g_cache_n + k + 1)) return -1;
+    g_spec_draft += k;
+
+    /* 2. 第一个 token：用当前 logits 采样，和草稿[0] 比 */
+    llama_token t0 = llama_sampler_sample(smpl, g_ctx, -1);
+    if (t0 != draft[0]) {
+        if (llama_vocab_is_eog(g_vocab, t0)) { g_stop = 1; return 0; }
+        llama_sampler_accept(smpl, t0);
+        if (*first_ms < 0) *first_ms = now_ms() - start_ms;
+        emit_piece_for(t0);
+        g_cache[g_cache_n++] = t0;
+        struct llama_batch one = llama_batch_get_one(&t0, 1);
+        if (llama_decode(g_ctx, one) != 0) g_stop = 1;
+        return 1;
+    }
+    llama_sampler_accept(smpl, draft[0]);
+    g_spec_accept++;
+
+    /* 3. 一次 batch decode 整段草稿，每个位置都要 logits（显式 pos，别赌 NULL 的语义） */
+    int base = g_cache_n;
+    struct llama_batch b = llama_batch_init(k, 0, 1);
+    for (int i = 0; i < k; i++) {
+        b.token[i] = draft[i];
+        b.pos[i] = (llama_pos) (base + i);
+        b.n_seq_id[i] = 1;
+        b.seq_id[i][0] = 0;
+        b.logits[i] = 1;
+    }
+    b.n_tokens = k;
+    if (llama_decode(g_ctx, b) != 0) {
+        llama_batch_free(b);
+        /* 只采定了 draft[0]：KV 回到 base 再单步 decode 它 */
+        llama_memory_seq_rm(g_mem, 0, base, -1);
+        if (*first_ms < 0) *first_ms = now_ms() - start_ms;
+        emit_piece_for(draft[0]);
+        g_cache[g_cache_n++] = draft[0];
+        struct llama_batch one = llama_batch_get_one(&draft[0], 1);
+        if (llama_decode(g_ctx, one) != 0) g_stop = 1;
+        return 1;
+    }
+    llama_batch_free(b);
+
+    /* 4. 逐个验证（draft[0] 已经采定） */
+    int accepted = 1;
+    int rej = -1;
+    llama_token bonus = 0;
+    for (int i = 1; i < k; i++) {
+        llama_token ti = llama_sampler_sample(smpl, g_ctx, i - 1);
+        if (ti == draft[i]) {
+            llama_sampler_accept(smpl, draft[i]);
+            g_spec_accept++;
+            accepted++;
+        } else {
+            rej = i;
+            bonus = ti;
+            break;
+        }
+    }
+    if (rej < 0) bonus = llama_sampler_sample(smpl, g_ctx, k - 1);
+
+    /* 5. 修 KV：只留 [base, base+accepted)，丢掉的草稿尾巴删掉 */
+    if (base + accepted < base + k) llama_memory_seq_rm(g_mem, 0, base + accepted, -1);
+
+    if (*first_ms < 0) *first_ms = now_ms() - start_ms;
+    for (int i = 0; i < accepted; i++) {
+        emit_piece_for(draft[i]);
+        g_cache[g_cache_n++] = draft[i];
+    }
+    int emitted = accepted;
+    if (llama_vocab_is_eog(g_vocab, bonus)) { g_stop = 1; return emitted; }
+    llama_sampler_accept(smpl, bonus);
+    emit_piece_for(bonus);
+    g_cache[g_cache_n++] = bonus;
+    struct llama_batch one = llama_batch_get_one(&bonus, 1);
+    if (llama_decode(g_ctx, one) != 0) g_stop = 1;
+    return emitted + 1;
+}
+
 static jstring generate_text(JNIEnv *env, const char *text, int maxTokens, float temp,
-                             int topK, float topP, int seed, int pinTokens) {
+                             int topK, float topP, int seed, int pinTokens,
+                             const char *samplerCfg, const char *grammar, const char *grammarTrigger) {
     if (!g_ctx) return (*env)->NewStringUTF(env, "{\"error\":\"engine not loaded\"}");
 
     /* 在这一轮最开始就把停止标志清掉（而不是预填充之后）。
        否则长上下文预填充期间点"停止"会被这次清零吃掉 —— 几百 token 的 prefill 要等好几秒，
        用户点了停止却停不下来，体感就是"按了没反应"。 */
     g_stop = 0;
+    g_spec_draft = 0;
+    g_spec_accept = 0;
+    g_spec_off = 0;
 
     int len = (int) strlen(text);
     int cap = len + 64;
@@ -261,14 +528,78 @@ static jstring generate_text(JNIEnv *env, const char *text, int maxTokens, float
     while (common < lim && g_cache[common] == toks[common]) common++;
     int reused = common;
 
+    int pin = pinTokens > 0 ? pinTokens : 0;
+    if (pin > g_cache_n) pin = g_cache_n;
+    if (pin > n_tok)    pin = n_tok;
+
+    /* ---- 1b. 前端裁掉了最老的一批消息 → 新动态段是旧动态段的一个后缀 ----
+     *
+     * 前端按 historyLimit 滑窗口时，每轮都会从最前面丢掉 1~2 条消息。旧做法下公共
+     * 前缀会一路塌回系统前缀（真机实测 reused 1122 → 380），后面每条消息都要重算一遍
+     * prefill —— 这就是长对话"越聊越卡"的根因。
+     *
+     * 其实被丢掉的只是最前面一段**连续区间**，后面的历史 KV 原封不动就能用：在旧 token
+     * 序列里找到"新动态段"的起点 o，把 [pin, o) 从 KV 里删掉、剩下的位置整体前移
+     * （RoPE 由 llama_memory_seq_add 负责，和 context-shift 用的是同一个原语），
+     * 保留下来的部分一个 token 都不用重算。
+     *
+     * 只在"系统前缀还对得上、但动态段断了"时尝试；要求匹配至少 minMatch 个 token。
+     *
+     * 注意这里找的是"最长匹配的一段后缀"，而不是要求旧序列的整个尾巴逐 token 相等：
+     * 前端会在落盘前加工模型回复（剥思考段、抽选项、截掉回吐的提示词），所以上一条回复
+     * 的"存储形态"常常和 KV 里的原始 token 有几个 token 的差异。要求整段尾巴相等时，
+     * 这点差异会让对齐整个失败、退回整段重算（真机实测偶尔冒出一轮 38 s）。放宽成
+     * "最长匹配 + 至少 minMatch"之后，只有被改掉的那几个 token 需要重算。 */
+    if (pin > 0 && common >= pin && common < g_cache_n && n_tok > pin) {
+        const int minMatch = 16;
+        int best = -1, best_len = 0;
+        /* 一次算完所有起点的最长公共扩展（LCE）：把"新动态段"当模式、旧 KV 序列当文本，
+           中间塞一个不可能出现的负 token 当分隔符，跑一遍 Z-algorithm。
+           原做法是对每个起点各比一遍（最坏 O(n·m)），现在是 O(n+m)。
+           结果与朴素实现逐位一致：取"首个达到最大匹配长度"的起点。 */
+        int pat_len = n_tok - pin;
+        int old_len = g_cache_n - pin;
+        int ztotal = pat_len + 1 + old_len;
+        llama_token *zcomb = (llama_token *) malloc(sizeof(llama_token) * (size_t) ztotal);
+        int *zarr = (int *) malloc(sizeof(int) * (size_t) ztotal);
+        if (zcomb && zarr) {
+            memcpy(zcomb, toks + pin, sizeof(llama_token) * (size_t) pat_len);
+            zcomb[pat_len] = (llama_token) -1;   /* token id 不会是负的，匹配不会越过模式边界 */
+            memcpy(zcomb + pat_len + 1, g_cache + pin, sizeof(llama_token) * (size_t) old_len);
+            z_function(zcomb, ztotal, zarr);
+            for (int j = 1; j < old_len; j++) {
+                int m = zarr[pat_len + 1 + j];
+                if (m >= minMatch && m > best_len) { best_len = m; best = pin + j; }
+            }
+        }
+        free(zarr);
+        free(zcomb);
+        if (best > pin && best_len >= minMatch && llama_memory_can_shift(g_mem)) {
+            int drop = best - pin;
+            llama_memory_seq_rm(g_mem, 0, pin, best);          /* 删掉被裁掉的那一段 */
+            llama_memory_seq_add(g_mem, 0, best, -1, -drop);   /* 后面的历史整体前移 */
+            memmove(g_cache + pin, g_cache + best,
+                    sizeof(llama_token) * (size_t) (g_cache_n - best));
+            g_cache_n -= drop;
+            common = pin + best_len;                            /* 只复用真正对上的那一段 */
+            if (common > n_tok) common = n_tok;
+            if (common > g_cache_n) common = g_cache_n;
+            reused = common;
+        }
+    }
+
+    /* 整段 prompt 都已经在 KV 里时（用户点"重新生成"、或同一段 prompt 连着跑两次），
+       common == n_tok，本轮一个 token 都不用 decode —— 采样器会拿上一轮最后一个 token
+       的 logits，而那个位置已经被上面裁掉了，结果通常是立刻吐 EOG（真机/本地都复现过：
+       gen=0、firstMs=-1）。这里强制把最后一个 prompt token 重新 decode 一遍换回正确 logits。 */
+    if (common == n_tok && n_tok > 0) common = n_tok - 1;
+    reused = common;
     if (common < g_cache_n) {
         llama_memory_seq_rm(g_mem, 0, common, -1);
         g_cache_n = common;
     }
 
     /* ---- 2. context-shift：放不下就从"前缀之后"丢最老的一段 ---- */
-    int pin = pinTokens > 0 ? pinTokens : 0;
-    if (pin > g_cache_n) pin = g_cache_n;
     int need = n_tok - common + maxTokens;
     while (g_cache_n + need > g_n_ctx) {
         int room = g_cache_n - pin;                 /* 前缀之后还有多少可以丢 */
@@ -290,8 +621,16 @@ static jstring generate_text(JNIEnv *env, const char *text, int maxTokens, float
         }
     }
 
-    /* ---- 3. decode 增量 ---- */
-    int batch = 512;
+    /* ---- 3. decode 增量 ----
+       分块预填充（128/块）：一是让 g_stop 在长 prefill 中间也能生效；二是每块报一次
+       进度，前端看门狗不会把「还没出 token 的 prefill」误杀成冻结；三是 llama.cpp 第一次
+       decode 就按 batch 预留计算图，512 的图在 3B 上又大又慢（真机首轮就卡在这儿）。 */
+    /* 预填充块大小：默认 128（原行为）。大块少几次 decode 调用、GPU/CPU 上矩阵乘更满，
+       但一次调用更久、中途点"停止"要等它跑完，所以做成可调（tune 的 "chunk"，默认不变）。 */
+    int batch = cfg_i(g_load_tune, "chunk", 128);
+    if (batch < 32) batch = 32;
+    if (g_n_batch > 0 && batch > g_n_batch) batch = g_n_batch;
+    int prefill_total = n_tok - common;
     long first_ms = -1;
     for (int i = common; i < n_tok; i += batch) {
         if (g_stop) break;                          /* 预填充期间也要能停 */
@@ -301,6 +640,7 @@ static jstring generate_text(JNIEnv *env, const char *text, int maxTokens, float
         if (llama_decode(g_ctx, b) != 0) { free(toks); return (*env)->NewStringUTF(env, "{\"error\":\"prefill decode failed\"}"); }
         memcpy(g_cache + g_cache_n, toks + i, sizeof(llama_token) * (size_t) m);
         g_cache_n += m;
+        emit_progress(g_cache_n - common, prefill_total);
     }
     long prefill_ms = now_ms() - t0;
     free(toks);
@@ -309,57 +649,121 @@ static jstring generate_text(JNIEnv *env, const char *text, int maxTokens, float
 
     /* ---- 4. 采样 + 流式回调 ---- */
     struct llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+
+    /* 惩罚类先做（改的是 logits），顺序按 llama.cpp 的惯例：
+       惩罚/DRY → top-k → top-p → min-p → top-n-sigma → XTC → 温度 → 语法 → 分布。 */
+    {
+        int pen_n = cfg_i(samplerCfg, "pen_n", 64);
+        float pen_rep = cfg_f(samplerCfg, "pen_rep", 1.0f);
+        float pen_freq = cfg_f(samplerCfg, "pen_freq", 0.0f);
+        float pen_pres = cfg_f(samplerCfg, "pen_pres", 0.0f);
+        if (pen_n != 0 && (pen_rep != 1.0f || pen_freq != 0.0f || pen_pres != 0.0f)) {
+            llama_sampler_chain_add(smpl,
+                llama_sampler_init_penalties(llama_vocab_n_tokens(g_vocab),
+                    pen_n, pen_rep, pen_freq, pen_pres));
+        }
+        float dry_mult = cfg_f(samplerCfg, "dry_mult", 0.0f);
+        if (dry_mult > 0.0f) {
+            llama_sampler_chain_add(smpl,
+                llama_sampler_init_dry(g_vocab, dry_mult,
+                    cfg_f(samplerCfg, "dry_base", 1.75f),
+                    cfg_i(samplerCfg, "dry_allowed", 2),
+                    cfg_i(samplerCfg, "dry_n", 256),
+                    NULL, 0));
+        }
+    }
     if (temp <= 0.0f) {
+        /* 贪心：温度关掉时 top-k/top-p 对 argmax 没意义，只留语法 */
+        { struct llama_sampler *gs = make_grammar(grammar, grammarTrigger); if (gs) llama_sampler_chain_add(smpl, gs); }
         llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
     } else {
         if (topK > 0) llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
         if (topP < 1.0f) llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
-        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+        float min_p = cfg_f(samplerCfg, "min_p", 0.0f);
+        if (min_p > 0.0f) llama_sampler_chain_add(smpl, llama_sampler_init_min_p(min_p, 1));
+        float top_ns = cfg_f(samplerCfg, "top_ns", 0.0f);
+        if (top_ns > 0.0f) llama_sampler_chain_add(smpl, llama_sampler_init_top_n_sigma(top_ns));
+        float xtc_p = cfg_f(samplerCfg, "xtc_p", 0.0f);
+        if (xtc_p > 0.0f) {
+            llama_sampler_chain_add(smpl,
+                llama_sampler_init_xtc(xtc_p, cfg_f(samplerCfg, "xtc_t", 0.1f), 1,
+                    (uint32_t) (seed > 0 ? seed : 1234)));
+        }
+        float tdelta = cfg_f(samplerCfg, "temp_delta", 0.0f);
+        if (tdelta > 0.0f) {
+            llama_sampler_chain_add(smpl,
+                llama_sampler_init_temp_ext(temp, tdelta, cfg_f(samplerCfg, "temp_exp", 1.0f)));
+        } else {
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+        }
+        { struct llama_sampler *gs = make_grammar(grammar, grammarTrigger); if (gs) llama_sampler_chain_add(smpl, gs); }
         llama_sampler_chain_add(smpl, llama_sampler_init_dist((uint32_t) (seed > 0 ? seed : 1234)));
     }
 
     int gen = 0;
-    char out[8192];
-    int olen = 0;
-    for (int i = 0; i < maxTokens && !g_stop; i++) {
-        llama_token id = llama_sampler_sample(smpl, g_ctx, -1);
-        if (llama_vocab_is_eog(g_vocab, id)) break;
-        llama_sampler_accept(smpl, id);
+    /* 自投机：默认 lookup=0（关）。lookup=N 时用末尾 N 个 token 做 n-gram 草稿。 */
+    int lookup_n = cfg_i(g_load_tune, "lookup", 0);
+    int draft_max = cfg_i(g_load_tune, "draft", 8);
+    if (draft_max < 1) draft_max = 1;
+    if (draft_max > 16) draft_max = 16;
 
-        char piece[256];
-        int np = llama_token_to_piece(g_vocab, id, piece, (int) sizeof(piece), 0, true);
-        if (np > 0) {
-            piece[np] = 0;
-            if (first_ms < 0) first_ms = now_ms() - t0;
-            if (olen + np < (int) sizeof(out) - 1) { memcpy(out + olen, piece, (size_t) np); olen += np; }
-            emit_piece(piece);
+    int step = 0;
+    while (step < maxTokens && !g_stop) {
+        int got = -1;
+        if (lookup_n > 0) {
+            got = spec_step(smpl, lookup_n, draft_max, maxTokens - step, t0, &first_ms);
+            /* 自适应：累计提了 >=20 个草稿、命中 < 40% 就关掉，避免在普通散文上白算 */
+            if (g_spec_draft >= 20 && g_spec_accept * 5 < g_spec_draft * 2) g_spec_off = 1;
         }
-        if (!ensure_cache_cap(g_cache_n + 1)) break;
-        g_cache[g_cache_n++] = id;
-        struct llama_batch b = llama_batch_get_one(&id, 1);
-        if (llama_decode(g_ctx, b) != 0) break;
-        gen++;
+        if (got < 0) {
+            /* 普通单步（和以前一字不差） */
+            llama_token id = llama_sampler_sample(smpl, g_ctx, -1);
+            if (llama_vocab_is_eog(g_vocab, id)) break;
+            llama_sampler_accept(smpl, id);
+            char piece[256];
+            int np = llama_token_to_piece(g_vocab, id, piece, (int) sizeof(piece), 0, true);
+            if (np > 0) {
+                piece[np] = 0;
+                if (first_ms < 0) first_ms = now_ms() - t0;
+                emit_piece(piece);
+            }
+            if (!ensure_cache_cap(g_cache_n + 1)) break;
+            g_cache[g_cache_n++] = id;
+            struct llama_batch b = llama_batch_get_one(&id, 1);
+            if (llama_decode(g_ctx, b) != 0) break;
+            got = 1;
+        }
+        step += got;
+        gen += got;
     }
-    out[olen] = 0;
     long total_ms = now_ms() - t0;
     llama_sampler_free(smpl);
 
     /* 统计信息给 Java 侧用（Java 只管把 token 推给前端，不解析这段 JSON 也行） */
-    char res[160];
+    char res[192];
     snprintf(res, sizeof(res),
              "{\"gen\":%d,\"reused\":%d,\"prompt\":%d,\"cache\":%d,"
-             "\"prefillMs\":%ld,\"firstMs\":%ld,\"totalMs\":%ld}",
-             gen, reused, prompt_tokens, g_cache_n, prefill_ms, first_ms, total_ms);
+             "\"prefillMs\":%ld,\"firstMs\":%ld,\"totalMs\":%ld,"
+             "\"specDraft\":%ld,\"specAccept\":%ld}",
+             gen, reused, prompt_tokens, g_cache_n, prefill_ms, first_ms, total_ms,
+             g_spec_draft, g_spec_accept);
     return (*env)->NewStringUTF(env, res);
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_fy_local_NativeEngine_nativeGenerate(JNIEnv *env, jclass cls, jstring jprompt,
                                               jint maxTokens, jfloat temp, jint topK, jfloat topP,
-                                              jint seed, jint prefixTokens) {
+                                              jint seed, jint prefixTokens,
+                                              jstring jcfg, jstring jgrammar, jstring jtrigger) {
     const char *text = (*env)->GetStringUTFChars(env, jprompt, NULL);
     if (!text) return (*env)->NewStringUTF(env, "{\"error\":\"bad prompt\"}");
-    jstring r = generate_text(env, text, maxTokens, temp, topK, topP, seed, prefixTokens);
+    const char *cfg = jcfg ? (*env)->GetStringUTFChars(env, jcfg, NULL) : NULL;
+    const char *grammar = jgrammar ? (*env)->GetStringUTFChars(env, jgrammar, NULL) : NULL;
+    const char *trigger = jtrigger ? (*env)->GetStringUTFChars(env, jtrigger, NULL) : NULL;
+    jstring r = generate_text(env, text, maxTokens, temp, topK, topP, seed, prefixTokens, cfg, grammar, trigger);
+    if (trigger) (*env)->ReleaseStringUTFChars(env, jtrigger, trigger);
+    if (grammar) (*env)->ReleaseStringUTFChars(env, jgrammar, grammar);
+    if (cfg) (*env)->ReleaseStringUTFChars(env, jcfg, cfg);
     (*env)->ReleaseStringUTFChars(env, jprompt, text);
     return r;
 }
@@ -456,10 +860,9 @@ Java_com_fy_local_NativeEngine_nativeApplyTemplate(JNIEnv *env, jclass cls, jobj
 /* messages 走模型自带模板，然后流式生成。
  * pinMessages：前几条算"静态前缀"（一般是 1 条 system）。引擎量出它的 token 数并钉住，
  *              于是"人设/世界书常驻"这件事可以被保证；换角色 = 前缀变了 = 缓存自然失效。 */
-JNIEXPORT jstring JNICALL
-Java_com_fy_local_NativeEngine_nativeChat(JNIEnv *env, jclass cls, jobjectArray jmsgs,
-                                          jint pinMessages, jint maxTokens, jfloat temp,
-                                          jint topK, jfloat topP, jint seed) {
+static jstring chat_impl(JNIEnv *env, jobjectArray jmsgs, int pinMessages, int maxTokens, float temp,
+                         int topK, float topP, int seed,
+                         jstring jcfg, jstring jgrammar, jstring jtrigger) {
     if (!g_ctx) return (*env)->NewStringUTF(env, "{\"error\":\"engine not loaded\"}");
     if (!jmsgs) return (*env)->NewStringUTF(env, "{\"error\":\"no messages\"}");
     int n_msg = (int) ((*env)->GetArrayLength(env, jmsgs) / 2);
@@ -478,9 +881,62 @@ Java_com_fy_local_NativeEngine_nativeChat(JNIEnv *env, jclass cls, jobjectArray 
 
     char *buf = render_chat(env, jmsgs, n_msg, true);
     if (!buf) return (*env)->NewStringUTF(env, "{\"error\":\"chat template failed\"}");
-    jstring out = generate_text(env, buf, maxTokens, temp, topK, topP, seed, pin);
+    const char *cfg = jcfg ? (*env)->GetStringUTFChars(env, jcfg, NULL) : NULL;
+    const char *grammar = jgrammar ? (*env)->GetStringUTFChars(env, jgrammar, NULL) : NULL;
+    const char *trigger = jtrigger ? (*env)->GetStringUTFChars(env, jtrigger, NULL) : NULL;
+    jstring out = generate_text(env, buf, maxTokens, temp, topK, topP, seed, pin, cfg, grammar, trigger);
+    if (trigger) (*env)->ReleaseStringUTFChars(env, jtrigger, trigger);
+    if (grammar) (*env)->ReleaseStringUTFChars(env, jgrammar, grammar);
+    if (cfg) (*env)->ReleaseStringUTFChars(env, jcfg, cfg);
     free(buf);
     return out;
+}
+
+/* 辅助生成（记忆压缩 / 创作者工具）：它的 prompt 跟聊天毫无关系，会把 KV 缓存整个换掉，
+   下一轮聊天就得把整段历史重新 prefill（真机实测每次摘要更新后那一轮要 30 s）。
+   这里在辅助生成前后把 seq 0 的状态存下来 / 恢复回去 —— 聊天的 KV 原样保留，
+   下一轮继续整段复用。代价是一次约 KV 大小的内存拷贝，远小于重算。 */
+JNIEXPORT jstring JNICALL
+Java_com_fy_local_NativeEngine_nativeChatAux(JNIEnv *env, jclass cls, jobjectArray jmsgs,
+                                             jint pinMessages, jint maxTokens, jfloat temp,
+                                             jint topK, jfloat topP, jint seed,
+                                             jstring jcfg, jstring jgrammar, jstring jtrigger) {
+    if (!g_ctx) return (*env)->NewStringUTF(env, "{\"error\":\"engine not loaded\"}");
+
+    /* 1) 存聊天序列的状态（KV + 位置）和我们的 token 镜像 */
+    size_t sz = llama_state_seq_get_size(g_ctx, 0);
+    uint8_t *state = sz ? (uint8_t *) malloc(sz) : NULL;
+    size_t got = 0;
+    if (state) got = llama_state_seq_get_data(g_ctx, state, sz, 0);
+    int saved_n = g_cache_n;
+    llama_token *saved = NULL;
+    if (saved_n > 0) {
+        saved = (llama_token *) malloc(sizeof(llama_token) * (size_t) saved_n);
+        if (saved) memcpy(saved, g_cache, sizeof(llama_token) * (size_t) saved_n);
+    }
+
+    /* 2) 跑辅助生成（会把 seq 0 换掉） */
+    jstring out = chat_impl(env, jmsgs, pinMessages, maxTokens, temp, topK, topP, seed,
+                            jcfg, jgrammar, jtrigger);
+
+    /* 3) 把聊天序列恢复回来 */
+    if (state && got) llama_state_seq_set_data(g_ctx, state, got, 0);
+    if (saved && ensure_cache_cap(saved_n)) {
+        memcpy(g_cache, saved, sizeof(llama_token) * (size_t) saved_n);
+        g_cache_n = saved_n;
+    }
+    free(saved);
+    free(state);
+    return out;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_fy_local_NativeEngine_nativeChat(JNIEnv *env, jclass cls, jobjectArray jmsgs,
+                                          jint pinMessages, jint maxTokens, jfloat temp,
+                                          jint topK, jfloat topP, jint seed,
+                                          jstring jcfg, jstring jgrammar, jstring jtrigger) {
+    return chat_impl(env, jmsgs, pinMessages, maxTokens, temp, topK, topP, seed,
+                     jcfg, jgrammar, jtrigger);
 }
 
 JNIEXPORT void JNICALL

@@ -79,9 +79,13 @@ public class Bridge {
             // 进程内（JNI）引擎：装没装、起没起、加载多久、后端是什么。
             // 这些都是"真机上出问题时要第一眼看的东西"，所以放进 appInfo 而不是埋在日志里。
             try {
-                o.put("nativeLoaded", NativeEngine.isLoaded());
-                o.put("nativeState", host.natState());
-                o.put("nativeLoadMs", host.natLoadMs());
+                EngineBackend jni = host.backend("jni");
+                o.put("nativeLoaded", jni != null && jni.available());
+                o.put("nativeState", jni != null ? jni.state() : "stopped");
+                o.put("nativeLoadMs", jni != null ? jni.loadMs() : -1);
+                o.put("backends", host.backends() == null ? "" : host.backends().summary());
+                // 设置页「推理方式」下拉框直接吃这个数组：新增后端不用改前端
+                o.put("engineBackends", backendsJson());
                 o.put("nativeSystem", NativeEngine.nativeSystemInfo().trim().replace('\n', ' '));
             } catch (Throwable t) {
                 o.put("nativeError", String.valueOf(t));
@@ -102,7 +106,7 @@ public class Bridge {
             }
             return o.toString();
         } catch (Exception e) {
-            return fail(String.valueOf(e));
+            return fail("应用信息读不出来，请重启应用后再试");
         }
     }
 
@@ -117,16 +121,17 @@ public class Bridge {
     public String engineStatus() {
         try {
             JSONObject o = new JSONObject();
-            // 进程内引擎在跑（或正在起）就报它；否则报子进程那套 —— 两边的 state 取值一样
-            if (host.natActive() || "loading".equals(host.natState())) {
-                o.put("state", host.natState());
+            // 有进程内后端在跑（或正在起）就报它；否则报子进程那套 —— 两边的 state 取值一样
+            EngineBackend inProc = host.activeInProcessBackend();
+            if (inProc != null) {
+                o.put("state", inProc.state());
                 o.put("port", 0);
-                o.put("model", host.natModel());
-                o.put("message", host.natMessage());
-                o.put("lastError", "error".equals(host.natState()) ? host.natMessage() : "");
-                o.put("launchStrategy", "jni");
-                o.put("native", true);
-                o.put("loadMs", host.natLoadMs());
+                o.put("model", inProc.model());
+                o.put("message", inProc.message());
+                o.put("lastError", "error".equals(inProc.state()) ? inProc.message() : "");
+                o.put("launchStrategy", inProc.id());
+                o.put("native", inProc.inProcessChat());
+                o.put("loadMs", inProc.loadMs());
                 return o.toString();
             }
             Engine e = host.engine();
@@ -139,8 +144,27 @@ public class Bridge {
             o.put("native", false);
             return o.toString();
         } catch (Exception ex) {
-            return fail(String.valueOf(ex));
+            return fail("引擎状态读不出来，请重启应用后再试");
         }
+    }
+
+    /** 进程内后端清单 → 设置页「推理方式」下拉框的数据源。 */
+    private JSONArray backendsJson() {
+        JSONArray arr = new JSONArray();
+        EngineRegistry reg = host.backends();
+        if (reg == null) return arr;
+        for (EngineBackend b : reg.all()) {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("id", b.id());
+                o.put("label", b.label());
+                o.put("available", b.available());
+                o.put("inProcess", b.inProcessChat());
+            } catch (Exception ignored) {
+            }
+            arr.put(o);
+        }
+        return arr;
     }
 
     @JavascriptInterface
@@ -148,7 +172,7 @@ public class Bridge {
         try {
             JSONObject o = new JSONObject(optsJson == null || optsJson.isEmpty() ? "{}" : optsJson);
             String model = o.optString("model", "");
-            if (model.isEmpty()) return fail("没有指定模型");
+            if (model.isEmpty()) return fail("还没选模型。回设置里的「模型管理」点一下要用的那个，再启动");
             int ctx = o.optInt("ctx", 4096);
             /* 线程数默认值：实测（Redmi Turbo 3 / 8 核 big.LITTLE：2 小核 + 5 中核 + 1 大核）
                0.5B：4 线程稳定 48~52 tok/s；6 线程 24~57 抖动极大；8 线程 11~35 更差
@@ -164,55 +188,41 @@ public class Bridge {
             String loadMode = o.optString("loadMode", "");
             host.engine().setLoadMode(loadMode);
 
-            /* engineMode=jni（默认）走进程内引擎；=server 用老的 llama-server 子进程。
-               jni 起不来会自动回退 server，所以默认值可以放心激进。 */
-            if (!"server".equals(o.optString("engineMode", "jni"))) {
+            /* engineMode=jni（默认）走进程内后端；没注册 / 不可用 / =server，都落到
+               llama-server 子进程。进程内起不来也会自动回退，所以默认值可以放心激进。 */
+            EngineBackend backend = host.backend(o.optString("engineMode", "jni"));
+            if (backend != null && backend.inProcessChat() && backend.available()) {
                 // 换模型期间绝不能有生成在跑：C 侧 free 掉 context 而推理线程还在用它 = 崩
-                if (host.nativeGenerating()) return fail("正在生成，先停止再换模型");
+                if (backend.generating()) return fail("还在生成中，点停止后再换模型");
                 final String m = model;
                 final String abs = new java.io.File(host.models().dir(), model).getAbsolutePath();
                 final int c = ctx, th = threads, gl = gpuLayers;
                 final boolean mlock = "mlock".equals(loadMode);
-                host.nativePush("loading", "正在把模型装进进程内引擎…", m, -1);
-                new Thread(() -> {
-                    long ms = -1;
-                    try {
-                        // 先收掉可能还在跑的旧引擎：一个占着 3.5GB 的残留会让新模型加载慢一个数量级
-                        host.engine().stop();
-                        NativeEngine.unload();
-                        ms = NativeEngine.load(abs, c, th, mlock);
-                    } catch (Throwable t) {
-                        // .so 加载失败（缺库 / ABI 不符）会在这里抛，别让线程就这么死掉
-                        Log.w(TAG, "进程内引擎加载异常", t);
-                        ms = -1;
-                    }
-                    if (ms >= 0) {
-                        host.nativePush("ready", "进程内引擎就绪（加载 " + ms + "ms）", m, ms);
-                    } else {
-                        /* 回退：先把原生状态清干净（否则 engineStatus 会一直报 loading，
-                           前端就看不到子进程引擎的真实状态了），再照旧起 llama-server。
-                           提示走"只推事件"那条，别把 natState 又设回 loading。 */
-                        host.nativeReset();
-                        host.pushEngineEvent("loading", "进程内引擎起不来，改用子进程引擎重试…", m, false);
-                        host.engine().start(m, c, th, gl, host.models().dir().getAbsolutePath());
-                    }
-                }, "fy-native-load").start();
-                return ok("已开始启动（进程内引擎）");
+                /* 加载调参：前端可传 tune（"k=v;k=v"）。JNI 认 type_k/type_v/flash_attn/ubatch 等；
+                   LiteRT-LM 认 thinking/spec/...。不传就是各后端的老默认，行为不变。 */
+                final String tune = o.optString("tune", "");
+                backend.start(abs, c, th, mlock, tune, () -> {
+                    /* 回退：提示走"只推事件"那条，别把后端状态又设回 loading，
+                       否则前端看不到子进程引擎的真实状态。 */
+                    host.pushEngineEvent("loading", backend.label() + "没启动成功，改用兼容模式重试…", m, false);
+                    host.engine().start(m, c, th, gl, host.models().dir().getAbsolutePath());
+                });
+                return ok("已开始启动（" + backend.label() + "）");
             }
 
             host.engine().start(model, ctx, threads, gpuLayers,
                     host.models().dir().getAbsolutePath());
             return ok("已开始启动");
         } catch (Exception e) {
-            return fail("engineStart 参数错误: " + e);
+            return fail("启动信息不完整，请回设置页重新选一次模型");
         }
     }
 
     @JavascriptInterface
     public String engineStop() {
-        boolean wasNative = host.natActive() || "loading".equals(host.natState());
-        host.shutdownNativeEngine();
-        if (wasNative) host.nativePush("stopped", "已手动停止", null, -1);
+        EngineBackend inProc = host.activeInProcessBackend();
+        if (inProc != null) inProc.stop();
+        else host.shutdownNativeEngine();   // 没在跑也释放一次，免得 .so 里留着 context
         host.engine().stop();
         return ok("已停止");
     }
@@ -228,59 +238,82 @@ public class Bridge {
      */
     @JavascriptInterface
     public String chat(String messagesJson, String optsJson) {
-        try {
-            if (!NativeEngine.isLoaded()) return fail("进程内引擎还没就绪");
-        } catch (Throwable t) {
-            // 类初始化失败（.so 没打进去 / ABI 不符）也走这条，别把异常甩给 WebView
-            return fail("进程内引擎不可用: " + t);
+        EngineBackend backend = host.inProcessBackendForChat();
+        if (backend == null || !backend.inProcessChat() || !backend.available()) {
+            // 没注册进程内后端 / .so 没打进去 / ABI 不符，都走这条，别把异常甩给 WebView
+            return fail("内置模型现在用不了，请到设置页换一种推理方式");
         }
         try {
             JSONArray arr = new JSONArray(messagesJson == null ? "[]" : messagesJson);
             int n = arr.length();
             if (n <= 0) return fail("没有可发送的消息");
-            final String[] flat = new String[n * 2];
+            String[] flat = new String[n * 2];
             for (int i = 0; i < n; i++) {
                 JSONObject m = arr.optJSONObject(i);
                 flat[i * 2] = m == null ? "user" : m.optString("role", "user");
                 flat[i * 2 + 1] = m == null ? "" : m.optString("content", "");
             }
             JSONObject o = new JSONObject(optsJson == null || optsJson.isEmpty() ? "{}" : optsJson);
-            final int pin = Math.max(0, o.optInt("pinMessages", 1));
-            final int maxTokens = Math.max(1, o.optInt("maxTokens", 512));
-            final float temp = (float) o.optDouble("temperature", 0.8);
-            final int topK = o.optInt("topK", 40);
-            final float topP = (float) o.optDouble("topP", 0.95);
-            final int seed = o.optInt("seed", 0);
+            EngineBackend.ChatOptions co = new EngineBackend.ChatOptions();
+            co.pinMessages = Math.max(0, o.optInt("pinMessages", 1));
+            co.maxTokens = Math.max(1, o.optInt("maxTokens", 512));
+            co.temperature = (float) o.optDouble("temperature", 0.8);
+            co.topK = o.optInt("topK", 40);
+            co.topP = (float) o.optDouble("topP", 0.95);
+            co.seed = o.optInt("seed", 0);
+            co.sampler = buildSamplerCfg(o);
+            co.grammar = o.optString("grammar", "");
+            co.grammarTrigger = o.optString("grammarTrigger", "");
+            /* aux=true：辅助生成（记忆压缩 / 工具调用），跑完把聊天 KV 恢复原样 */
+            co.aux = o.optBoolean("aux", false);
 
-            final String id = host.beginNativeGen();
+            String id = backend.chat(flat, co);
             if (id == null) return fail("上一轮还在生成，稍等一下");
-            new Thread(() -> {
-                try {
-                    String stats = NativeEngine.chat(flat, pin, maxTokens, temp, topK, topP, seed);
-                    host.finishNativeGen(stats);
-                } catch (Throwable t) {
-                    Log.w(TAG, "原生生成失败", t);
-                    host.failNativeGen(String.valueOf(t));
-                }
-            }, "fy-native-chat").start();
-
             JSONObject r = new JSONObject();
             r.put("ok", true);
             r.put("id", id);
             return r.toString();
         } catch (Exception e) {
-            return fail("chat 参数错误: " + e);
+            return fail("这条消息没能发出去，请重开一次对话");
         }
+    }
+
+    /**
+     * 把前端的采样设置压成引擎认的 "k=v;k=v" 一行。没设的键不出现，引擎取默认值（=关）。
+     * 字段名用前端那套（penaltyRepeat / dryMultiplier / minP …），引擎键名见 fy_engine.c。
+     */
+    private static String buildSamplerCfg(JSONObject o) {
+        StringBuilder sb = new StringBuilder();
+        num(sb, "pen_n", o, "penaltyLastN");
+        num(sb, "pen_rep", o, "penaltyRepeat");
+        num(sb, "pen_freq", o, "penaltyFreq");
+        num(sb, "pen_pres", o, "penaltyPresent");
+        num(sb, "dry_mult", o, "dryMultiplier");
+        num(sb, "dry_base", o, "dryBase");
+        num(sb, "dry_allowed", o, "dryAllowedLength");
+        num(sb, "min_p", o, "minP");
+        num(sb, "top_ns", o, "topNSigma");
+        num(sb, "xtc_p", o, "xtcProbability");
+        num(sb, "xtc_t", o, "xtcThreshold");
+        num(sb, "temp_delta", o, "dynTempDelta");
+        num(sb, "temp_exp", o, "dynTempExponent");
+        return sb.toString();
+    }
+
+    private static void num(StringBuilder sb, String key, JSONObject o, String field) {
+        if (!o.has(field)) return;
+        double v = o.optDouble(field, 0);
+        if (Double.isNaN(v)) return;
+        if (sb.length() > 0) sb.append(';');
+        sb.append(key).append('=').append(v);
     }
 
     /** 停止当前这一轮原生生成（点了"停止"时调）。 */
     @JavascriptInterface
     public String chatStop() {
-        try {
-            NativeEngine.stop();
-        } catch (Throwable ignored) {
-        }
-        return ok("已请求停止");
+        EngineBackend backend = host.inProcessBackendForChat();
+        if (backend != null) backend.stopChat();
+        return ok("正在停止…");
     }
 
     @JavascriptInterface
@@ -322,7 +355,7 @@ public class Bridge {
                     o.optString("baseUrl", ""), o.optString("apiKey", ""), o.optString("model", ""));
             return getProvider();
         } catch (Exception e) {
-            return "{\"ok\":false,\"message\":" + JSONObject.quote(String.valueOf(e)) + "}";
+            return "{\"ok\":false,\"message\":" + JSONObject.quote("设置没保存成功，请重试") + "}";
         }
     }
 
@@ -343,7 +376,7 @@ public class Bridge {
         } catch (Exception e) {
             try {
                 out.put("ok", false);
-                out.put("message", String.valueOf(e));
+                out.put("message", "连接失败，检查一下地址和网络");
             } catch (Exception ignored) {
             }
         }
@@ -388,24 +421,24 @@ public class Bridge {
     @JavascriptInterface
     public String pickCharacterCard() {
         host.launchCardPicker();
-        return ok("已打开文件选择器");
+        return ok("请选择文件");
     }
 
     /** 选一个备份文件；结果通过 backup 事件回传 {ok,name,json,message}。 */
     @JavascriptInterface
     public String pickBackupFile() {
         host.launchBackupPicker();
-        return ok("已打开文件选择器");
+        return ok("请选择文件");
     }
 
     /** 把任意 JSON 文本（如整库备份）写到 Download，返回 {ok,path}。 */
     @JavascriptInterface
     public String saveBackup(String fileName, String json) {
-        if (json == null || json.trim().isEmpty()) return fail("备份内容是空的");
+        if (json == null || json.trim().isEmpty()) return fail("这个备份文件是空的，读不到内容，换一个完整的备份再恢复");
         try {
             return CardIO.saveJson(host, fileName, json);
         } catch (Throwable t) {
-            return fail("导出失败: " + t);
+            return fail("导出没成功，请检查存储空间后重试");
         }
     }
 
@@ -416,7 +449,7 @@ public class Bridge {
         try {
             return CardIO.saveJson(host, fileName, json);
         } catch (Throwable t) {
-            return fail("导出失败: " + t);
+            return fail("导出没成功，请检查存储空间后重试");
         }
     }
 
@@ -440,12 +473,12 @@ public class Bridge {
     @JavascriptInterface
     public String pickModelFile() {
         host.launchFilePicker();
-        return ok("已打开文件选择器");
+        return ok("请选择文件");
     }
 
     @JavascriptInterface
     public String importModel(String uri) {
-        if (uri == null || uri.isEmpty()) return fail("URI 为空");
+        if (uri == null || uri.isEmpty()) return fail("没有拿到文件，请重新选一次");
         final String u = uri;
         new Thread(() -> {
             JSONObject r = host.models().importFromUri(android.net.Uri.parse(u),
@@ -463,13 +496,13 @@ public class Bridge {
     @JavascriptInterface
     public String downloadModel(String url, String name) {
         if (url == null || url.isEmpty() || name == null || name.isEmpty()) {
-            return fail("参数不完整");
+            return fail("下载信息不完整，请重新填写");
         }
         final String u = url, n = name;
         new Thread(() -> {
             host.models().download(u, n, (nm, received, total, state, message) ->
                     host.pushEvent("download", progressPayload(nm, received, total, state, message)));
-            host.pushEvent("download", progressPayload(n, 0, 0, "finish", "任务结束"));
+            host.pushEvent("download", progressPayload(n, 0, 0, "finish", "已完成"));
         }, "fy-download").start();
         return ok("开始下载");
     }
@@ -540,7 +573,7 @@ public class Bridge {
             String report = Diag.buildReport(host, host.engine(), host.models(), host.assetServer());
             return Diag.save(host, report);
         } catch (Throwable t) {
-            return fail("导出诊断失败: " + t);
+            return fail("诊断导出没成功，请稍后重试");
         }
     }
 

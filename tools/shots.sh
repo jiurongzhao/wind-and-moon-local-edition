@@ -72,6 +72,7 @@ shot() {   # shot <文件名> <查询串>
   echo "   截图 $name …"
   "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run \
     --user-data-dir="$TMP/profile-$name" --hide-scrollbars \
+    --force-prefers-reduced-motion \
     --force-device-scale-factor=2 \
     --window-size="$W,$H" \
     --virtual-time-budget="${SHOT_WAIT:-9000}" \
@@ -96,6 +97,8 @@ shot 13-editor-lint  "view=editor"
 shot 14-inspiration  "view=ref"
 shot 15-library      "view=library"
 shot 16-library-search "view=library-search"
+shot 17-ask              "view=ask"
+shot 18-empty            "view=empty"
 
 echo
 echo "✅ 完成：$OUT"

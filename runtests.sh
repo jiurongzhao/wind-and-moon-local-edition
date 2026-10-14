@@ -73,7 +73,7 @@ rm -rf build/jvmtest && mkdir -p build/jvmtest
 # 源文件自动发现：以前这里是 14 行手写清单，加一个测试桩就得回来改脚本（漏改就是"莫名编译失败"）。
 # 路径里没有空格，所以靠 shell 分词展开是有意的。
 STUB_SRC=$(find tests/jvmstub -name '*.java' | sort | tr '\n' ' ')
-APP_SRC="app/java/com/fy/local/Engine.java app/java/com/fy/local/AssetServer.java app/java/com/fy/local/PngCardText.java app/java/com/fy/local/Providers.java app/java/com/fy/local/NativeEngine.java"
+APP_SRC="app/java/com/fy/local/Engine.java app/java/com/fy/local/AssetServer.java app/java/com/fy/local/PngCardText.java app/java/com/fy/local/Providers.java app/java/com/fy/local/NativeEngine.java app/java/com/fy/local/EngineBackend.java app/java/com/fy/local/EngineRegistry.java app/java/com/fy/local/PlaceholderBackend.java app/java/com/fy/local/LitertLmHistory.java"
 TEST_SRC=$(find tests -maxdepth 1 -name '*JvmTest.java' | sort | tr '\n' ' ')
 # shellcheck disable=SC2086
 javac -nowarn -encoding UTF-8 -d build/jvmtest $STUB_SRC $APP_SRC $TEST_SRC > build/javac.log 2>&1
@@ -92,6 +92,16 @@ timeout 120 java -cp build/jvmtest CardIOJvmTest 2>&1 | tail -10
 # 但那时的 PIPESTATUS 已经被 if 里的 [ 命令覆盖，报出来的码是错的。
 cardio_rc=${PIPESTATUS[0]}
 if [ "$cardio_rc" = "0" ]; then ok; else bad "$cardio_rc"; fi
+
+step "3.55/5 推理后端注册表 JVM 实跑（留门那层抽象：注册/选择/聊天路由）"
+timeout 120 java -cp build/jvmtest EngineRegistryJvmTest 2>&1 | tail -8
+reg_rc=${PIPESTATUS[0]}
+if [ "$reg_rc" = "0" ]; then ok; else bad "$reg_rc"; fi
+
+step "3.57/5 LiteRT-LM 纯逻辑 JVM 实跑（历史签名 / 采样解析 / 流式增量）"
+timeout 120 java -cp build/jvmtest LitertLmHistoryJvmTest 2>&1 | tail -8
+lm_rc=${PIPESTATUS[0]}
+if [ "$lm_rc" = "0" ]; then ok; else bad "$lm_rc"; fi
 
 step "3.6/5 Engine 孤儿进程清理 JVM 实跑（真起进程、真杀进程）"
 timeout 120 java -cp build/jvmtest EngineReapJvmTest 2>&1 | tail -14

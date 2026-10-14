@@ -20,6 +20,8 @@ public class NativeEngine {
         void onToken(String piece);
         /** 一轮结束，stats 是一小段 JSON（gen / reused / firstMs …）。 */
         void onDone(String statsJson);
+        /** 预填充进度（done / total token）。默认空实现：只有需要「别被看门狗误杀」的界面才用。 */
+        default void onProgress(int done, int total) {}
     }
 
     private static volatile Listener listener;
@@ -34,22 +36,40 @@ public class NativeEngine {
         if (l != null) l.onToken(piece);
     }
 
+    /** JNI 回调入口：C 侧预填充每推进一块就调这里。 */
+    public static void onProgress(int done, int total) {
+        Listener l = listener;
+        if (l != null) l.onProgress(done, total);
+    }
+
+    /** .so 是否成功加载 —— 表示"这条路存不存在"，与"某个模型有没有加载"是两回事。 */
+    private static volatile boolean soLoaded = false;
+
     static {
         System.loadLibrary("fy_engine");
+        soLoaded = true;
+    }
+
+    public static boolean soLoaded() {
+        return soLoaded;
     }
 
     // ---------- 原生方法 ----------
     public static native String nativeSystemInfo();
 
-    /** 返回加载耗时（ms），失败 -1。 */
-    public static native long nativeLoad(String modelPath, int nCtx, int nThreads, int nBatch, boolean mlock);
+    /** 返回加载耗时（ms），失败 -1。
+     *  tune 是 "k=v;k=v" 一行（可为 null）：type_k/type_v（f16/f32/q8_0/q4_0/q5_0/q5_1）、
+     *  flash_attn（-1 auto / 0 关 / 1 开）、ubatch（物理批大小）、kv_unified、swa_full。 */
+    public static native long nativeLoad(String modelPath, int nCtx, int nThreads, int nBatch, boolean mlock, String tune);
 
     /** 把静态前缀解码进 KV 并常驻，返回前缀 token 数；失败 -1。 */
     public static native int nativeSetPrefix(String prefix);
 
-    /** 一轮生成，返回统计 JSON；token 通过 onToken 流式推回。 */
+    /** 一轮生成，返回统计 JSON；token 通过 onToken 流式推回。
+     *  sampler："k=v;k=v" 采样参数（见 jni/fy_engine.c 顶部注释）；grammar：GBNF，空则不约束。 */
     public static native String nativeGenerate(String fullPrompt, int maxTokens, float temp,
-                                               int topK, float topP, int seed, int prefixTokens);
+                                               int topK, float topP, int seed, int prefixTokens,
+                                               String sampler, String grammar, String grammarTrigger);
 
     /**
      * 一轮对话：messages 交给原生侧套**模型自带**的对话模板（GGUF 里那份），然后流式生成。
@@ -58,7 +78,13 @@ public class NativeEngine {
      * @param pinMessages 前几条算静态前缀（一般是 1 条 system），这段永远不被 context-shift 丢掉
      */
     public static native String nativeChat(String[] messages, int pinMessages, int maxTokens,
-                                           float temp, int topK, float topP, int seed);
+                                           float temp, int topK, float topP, int seed,
+                                           String sampler, String grammar, String grammarTrigger);
+
+    /** 辅助生成（记忆压缩 / 工具调用）：跑完把聊天序列的 KV 恢复原样，不污染聊天缓存。 */
+    public static native String nativeChatAux(String[] messages, int pinMessages, int maxTokens,
+                                              float temp, int topK, float topP, int seed,
+                                              String sampler, String grammar, String grammarTrigger);
 
     /** 只套模板不生成：给测试和「查看实际 prompt」用。 */
     public static native String nativeApplyTemplate(String[] messages, boolean addAssistant);
@@ -86,8 +112,14 @@ public class NativeEngine {
     }
 
     public static long load(String modelPath, int nCtx, int nThreads, boolean mlock) {
+        return load(modelPath, nCtx, nThreads, mlock, null);
+    }
+
+    /** 带加载调参的重载（tune 见 nativeLoad 注释）。null/空串 = 完全保持老行为。 */
+    public static long load(String modelPath, int nCtx, int nThreads, boolean mlock, String tune) {
         int batch = Math.max(512, nThreads * 128);
-        long ms = nativeLoad(modelPath, nCtx, nThreads, batch, mlock);
+        long ms = nativeLoad(modelPath, nCtx, nThreads, batch, mlock,
+                tune == null || tune.isEmpty() ? null : tune);
         loaded = ms >= 0;
         return ms;
     }
@@ -98,7 +130,13 @@ public class NativeEngine {
     }
 
     public static String generate(String prompt, int maxTokens, float temp, int topK, float topP, int seed) {
-        String stats = nativeGenerate(prompt, maxTokens, temp, topK, topP, seed, prefixTokens);
+        return generate(prompt, maxTokens, temp, topK, topP, seed, null, null, null);
+    }
+
+    public static String generate(String prompt, int maxTokens, float temp, int topK, float topP, int seed,
+                                  String sampler, String grammar, String grammarTrigger) {
+        String stats = nativeGenerate(prompt, maxTokens, temp, topK, topP, seed, prefixTokens,
+                sampler, grammar, grammarTrigger);
         Listener l = listener;
         if (l != null) l.onDone(stats);
         return stats;
@@ -110,7 +148,30 @@ public class NativeEngine {
      */
     public static String chat(String[] messages, int pinMessages, int maxTokens,
                               float temp, int topK, float topP, int seed) {
-        String stats = nativeChat(messages, pinMessages, maxTokens, temp, topK, topP, seed);
+        return chat(messages, pinMessages, maxTokens, temp, topK, topP, seed, null, null, null);
+    }
+
+    public static String chat(String[] messages, int pinMessages, int maxTokens,
+                              float temp, int topK, float topP, int seed,
+                              String sampler, String grammar, String grammarTrigger) {
+        String stats = nativeChat(messages, pinMessages, maxTokens, temp, topK, topP, seed,
+                sampler, grammar, grammarTrigger);
+        Listener l = listener;
+        if (l != null) l.onDone(stats);
+        return stats;
+    }
+
+    /** 辅助生成：同参，但跑完会把聊天序列的 KV 恢复原样。 */
+    public static String chatAux(String[] messages, int pinMessages, int maxTokens,
+                                 float temp, int topK, float topP, int seed) {
+        return chatAux(messages, pinMessages, maxTokens, temp, topK, topP, seed, null, null, null);
+    }
+
+    public static String chatAux(String[] messages, int pinMessages, int maxTokens,
+                                 float temp, int topK, float topP, int seed,
+                                 String sampler, String grammar, String grammarTrigger) {
+        String stats = nativeChatAux(messages, pinMessages, maxTokens, temp, topK, topP, seed,
+                sampler, grammar, grammarTrigger);
         Listener l = listener;
         if (l != null) l.onDone(stats);
         return stats;

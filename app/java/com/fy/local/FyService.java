@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 
 /**
  * 引擎前台服务 —— 存在的唯一理由：**别让系统把 App 冻住**。
@@ -57,18 +58,30 @@ public class FyService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null && nm.getNotificationChannel(CHANNEL) == null) {
-                NotificationChannel c = new NotificationChannel(CHANNEL, "本地引擎运行中",
+                NotificationChannel c = new NotificationChannel(CHANNEL, "风月在后台运行",
                         NotificationManager.IMPORTANCE_LOW);
                 c.setShowBadge(false);
                 nm.createNotificationChannel(c);
             }
+        }
+        /* 立刻进前台，而不是等到 onStartCommand。
+         *
+         * 真机（Redmi Turbo 3 / Android 16）：startForegroundService() 之后系统只给约 5 秒
+         * 让 Service.startForeground() 落地，而 onCreate/onStartCommand 都在主线程上排队。
+         * 加载 3B（2.1GB）期间 App 一旦被系统冻进冻结 cgroup，这个排队就永远走不到，
+         * 5 秒后直接 ForegroundServiceDidNotStartInTimeException 杀进程（实测崩过）。
+         * 在 onCreate 里先占住前台，是能拿到的最早时机。 */
+        try {
+            startForeground(NOTIF_ID, build(this, "风月在后台运行"));
+        } catch (Throwable t) {
+            Log.w("FyService", "startForeground(in onCreate) 失败: " + t);
         }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String text = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
-        if (text == null || text.isEmpty()) text = "本地引擎运行中";
+        if (text == null || text.isEmpty()) text = "风月在后台运行";
         startForeground(NOTIF_ID, build(this, text));
         // 不要 START_STICKY：服务被杀时引擎也没了，重启一个空服务没有意义。
         return START_NOT_STICKY;

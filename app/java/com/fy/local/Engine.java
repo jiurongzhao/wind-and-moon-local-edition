@@ -132,7 +132,7 @@ public class Engine {
                 Log.i(TAG, "引擎已在运行/启动中，忽略重复启动");
                 return;
             }
-            setState("starting", "正在准备引擎…");
+            setState("starting", "正在启动…");
             lastError = "";
             mlockRetried = false;
             wantRun = true;
@@ -187,7 +187,7 @@ public class Engine {
             sb.append("CPU 后端变体=").append(cpuBackends).append(" 个\n");
 
             if (!exec.isFile()) {
-                probeResult = sb.append("❌ 引擎文件不存在").toString();
+                probeResult = sb.append("引擎文件不存在").toString();
                 addLog("[自检] " + probeResult.replace('\n', ' '));
                 return;
             }
@@ -326,7 +326,7 @@ public class Engine {
 
         File model = new File(modelDir, modelFile);
         if (!model.isFile()) {
-            lastError = "模型文件不存在: " + model.getAbsolutePath();
+            lastError = "模型文件不在了，请回设置页重新选一次";
             setState("error", lastError);
             return;
         }
@@ -334,7 +334,7 @@ public class Engine {
         File nativeDir = new File(ctx.getApplicationInfo().nativeLibraryDir);
         File exec = new File(nativeDir, EXEC_NAME);
         if (!exec.isFile()) {
-            lastError = "引擎可执行文件缺失: " + exec.getAbsolutePath();
+            lastError = "程序文件缺失，请重新安装应用";
             setState("error", lastError);
             return;
         }
@@ -352,7 +352,7 @@ public class Engine {
         try {
             port = findFreePort();
         } catch (IOException e) {
-            lastError = "找不到可用端口: " + e.getMessage();
+            lastError = "启动失败，请关掉其他占网的应用后重试";
             setState("error", lastError);
             return;
         }
@@ -395,8 +395,7 @@ public class Engine {
                 proc = launch(exec, args, true);
                 launchStrategy = "linker64";
             } catch (IOException e2) {
-                lastError = "引擎无法启动：直接执行失败（" + e.getMessage()
-                        + "），linker64 回退也失败（" + e2.getMessage() + "）";
+                lastError = "引擎没能启动，请重启应用后重试";
                 setState("error", lastError);
                 return;
             }
@@ -414,7 +413,7 @@ public class Engine {
                     launchStrategy = "linker64";
                     addLog("启动方式：" + launchStrategy);
                 } catch (IOException e) {
-                    lastError = "linker64 回退失败：" + e.getMessage();
+                    lastError = "引擎没能启动，请重启应用后重试";
                     setState("error", lastError);
                     return;
                 }
@@ -431,7 +430,7 @@ public class Engine {
             } catch (Throwable ignored) {
             }
             proc = null;
-            setState("stopped", "引擎已停止");
+            setState("stopped", "已停止");
             return;
         }
 
@@ -498,7 +497,7 @@ public class Engine {
                 // 从日志里提升状态，让用户看到"加载中"的进度感
                 if (state.equals("loading") && line.contains("llama_model_load")
                         && line.contains("loaded")) {
-                    setState("loading", "模型已加载，正在初始化上下文…");
+                    setState("loading", "模型已加载，正在准备对话…");
                 }
             }
         } catch (IOException ignored) {
@@ -515,8 +514,7 @@ public class Engine {
                 } catch (IllegalThreadStateException ignored) {
                 }
                 if (!"stopped".equals(state)) {
-                    lastError = "引擎进程异常退出（code=" + code + "）。最后日志："
-                            + lastLines(3);
+                    lastError = "引擎意外退出，请重启应用后重试";
                     setState("error", lastError);
                 }
                 releaseWakeLock();
@@ -526,7 +524,7 @@ public class Engine {
                     mlockRetried = true;
                     loadMode = "";
                     addLog("[回退] mlock 加载失败，改用默认 mmap 重新加载…");
-                    setState("starting", "内存锁定失败，改用普通方式重新加载…");
+                    setState("starting", "内存不够，改用普通方式重新加载…");
                     final String[] p0 = lastStart;
                     new Thread(() -> doStart(p0[0], Integer.parseInt(p0[1]),
                             Integer.parseInt(p0[2]), Integer.parseInt(p0[3]), p0[4]),
@@ -535,7 +533,7 @@ public class Engine {
                 return;
             }
             if (probeHealth()) {
-                setState("ready", "引擎就绪（端口 " + port + "）");
+                setState("ready", "模型就绪，可以开始聊了");
                 return;
             }
             try {
@@ -544,7 +542,7 @@ public class Engine {
                 return;
             }
         }
-        lastError = "等待引擎就绪超时（10 分钟）";
+        lastError = "模型 10 分钟还没装好，已经自动停下。多半是文件太大或内存不够：换个小一点的模型再试，或用兼容模式启动";
         setState("error", lastError);
         stop();
     }
@@ -587,7 +585,7 @@ public class Engine {
                 }
             }
             releaseWakeLock();
-            setState("stopped", "引擎已停止");
+            setState("stopped", "已停止");
         }
         // 收尾：pump / 看门狗线程 join 一下再复查残留 —— destroy() 有时只干掉进程组的一部分
         for (Thread t : new Thread[]{tOut, tWatch}) {

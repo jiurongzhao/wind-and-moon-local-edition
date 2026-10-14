@@ -37,6 +37,31 @@ VER_NAME="1.7.0"
 MODE="release"
 [ "${1:-}" = "--debug" ] && MODE="debug"
 
+# MediaPipe（C 路线 PoC）：third_party/mediapipe/ 存在才启用 —— 编译 optional/mediapipe/、
+# 把 MediaPipe 的 classes.jar 与依赖一起 dex、arm64 .so 打进 APK。不存在时完全不影响默认构建。
+MP_DIR="$ROOT/third_party/mediapipe"
+MP_JARS=()
+MP_SRC=""
+if [ -d "$MP_DIR" ] && compgen -G "$MP_DIR/*.jar" > /dev/null; then
+  for j in "$MP_DIR"/*.jar; do MP_JARS+=("$j"); done
+  [ -f "$ROOT/optional/mediapipe/MediaPipeBackend.java" ] && MP_SRC="$ROOT/optional/mediapipe/MediaPipeBackend.java"
+  echo "  + MediaPipe 后端已启用（${#MP_JARS[@]} 个 jar）"
+fi
+
+# LiteRT-LM（本地推理单栈）：third_party/litertlm/ 存在才启用 —— 编译 optional/litertlm/、
+# 把它的 classes.jar 与 Kotlin/gson 依赖一起 dex、arm64 .so 打进 APK。不存在时不影响默认构建。
+LLM_DIR="$ROOT/third_party/litertlm"
+LLM_JARS=()
+LLM_SRC=""
+if [ -d "$LLM_DIR" ] && [ -f "$LLM_DIR/classes.jar" ]; then
+  LLM_JARS=("$LLM_DIR/classes.jar")
+  if compgen -G "$LLM_DIR/libs/*.jar" > /dev/null; then
+    for j in "$LLM_DIR"/libs/*.jar; do LLM_JARS+=("$j"); done
+  fi
+  [ -f "$ROOT/optional/litertlm/LitertLmBackend.java" ] && LLM_SRC="$ROOT/optional/litertlm/LitertLmBackend.java"
+  echo "  + LiteRT-LM 后端已启用（${#LLM_JARS[@]} 个 jar）"
+fi
+
 RELEASE_KS="$ROOT/release.keystore"
 RELEASE_PROPS="$ROOT/release-signing.properties"
 DEBUG_KS="$ROOT/debug.keystore"
@@ -108,13 +133,19 @@ aapt2 compile --dir "$APP/res" -o "$BUILD/res/res.zip"
 
 echo "[2/6] 编译 Java (javac)"
 find "$APP/java" -name '*.java' > "$BUILD/sources.txt"
+[ -n "$MP_SRC" ] && echo "$MP_SRC" >> "$BUILD/sources.txt"
+[ -n "$LLM_SRC" ] && echo "$LLM_SRC" >> "$BUILD/sources.txt"
+MP_CP="$AJAR"
+for j in ${MP_JARS[@]+"${MP_JARS[@]}"}; do MP_CP="$MP_CP:$j"; done
+for j in ${LLM_JARS[@]+"${LLM_JARS[@]}"}; do MP_CP="$MP_CP:$j"; done
 javac -encoding UTF-8 -nowarn -source 11 -target 11 \
-  -classpath "$AJAR" -d "$BUILD/classes" @"$BUILD/sources.txt"
+  -classpath "$MP_CP" -d "$BUILD/classes" @"$BUILD/sources.txt"
 
 echo "[3/6] 转 dex (d8)"
 find "$BUILD/classes" -name '*.class' > "$BUILD/classes.txt"
+# MediaPipe 的 classes.jar 与依赖也要一起 dex（数组为空时行为与以前完全一致）
 xargs -a "$BUILD/classes.txt" d8 --min-api "$MIN_SDK" --lib "$AJAR" \
-  --output "$BUILD/dex"
+  --output "$BUILD/dex" ${MP_JARS[@]+"${MP_JARS[@]}"} ${LLM_JARS[@]+"${LLM_JARS[@]}"}
 
 echo "[4/6] 链接资源/清单/前端资源 (aapt2 link, $MODE)"
 AAPT_DEBUG=()
@@ -146,6 +177,14 @@ if [ -d "$NATIVE" ] && compgen -G "$NATIVE/*" > /dev/null; then
     [ -e "$n" ] || continue
     PKG_ARGS+=("lib/arm64-v8a/$(basename "$n")=$n")
   done
+fi
+if [ -f "$MP_DIR/libllm_inference_engine_jni.so" ]; then
+  echo "      + MediaPipe 运行时: libllm_inference_engine_jni.so ($(du -h "$MP_DIR/libllm_inference_engine_jni.so" | cut -f1))"
+  PKG_ARGS+=("lib/arm64-v8a/libllm_inference_engine_jni.so=$MP_DIR/libllm_inference_engine_jni.so")
+fi
+if [ -f "$LLM_DIR/liblitertlm_jni.so" ]; then
+  echo "      + LiteRT-LM 运行时: liblitertlm_jni.so ($(du -h "$LLM_DIR/liblitertlm_jni.so" | cut -f1))"
+  PKG_ARGS+=("lib/arm64-v8a/liblitertlm_jni.so=$LLM_DIR/liblitertlm_jni.so")
 fi
 python3 "$ROOT/tools/packapk.py" "$BUILD/apk/base.apk" "$BUILD/apk/aligned.apk" "${PKG_ARGS[@]}"
 

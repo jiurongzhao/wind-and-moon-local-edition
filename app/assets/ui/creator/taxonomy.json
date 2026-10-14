@@ -12,7 +12,7 @@
     "story": {
       "label": "剧情卡",
       "emoji": "📖",
-      "hint": "一个局面 + 一个要解决的事。必须写「情境」（scenario），否则模型没有可推进的剧情。"
+      "hint": "一个局面 + 一个要解决的事。记得写「情境」，模型才有戏可演。"
     }
   },
   "categories": [
@@ -94,7 +94,7 @@
       "defaultTemp": 0.82,
       "defaultKind": "character",
       "suggestedTags": ["职场", "喜剧沙雕"],
-      "coreTension": "KPI 压着，人还想当个好人"
+      "coreTension": "考核压着，人还想当个好人"
     },
     {
       "tag": "历史",

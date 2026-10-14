@@ -122,7 +122,7 @@
     try {
       obj = JSON.parse(t);
     } catch (e) {
-      throw new Error('不是合法的 JSON：' + (e && e.message ? e.message : e));
+      throw new Error('这个文件不是角色卡，或者内容已经损坏');
     }
     var list;
     if (Array.isArray(obj)) list = obj;
@@ -136,7 +136,7 @@
       var c = fromCard(list[i]);
       if (c && c.name && (c.persona || c.greeting || c.examples || c.name)) out.push(c);
     }
-    if (!out.length) throw new Error('这张卡里没有可用的角色字段');
+    if (!out.length) throw new Error('这张卡里没有角色信息，换一张试试');
     return out;
   }
 

@@ -2,7 +2,7 @@
  * creator.js —— 创作者工具内核（分类模板 / 质量评分 / AI 辅助）
  *
  * 设计原则：
- *   1. 离线优先：分类体系与模板库都是随 APK 打包的 JSON，不联网也能用完整流程；
+ *   1. 离线优先：分类体系与模板库都是随 App 打包的离线数据，不联网也能用完整流程；
  *   2. 只借鉴模式：模板里是「骨架字段 + 写作要点 + 语气样本」，全部原创，
  *      不含任何第三方卡片正文（见 creator/*.json 的 note 与 license）；
  *   3. 质量可量化：评分规则对齐 tools/check-cards.py 的发布闸门，再补一层
@@ -27,7 +27,7 @@
    *   *Min  —— 硬门槛，低于它直接判 error（与发布校验脚本逐字对齐）；
    *   *Good —— "良好"线，低于它只是 warn。
    *
-   * *Good 是按本项目内置的 160 张卡实测分布定的（中位数/四分位）：
+   * *Good 是按本项目内置的 160 张卡实测分布定的（中位长度 / 四分位）：
    *   persona  中位 222、p25 207  → Good = 200
    *   greeting 中位 117、p25 104、最低 69 → Good = 100
    *   examples 中位 191、p25 174、最低 139 → Good = 160
@@ -54,9 +54,9 @@
     { re: /(首先|第一)[，,].{0,80}(其次|第二)[，,]/, why: '说教式罗列' },
     { re: /总之[，,]/, why: '总结陈词' },
     { re: /让我们(一起)?/, why: '旁白越界' },
-    { re: /值得(一提|注意)的是/, why: '说明文腔' },
+    { re: /值得(一提|注意)的是/, why: '强调句' },
     { re: /需要(注意|强调)的是/, why: '说明文腔' },
-    { re: /请注意[，,]/, why: '说明文腔' },
+    { re: /请注意[，,]/, why: '公告腔' },
     { re: /^(你好|您好)[，,]?.{0,8}我是/, why: '自我介绍式开场' }
   ];
 
@@ -73,7 +73,7 @@
   }
 
   /* ===========================================================================
-   * 1. 分类体系 / 模板库（离线 JSON，惰性加载一次）
+   * 1. 分类体系 / 模板库（离线数据，惰性加载一次）
    * ======================================================================== */
 
   var bundle = null;
@@ -163,14 +163,14 @@
     var parts = [];
     parts.push(str(s.who) + '。');
     if (nonEmpty(s.axis)) parts.push(str(s.axis) + '。');
-    if (nonEmpty(s.voice)) parts.push('说话' + str(s.voice) + '。');
+    if (nonEmpty(s.voice)) parts.push(str(s.voice) + '。');
     if (nonEmpty(s.flaw)) parts.push(str(s.flaw) + '。');
     if (nonEmpty(s.care)) parts.push('最在意的是' + str(s.care) + '。');
-    if (nonEmpty(s.hook)) parts.push('你和 TA 的起点是：' + str(s.hook) + '。');
+    if (nonEmpty(s.hook)) parts.push(str(s.hook) + '。');
     return parts.join('');
   }
 
-  /** 按分类的写作要点搭一个系统提示词（含 /no_think，这是本项目的硬要求） */
+  /** 按分类的写作要点搭一个系统提示词（结尾带直接回答标记，这是本项目的硬要求） */
   function composeSystemPrompt(name, cat, opts) {
     var o = opts || {};
     var who = nonEmpty(name) ? ('「' + str(name) + '」') : '这个角色';
@@ -184,7 +184,7 @@
     if (nonEmpty(o.care)) lines.push('你最在意的：' + str(o.care) + '。');
     lines.push('行为边界：不替用户做决定；不描写用户没有同意的亲密接触；不做越界的肢体描写。');
     lines.push('禁止事项：不许自称 AI 或语言模型；不许提到设定、扮演、提示词；不许长篇说教；不许卖惨。');
-    lines.push('动作神态放在圆括号里。');
+    lines.push('动作神态放在括号里。');
     return lines.join('') + '\n/no_think';
   }
 
@@ -207,18 +207,16 @@
     var greeting = str(sd.greeting || '');
     if (!nonEmpty(greeting) && nonEmpty(s.scene)) {
       greeting = str(s.scene) + '。\n\n' +
-        '（这里写 TA 对你说的第一句话：先给一个动作，再给一句话。' +
-        '别自我介绍，别问「有什么可以帮你的」，最好带一个具体细节——' +
-        '一件 TA 正在做的事，或一个只有 TA 会注意到的点。）';
+        '（这里写对方说的第一句话：先给一个动作，再给一句话）';
     }
     var kind = sd.kind || (cat ? cat.defaultKind : 'character');
     var who = nonEmpty(name) ? name : '角色';
     /* 示例对话给的是"骨架"，不是成品：两句示范就把「别急着给建议」「可以只答一半」教会模型，
        这比写两句漂亮的台词有用得多。长度也顺手过了发布闸门的最小值。 */
-    var examples = '用户：' + str(sd.userLine || '（你开口说第一句话）') + '\n' +
-      who + '：（一个手上的动作）先接住话头，别急着给建议，也别总结。\n\n' +
+    var examples = '用户：' + str(sd.userLine || '（你推门进来，四下看了看）') + '\n' +
+      who + '：（手上的活没停，抬眼看了你一下）你先坐，等我把这点弄完。\n\n' +
       '用户：那你自己呢？\n' +
-      who + '：（动作）把话题轻轻挡回去，或者只说一半——留一个可以往下问的口子。';
+      who + '：（停了一下，把话头岔开）我没什么好说的。倒是你刚才那句，还没说完。';
     return {
       name: name,
       avatar: str(sd.avatar || (cat ? cat.emoji : '🙂')),
@@ -298,7 +296,7 @@
         var len = text.replace(/\s/g, '').length || 1;
         var adj = countMatches(text, EMPTY_ADJ);
         var adjPer100 = adj / len * 100;
-        /* 具体细节：数字、引号里的原话、圆括号里的动作 */
+        /* 具体细节：数字、引号里的原话、括号里的动作 */
         var detail = countMatches(text, /\d/g) ? 1 : 0;
         detail += countMatches(text, /[「『"“]/g) ? 1 : 0;
         detail += countMatches(m.greeting + m.examples, /[（(]/g) ? 1 : 0;
@@ -439,101 +437,101 @@
     /* ---- 硬闸门：与发布校验脚本同一套标准 ---- */
 
     if (!name) {
-      issues.push(issue('error', 'name', '还没有名字', '起一个 2~4 字的称呼，避免用「小美」「某某」这种泛称'));
+      issues.push(issue('error', 'name', '还没有名字', '起一个 2~4 字的称呼，别用「小美」这种泛称'));
     } else if (name.length > GATE.nameMax) {
-      issues.push(issue('warn', 'name', '名字 ' + name.length + ' 个字，超过内置标准的 ' + GATE.nameMax + ' 字',
-        '长名字在角色卡上会被截断，建议压到 ' + GATE.nameMax + ' 字内'));
+      issues.push(issue('warn', 'name', '名字 ' + name.length + ' 个字，内置标准是 ' + GATE.nameMax + ' 字',
+        '长名字会被卡面截断，压到 ' + GATE.nameMax + ' 字内'));
     } else {
       passed.push('名字规范');
     }
 
     if (stats.personaLen < GATE.personaMin) {
-      issues.push(issue('error', 'persona', '人设只有 ' + stats.personaLen + ' 字（至少 ' + GATE.personaMin + '）',
-        '补上「身份 + 说话方式 + 一个缺点 + 在意的事 + 你和 TA 的起点」'));
+      issues.push(issue('error', 'persona', '人设只有 ' + stats.personaLen + ' 字，到 ' + GATE.personaMin + ' 字才立得住',
+        '先写清身份、说话方式和一个缺点'));
     } else if (stats.personaLen < GATE.personaGood) {
-      issues.push(issue('warn', 'persona', '人设 ' + stats.personaLen + ' 字，偏薄（建议 ' + GATE.personaGood + ' 字以上）',
-        '再加一处具体细节：一件随身物件、一句口头禅、一个只有 TA 会做的小动作'));
+      issues.push(issue('warn', 'persona', '人设 ' + stats.personaLen + ' 字，写到 ' + GATE.personaGood + ' 字更立体',
+        '加一件随身物件，或一句口头禅'));
     } else {
       passed.push('人设丰满（' + stats.personaLen + ' 字）');
     }
 
     if (stats.greetingLen < GATE.greetingMin) {
-      issues.push(issue('error', 'greeting', '开场白太短（至少 ' + GATE.greetingMin + ' 字）',
-        '写一个动作 + 一句对你说的话，把场景交代清楚'));
+      issues.push(issue('error', 'greeting', '开场白只有 ' + stats.greetingLen + ' 字，到 ' + GATE.greetingGood + ' 字就有场景',
+        '先写一个动作，再写一句对你说的话'));
     } else if (stats.greetingLen < GATE.greetingGood) {
-      issues.push(issue('warn', 'greeting', '开场白 ' + stats.greetingLen + ' 字，可以再给点信息',
-        '加一点环境或身体动作，让用户知道自己在哪、和你是谁'));
+      issues.push(issue('warn', 'greeting', '开场白 ' + stats.greetingLen + ' 字，再多给点场景',
+        '加一处环境或身体动作'));
     } else {
       passed.push('开场白到位');
     }
 
     if (stats.examplesLen < GATE.examplesMin) {
-      issues.push(issue('error', 'examples', '示例对话太短（至少 ' + GATE.examplesMin + ' 字）',
-        '写两轮「用户：…／角色：…」，这是模型学语气最有效的部分'));
+      issues.push(issue('error', 'examples', '示例对话只有 ' + stats.examplesLen + ' 字，到 ' + GATE.examplesMin + ' 字才够用',
+        '写两轮「用户：」和「角色：」的对话'));
     } else if (stats.examplesLen < GATE.examplesGood) {
-      issues.push(issue('warn', 'examples', '示例对话 ' + stats.examplesLen + ' 字，偏少',
-        '补一轮「角色拒绝或转移话题」的对话，能明显压住模型一味讨好的倾向'));
+      issues.push(issue('warn', 'examples', '示例对话 ' + stats.examplesLen + ' 字，写到 ' + GATE.examplesGood + ' 字更稳',
+        '补一轮角色拒绝或转移话题的对话'));
     } else {
       passed.push('示例对话够用');
     }
 
     if (stats.systemLen < GATE.systemMin) {
-      issues.push(issue('error', 'systemPrompt', '系统提示词太短（至少 ' + GATE.systemMin + ' 字）',
-        '点「AI 起草」或「按分类生成」一键补齐'));
+      issues.push(issue('error', 'systemPrompt', '系统提示词只有 ' + stats.systemLen + ' 字，到 ' + GATE.systemMin + ' 字才管用',
+        '点「生成」一键补齐'));
     } else if (stats.systemLen < GATE.systemGood) {
-      issues.push(issue('warn', 'systemPrompt', '系统提示词 ' + stats.systemLen + ' 字，比内置卡薄（内置卡中位数约 210 字）',
-        '补上「要做到」与「禁止事项」两条：前者定语气，后者挡 AI 腔'));
+      issues.push(issue('warn', 'systemPrompt', '系统提示词 ' + stats.systemLen + ' 字，内置卡一般在 210 字以上',
+        '补上「要做到」和「禁止事项」两条'));
     }
     if (system.indexOf('/no_think') < 0) {
-      issues.push(issue('error', 'systemPrompt', '系统提示词缺 /no_think',
-        '本项目的 Qwen3 系模型不加 /no_think 会先吐一大段思考，必须加上'));
+      issues.push(issue('error', 'systemPrompt', '系统提示词缺直接回答标记',
+        '缺了它会先吐一大段思考，点「生成」补上'));
     } else if (stats.systemLen >= GATE.systemMin) {
-      passed.push('系统提示词合规（含 /no_think）');
+      passed.push('系统提示词合规（含直接回答标记）');
     }
 
     if (!tags.length) {
-      issues.push(issue('error', 'tags', '没有分类标签', '选一个分类：没标签的卡会落进「未分类」，筛选时找不到'));
+      issues.push(issue('error', 'tags', '还没有分类标签', '选一个分类，不然筛选时找不到'));
     } else if (bundle) {
       var unknown = tags.filter(function (t) { return categoryTags().indexOf(t) < 0; });
       if (unknown.length) {
         issues.push(issue('warn', 'tags', '标签不在内置分类里：' + unknown.join('、'),
-          '内置分类才能进分类筛选；自定义标签仍会保留，但会归到「未分类」旁边'));
+          '想被筛选到，就换成内置分类'));
       } else {
         passed.push('分类标签合法');
       }
     }
 
     if (kind === 'story' && stats.scenarioLen < GATE.scenarioMin) {
-      issues.push(issue('error', 'scenario', '剧情卡必须有「情境」（至少 ' + GATE.scenarioMin + ' 字）',
-        '写清楚：现在是什么局面、要解决什么事、为什么不能失败'));
+      issues.push(issue('error', 'scenario', '剧情卡缺「情境」，至少 ' + GATE.scenarioMin + ' 字',
+        '先写清现在是什么局面'));
     } else if (kind === 'story') {
       passed.push('剧情卡有情境');
     }
 
     if (!nonEmpty(tagline)) {
-      issues.push(issue('warn', 'tagline', '缺一句话简介', '写出「最容易被记住的那个点」，会显示在角色卡上'));
+      issues.push(issue('warn', 'tagline', '缺一句话简介', '写一句最容易被记住的话'));
     } else {
       passed.push('有一句话简介');
     }
 
     if (avatar.length > GATE.avatarMax) {
-      issues.push(issue('error', 'avatar', '头像 emoji 太长', '填 1 个 emoji 就好'));
+      issues.push(issue('error', 'avatar', '头像太长', '留一个就好'));
     }
 
     if (!(temp >= 0 && temp <= 2)) {
-      issues.push(issue('error', 'temperature', '温度必须在 0~2 之间', '剧情/喜剧可以高一点，推理/历史低一点'));
+      issues.push(issue('error', 'temperature', '温度必须在 0~2 之间', '调回 0~2 之间，先试 0.85'));
     }
 
     /* ---- 写作质量：这些才是「像不像活人」的分水岭 ---- */
 
     var cat = bundle ? category(tags[0]) : null;
     if (cat && cat.defaultKind === 'story' && kind !== 'story') {
-      issues.push(issue('warn', 'kind', '「' + cat.tag + '」通常写成剧情卡效果更好',
-        '这个分类需要「一个可推进的局面」；切成剧情卡并补上情境，模型才有事可做'));
+      issues.push(issue('warn', 'kind', '「' + cat.tag + '」写成剧情卡效果更好',
+        '切成剧情卡，再补一段情境'));
     }
     if (cat && cat.defaultKind === 'character' && kind === 'story' && stats.scenarioLen < GATE.scenarioMin) {
-      issues.push(issue('warn', 'kind', '「' + cat.tag + '」写剧情卡的话，情境就是命',
-        '这个分类原本靠人物关系驱动，改成剧情卡后必须把局面写足'));
+      issues.push(issue('warn', 'kind', '「' + cat.tag + '」靠人物关系驱动，写剧情卡要把局面写足',
+        '先把局面写足'));
     }
 
     /* 反 AI 腔 */
@@ -545,8 +543,8 @@
       }
     });
     if (speakHits.length) {
-      issues.push(issue('warn', 'persona', '有 AI 腔/说教腔：' + speakHits.join('、'),
-        '删掉这些句子。模型会照抄卡里的语气，卡里一旦有客服味，聊天就出戏'));
+      issues.push(issue('warn', 'persona', '有 AI 腔：' + speakHits.join('、'),
+        '像「我可以帮你」「希望帮到你」这种，删掉就行'));
     } else {
       passed.push('没有 AI 腔');
     }
@@ -554,14 +552,14 @@
     /* 空洞形容词堆砌 */
     var adj = countMatches(persona, EMPTY_ADJ);
     if (adj >= ADJ_WARN_AT) {
-      issues.push(issue('warn', 'persona', '形容词堆了 ' + adj + ' 个（温柔、善良、坚强…）',
-        '每个形容词换成一个能看见的行为：「温柔」→「会先把水晾到不烫再递给你」'));
+      issues.push(issue('warn', 'persona', '形容词堆了 ' + adj + ' 个，人物会变糊',
+        '把「温柔」换成「先把水晾温再递给你」'));
     }
 
     /* 具体性：有没有数字或引号里的具体东西 */
     if (stats.personaLen >= GATE.personaMin && !/\d/.test(persona) && !/[「『"“]/.test(persona)) {
       issues.push(issue('warn', 'persona', '人设里没有一处具体细节',
-        '加一个数字（年龄、工龄、几年）或一句原话（口头禅），人物立刻立体'));
+        '加一个数字，或一句口头禅'));
     }
 
     /* 开场白可回应性 */
@@ -570,7 +568,7 @@
       var hasHook = /[？?]/.test(greeting);
       if (!hasAction && !hasHook) {
         issues.push(issue('warn', 'greeting', '开场白只有陈述，没有可以接的话头',
-          '加个动作（圆括号）或一个问句，用户才知道怎么开口'));
+          '加一个动作，或一个问句'));
       } else {
         passed.push('开场白有可接的话头');
       }
@@ -582,7 +580,7 @@
       var hasCharLine = /角色[:：]/.test(examples) || (nonEmpty(name) && examples.indexOf(name + '：') >= 0);
       if (!hasUserLine || !hasCharLine) {
         issues.push(issue('warn', 'examples', '示例对话的格式不标准',
-          '用「用户：…」和「角色名：…」两个前缀，模型才能分清谁在说话'));
+          '用「用户：」和「角色名：」开头'));
       } else {
         passed.push('示例对话格式标准');
       }
@@ -593,7 +591,7 @@
     var duplicateName = nonEmpty(name) && existing.indexOf(name) >= 0;
     if (duplicateName) {
       issues.push(issue('warn', 'name', '已经有一个叫「' + name + '」的角色了',
-        '同名会让角色列表和备份恢复都变得难认，换个名字或加个姓氏'));
+        '换个名字，或加个姓氏'));
     }
     var mostSimilar = 0;
     var others = Array.isArray(o.existingCards) ? o.existingCards : [];
@@ -606,7 +604,7 @@
       }
       if (mostSimilar >= 0.5) {
         issues.push(issue('warn', 'persona', '和已有的某个角色相似度 ' + Math.round(mostSimilar * 100) + '%',
-          '两张卡太像，模型会串味。给这张卡换一个只属于 TA 的具体细节或口癖'));
+          '给这张卡换一个专属细节'));
       }
     }
 
@@ -626,7 +624,7 @@
     };
     var scored = scoreDimensions(metrics);
     var score = scored.overall;
-    var grade = score >= 90 ? '可以直接发' : (score >= 75 ? '不错，再补两处' : (score >= 55 ? '能用，但会露馅' : '还得改'));
+    var grade = score >= 90 ? '可以直接发' : (score >= 75 ? '还差一点，再补两处就能发' : (score >= 55 ? '还差一点，照着下面的改法补' : '还差一点，先把硬伤补上'));
 
     return {
       score: score,
@@ -641,28 +639,28 @@
   }
 
   /* ===========================================================================
-   * 4. AI 辅助（用已配置的模型：本地引擎或云端 OpenAI 兼容服务）
+   * 4. AI 辅助（用已配置的模型：本地模型或云端服务）
    * ======================================================================== */
 
   /** 每种任务的说明：给模型看的要求 + 期望的输出形态 */
   var TASKS = {
     all: {
-      label: '整卡起草',
+      label: '整卡草稿',
       field: '',
       json: true,
       ask: '请输出一个 JSON 对象，字段为 name / tagline / persona / greeting / examples / scenario / systemPrompt。' +
-        'persona 要 150~300 字，包含身份、说话方式、一个缺点、最在意的事、和用户的起点。' +
+        'persona 要 150~300 字，包含身份、说话方式、一个缺点、最在意的事、和用户是怎么认识的。' +
         'greeting 要 60~150 字，写一个动作加一句话，不要自我介绍。' +
         'examples 写两轮对话，用「用户：」和「角色名：」开头。' +
         '只输出 JSON，不要解释，不要代码块标记。'
     },
-    persona: { label: '扩写人设', field: 'persona', ask: '只输出人设正文（150~300 字），不要标题、不要解释。' },
-    tagline: { label: '写一句话简介', field: 'tagline', ask: '只输出一句话（不超过 30 字），不要引号、不要解释。' },
-    greeting: { label: '写开场白', field: 'greeting', ask: '只输出开场白正文（60~150 字），包含一个动作和一句对用户说的话，不要自我介绍。' },
-    examples: { label: '写示例对话', field: 'examples', ask: '只输出两轮对话，每轮以「用户：」和「角色名：」开头，不要解释。' },
-    scenario: { label: '写剧情情境', field: 'scenario', ask: '只输出情境正文（80~200 字），写清局面、要解决的事、失败代价，不要解释。' },
-    system: { label: '生成系统提示词', field: 'systemPrompt', json: false, ask: '只输出系统提示词正文，必须包含行为边界与禁止事项，结尾单独一行写 /no_think。' },
-    polish: { label: '润色现有文本', field: '', ask: '保持原意与信息量，去掉 AI 腔和形容词堆砌，让句子更像真人在说话；只输出改写后的正文。' }
+    persona: { label: '人设', field: 'persona', ask: '只输出人设正文（150~300 字），不要标题、不要解释。' },
+    tagline: { label: '一句话简介', field: 'tagline', ask: '只输出一句话（不超过 30 字），不要引号、不要解释。' },
+    greeting: { label: '开场白', field: 'greeting', ask: '只输出开场白正文（60~150 字），包含一个动作和一句对用户说的话，不要自我介绍。' },
+    examples: { label: '示例对话', field: 'examples', ask: '只输出两轮对话，每轮以「用户：」和「角色名：」开头，不要解释。' },
+    scenario: { label: '剧情情境', field: 'scenario', ask: '只输出情境正文（80~200 字），写清局面、要解决的事、失败代价，不要解释。' },
+    system: { label: '系统提示词', field: 'systemPrompt', json: false, ask: '只输出系统提示词正文，必须包含行为边界与禁止事项，结尾单独一行写 /no_think。' },
+    polish: { label: '润色稿', field: '', ask: '保持原意与信息量，去掉 AI 腔和形容词堆砌，让句子更像真人在说话；只输出改写后的正文。' }
   };
 
   function guideBlock(cat) {
@@ -728,7 +726,7 @@
     ];
   }
 
-  /** 从模型输出里抠出 JSON（模型经常套一层 ``` 或加前后废话） */
+  /** 从模型输出里抠出结构（模型经常套一层 ``` 或加前后废话） */
   function extractJson(text) {
     var t = str(text);
     var fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -752,11 +750,11 @@
     if (t.json) {
       var obj = extractJson(raw);
       if (!obj) {
-        /* 掏不出 JSON 就退一步：把整段当成 persona，总比丢掉好 */
+        /* 没认出结构就退一步：把整段当成 persona，总比丢掉好 */
         if (task === 'all') {
-          return { ok: true, patch: { persona: raw.replace(/<\/?think>/g, '').trim() }, message: '模型没按 JSON 输出，已把正文放进「人设」' };
+          return { ok: true, patch: { persona: raw.replace(/<\/?think>/g, '').trim() }, message: '没认出模型给的结构，已把正文放进「人设」' };
         }
-        return { ok: false, patch: {}, message: '没能从模型输出里解析出 JSON' };
+        return { ok: false, patch: {}, message: '没认出模型给的结构' };
       }
       var patch = {};
       ['name', 'tagline', 'persona', 'greeting', 'examples', 'scenario', 'systemPrompt'].forEach(function (k) {

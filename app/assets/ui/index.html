@@ -83,7 +83,7 @@
       <div class="topbar-sub" id="topSub">全离线 AI 角色扮演</div>
     </div>
     <div class="topbar-actions">
-      <span class="pill" id="enginePill" title="引擎状态">引擎：未启动</span>
+      <span class="pill" id="enginePill" title="运行状态">本地模型：未启动</span>
       <button class="icon-btn" id="btnTopMenu" aria-label="更多"><svg class="ico" aria-hidden="true"><use href="#i-more"/></svg></button>
     </div>
   </header>
@@ -111,13 +111,13 @@
           <div class="banner-icon"><svg class="ico" aria-hidden="true"><use href="#i-box"/></svg></div>
           <div class="banner-body">
             <div class="banner-title">还没有可用的模型</div>
-            <div class="banner-text">推荐直接用 <b>DeepSeek</b>：填个 API Key 就能聊，不占手机内存、速度也快；
-              想完全离线再下载本地模型（0.5B，秒回）。</div>
+            <div class="banner-text">想马上聊：用 <b>DeepSeek</b>，填个密钥就行，不占手机内存。<br>
+              想完全离线：下载 0.5B 本地模型，不联网、秒回。</div>
           </div>
           <button class="btn btn-primary btn-sm" id="btnGoSetup">用 DeepSeek</button>
         </div>
 
-        <div class="toolbar">
+        <div class="toolbar stretch">
           <div class="search">
             <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
             <input class="search-input" id="charSearch" placeholder="搜索角色或标签…" autocomplete="off">
@@ -125,7 +125,8 @@
           <button class="btn btn-sm btn-primary" id="btnNewChar" title="创作者工具：分类模板 + 质量评分 + AI 辅助">
             <svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>创作</button>
         </div>
-        <div class="toolbar wrap">
+        <!-- 次级操作：单行横向滚动。5 个按钮在 360~412px 上换行会剩一个孤儿，很难看 -->
+        <div class="toolbar scroll" id="charTools">
           <button class="btn btn-sm" id="btnSurprise" title="随机推荐">
             <svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>推荐</button>
           <button class="btn btn-sm" id="btnPacks" title="内置卡包">
@@ -144,7 +145,7 @@
         <div class="empty" id="charEmpty" hidden>
           <div class="empty-emoji"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
           <div class="empty-title">还没有角色</div>
-          <div class="empty-text">点右上角「新建」，或一键导入内置的 160 张原创卡</div>
+          <div class="empty-text">点下面的「导入内置卡包」，或右上角「创作」自己写一张</div>
           <div class="row gap" style="margin-top:12px;justify-content:center">
             <button class="btn btn-primary btn-sm" id="btnImportPacksEmpty">
               <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>导入内置卡包</button>
@@ -157,8 +158,8 @@
     <section class="view" id="view-chat" data-view="chat">
       <div class="engine-banner" id="chatEngineBanner" hidden>
         <span class="dot dot-warn"></span>
-        <span class="grow" id="chatEngineText">引擎未就绪</span>
-        <button class="btn btn-warn btn-sm" id="btnChatToSettings">去设置里启动引擎</button>
+        <span class="grow" id="chatEngineText">本地模型未就绪</span>
+        <button class="btn btn-warn btn-sm" id="btnChatToSettings">去设置里启动模型</button>
       </div>
 
       <div class="chat-head" id="chatHead">
@@ -229,55 +230,66 @@
     <section class="view" id="view-settings" data-view="settings">
       <div class="pad">
 
-        <!-- 引擎 -->
+        <!-- 本地模型：状态 / 当前模型 / 启动，其余收进高级 -->
         <div class="card">
-          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>推理引擎</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>本地模型</div>
           <div class="engine-status">
             <span class="dot" id="setEngineDot"></span>
             <span class="grow" id="setEngineState">未启动</span>
             <span class="muted sm" id="setEnginePort"></span>
           </div>
-          <div class="muted sm" id="setEngineMsg">—</div>
-          <div class="row gap">
-            <button class="btn btn-primary grow" id="btnEngineStart">启动引擎</button>
-            <button class="btn grow" id="btnEngineStop">停止</button>
-          </div>
-          <div class="field">
-            <label class="label">推理方式</label>
-            <select class="input" id="setEngineMode">
-              <option value="jni">进程内（推荐）</option>
-              <option value="server">子进程 llama-server</option>
-            </select>
-          </div>
-          <div class="muted xs" id="engineModeHint">进程内：libllama 直接链进 App，没有端口和子进程，人设常驻 KV；起不来会自动回退到子进程</div>
           <div class="field">
             <label class="label">当前模型</label>
             <select class="input" id="selModel"></select>
           </div>
           <div class="row gap">
-            <div class="field grow">
-              <label class="label">上下文长度 ctx</label>
-              <input class="input" id="setCtx" type="number" min="512" step="512" inputmode="numeric">
-            </div>
-            <div class="field grow">
-              <label class="label">线程数（0=自动）</label>
-              <input class="input" id="setThreads" type="number" min="0" max="16" inputmode="numeric">
-            </div>
-            <div class="field grow">
-              <label class="label">GPU 加速层</label>
-              <input class="input" id="setGpu" type="number" min="0" max="99" inputmode="numeric">
-            </div>
+            <button class="btn btn-primary grow" id="btnEngineStart">启动</button>
+            <button class="btn grow" id="btnEngineStop">停止</button>
           </div>
+          <div class="muted sm" id="setEngineMsg">—</div>
+          <details>
+            <summary class="card-subtitle">高级（运行方式与参数）</summary>
+            <div class="muted xs" style="margin-bottom:9px">不懂就留空，默认已经调好。</div>
+            <div class="field">
+              <label class="label">运行方式</label>
+              <select class="input" id="setEngineMode">
+                <option value="jni">内置（推荐）</option>
+                <option value="server">兼容模式</option>
+              </select>
+            </div>
+            <div class="muted xs" id="engineModeHint">内置：模型直接在本机运行，没有端口和子进程，起不来会自动回退到兼容模式</div>
+            <div class="field">
+              <label class="label">运行参数（可留空）</label>
+              <input class="input" id="setEngineTune" type="text" placeholder="不懂就留空">
+            </div>
+            <div class="muted xs">这些是本机模型的进阶开关，留空即用默认值。</div>
+            <div class="divider"></div>
+            <div class="card-subtitle">记忆与算力</div>
+            <div class="row gap">
+              <div class="field grow">
+                <label class="label">能记住多长的对话</label>
+                <input class="input" id="setCtx" type="number" min="512" step="512" inputmode="numeric">
+              </div>
+              <div class="field grow">
+                <label class="label">线程数（0=自动）</label>
+                <input class="input" id="setThreads" type="number" min="0" max="16" inputmode="numeric">
+              </div>
+              <div class="field grow">
+                <label class="label">GPU 加速层</label>
+                <input class="input" id="setGpu" type="number" min="0" max="99" inputmode="numeric">
+              </div>
+            </div>
+          </details>
         </div>
 
         <!-- 模型来源 -->
         <div class="card">
           <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-cloud"/></svg>模型来源</div>
           <div class="field">
-            <label class="label">用哪个后端跑模型</label>
+            <label class="label">模型从哪来</label>
             <select class="input" id="selProviderMode">
-              <option value="local">内置引擎（本地 GGUF · 完全离线）</option>
-              <option value="remote">外部服务（OpenAI 兼容 · 局域网自建或云端 API）</option>
+              <option value="local">内置（模型文件在本机 · 完全离线）</option>
+              <option value="remote">云模型（云端 API 或局域网自建）</option>
             </select>
           </div>
           <div id="remoteBox" hidden>
@@ -295,11 +307,11 @@
               </select>
             </div>
             <div class="field">
-              <label class="label">服务地址 Base URL</label>
+              <label class="label">服务地址</label>
               <input class="input" id="setRemoteBase" placeholder="https://ark.cn-beijing.volces.com/api/v3" autocomplete="off">
             </div>
             <div class="field">
-              <label class="label">API Key（自建服务一般不用填）</label>
+              <label class="label">密钥（自建服务一般不用填）</label>
               <input class="input" id="setRemoteKey" type="password" placeholder="留空表示不需要" autocomplete="off">
             </div>
             <div class="row gap wrap">
@@ -314,11 +326,8 @@
               <datalist id="remoteModelList"></datalist>
             </div>
             <div class="muted xs">
-              <b>云端</b>：选上面的服务商预设，填 API Key，模型名手填（豆包方舟要填接入点 ID 或模型名）。<br>
-              <b>局域网自建</b>：Ollama <code>http://电脑IP:11434/v1</code> · LM Studio <code>http://电脑IP:1234/v1</code> ·
-              llama.cpp server <code>http://电脑IP:8080/v1</code>（服务要监听 <code>0.0.0.0</code>，Ollama 需设 <code>OLLAMA_HOST=0.0.0.0</code>）。<br>
-              <b>提示</b>：有些服务（如火山方舟）不提供 <code>/models</code> 列表，这时「测试连接」会提示拉不到，
-              直接手填模型名保存即可。
+              <b>云模型</b>：选服务商预设、填密钥，模型名手填。<br>
+              <b>局域网自建</b>：填电脑上的服务地址，服务要允许本机访问。
             </div>
           </div>
         </div>
@@ -336,7 +345,7 @@
           <div class="divider"></div>
           <div class="card-subtitle">自定义下载源</div>
           <div class="field">
-            <input class="input" id="customUrl" placeholder="粘贴 GGUF 直链（魔搭 / HF / 自建存储…）" autocomplete="off">
+            <input class="input" id="customUrl" placeholder="粘贴模型文件直链（魔搭 / HF / 自建存储…）" autocomplete="off">
           </div>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnCustomDownload">
@@ -352,19 +361,20 @@
           </div>
         </div>
 
-        <!-- 采样参数 -->
-        <div class="card">
-          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>采样参数</div>
+        <!-- 回复风格（高级） -->
+        <details class="card">
+          <summary class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>回复风格（高级）</summary>
+          <div class="muted xs" style="margin-bottom:9px">不懂就留空，默认已经调好。</div>
           <div class="field">
-            <label class="label">温度 temperature <b id="valTemp">0.85</b></label>
+            <label class="label">想象力（温度 temperature） <b id="valTemp">0.85</b></label>
             <input class="range" id="setTemp" type="range" min="0" max="2" step="0.05">
           </div>
           <div class="field">
-            <label class="label">top_p <b id="valTopP">0.90</b></label>
+            <label class="label">用词广度（top_p） <b id="valTopP">0.90</b></label>
             <input class="range" id="setTopP" type="range" min="0.1" max="1" step="0.01">
           </div>
           <div class="field">
-            <label class="label">最大生成长度 max_tokens <b id="valMaxTok">512</b></label>
+            <label class="label">单次回复上限（max_tokens） <b id="valMaxTok">512</b></label>
             <input class="range" id="setMaxTokens" type="range" min="64" max="2048" step="64">
           </div>
           <div class="field">
@@ -375,7 +385,30 @@
             <label class="label">自动整理记忆：超过多少条消息 <b id="valMemTh">20</b></label>
             <input class="range" id="setMemTh" type="range" min="8" max="80" step="2">
           </div>
-        </div>
+          <div class="field">
+            <label class="label">重复抑制（repeat_penalty） <b id="valPenRep">1.10</b></label>
+            <input class="range" id="setPenRep" type="range" min="1" max="1.5" step="0.01">
+          </div>
+          <div class="field">
+            <label class="label">复读抑制（DRY） <b id="valDry">0.80</b></label>
+            <input class="range" id="setDry" type="range" min="0" max="2" step="0.05">
+          </div>
+          <div class="field">
+            <label class="label">长尾词过滤（min-p） <b id="valMinP">0.05</b></label>
+            <input class="range" id="setMinP" type="range" min="0" max="0.5" step="0.01">
+          </div>
+          <div class="field">
+            <label class="label">用词变化（XTC） <b id="valXtc">0.00</b></label>
+            <input class="range" id="setXtc" type="range" min="0" max="1" step="0.05">
+          </div>
+          <div class="field">
+            <label class="label">动态想象力幅度 <b id="valDynTemp">0.00</b></label>
+            <input class="range" id="setDynTemp" type="range" min="0" max="1" step="0.05">
+          </div>
+          <label class="row-switch"><span>选项模式严格按选项格式（GBNF）<br><span class="muted xs">正文自由，只有 &lt;&lt;&lt; 之后按选项格式走</span></span>
+            <span class="switch"><input type="checkbox" id="setOptGrammar"><span class="switch-track"><span class="switch-thumb"></span></span></span>
+          </label>
+        </details>
 
         <!-- 语音 -->
         <div class="card">
@@ -450,11 +483,15 @@
             <div class="muted xs" id="keepScreenHint">生成期间不熄屏，切到后台也会把这一轮跑完</div>
           </div>
           <div class="divider"></div>
-          <div class="row-switch">
-            <span>存储后端<br><span class="muted xs" id="storageInfo">—</span></span>
-            <select class="input" id="setBackend" style="width:150px"></select>
-          </div>
-          <div class="muted xs" id="backendHint">IndexedDB 是默认后端；SQLite 为实验后端（需真机验证），切换时会自动迁移全部数据</div>
+          <details>
+            <summary class="card-subtitle">高级（数据存放位置）</summary>
+            <div class="muted xs" style="margin-bottom:9px">不懂就留空，默认已经调好。</div>
+            <div class="row-switch">
+              <span>数据存放位置<br><span class="muted xs" id="storageInfo">—</span></span>
+              <select class="input" id="setBackend" style="width:150px"></select>
+            </div>
+            <div class="muted xs" id="backendHint">默认存在本机数据库；SQLite 是实验方案（需真机验证），切换时会自动迁移全部数据。</div>
+          </details>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnBackupExport">
               <svg class="ico" aria-hidden="true"><use href="#i-export"/></svg>导出全部数据</button>
@@ -478,7 +515,7 @@
         <div class="page-head">
           <div>
             <h2 class="h2">调试</h2>
-            <p class="muted sm">引擎 · 存储 · 日志</p>
+            <p class="muted sm">当前环境 · 存储 · 日志</p>
           </div>
           <button class="btn btn-sm" id="btnPullMenu">
             <svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>命令面板</button>
@@ -490,7 +527,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>引擎状态 engineStatus()</div>
+          <div class="card-title"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>模型状态</div>
           <pre class="code" id="dbgEngine">…</pre>
           <div class="row gap wrap">
             <button class="btn btn-sm" id="btnDbgStart">启动</button>
@@ -510,7 +547,7 @@
 
         <div class="card">
           <div class="card-title with-btn">
-            <span>引擎日志（最近 <b id="dbgLogCount">0</b> 行）</span>
+            <span>运行日志（最近 <b id="dbgLogCount">0</b> 行）</span>
             <button class="btn btn-xs" id="btnExportDiag">导出诊断</button>
             <button class="btn btn-xs" id="btnCopyLog">一键复制</button>
           </div>
@@ -800,21 +837,21 @@
         <button class="btn btn-sm" id="btnLibRefresh">
           <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>刷新目录</button>
       </div>
-      <!-- 卡库换代（同名分片、同名卡）时用得上：勾了就用新卡覆盖同名老卡，不然同名一律跳过 -->
+      <!-- 卡库换代（同名卡包、同名卡）时用得上：勾了就用新卡覆盖同名老卡，不然同名一律跳过 -->
       <label class="row-switch" style="margin-top:2px">
         <span>同名卡用新内容覆盖<br><span class="muted xs">老卡沿用原位置，收藏与聊天记录都留着</span></span>
         <span class="switch"><input type="checkbox" id="libOverwrite"><span class="switch-track"><span class="switch-thumb"></span></span></span>
       </label>
       <div class="model-list" id="libList"></div>
       <div class="field">
-        <label class="label" for="libUrl">目录地址（JSON）</label>
+        <label class="label" for="libUrl">目录地址</label>
         <div class="row gap">
           <input class="input grow" id="libUrl" autocomplete="off" spellcheck="false" placeholder="https://…/fy-library/index.json">
           <button class="btn btn-sm" id="btnLibUrlSave">保存</button>
         </div>
       </div>
       <div class="muted xs" style="margin-top:8px">卡包不随 APK 发布，从同一个 https 地址按需下载；
-        下载走本机代理（Gitee 等站点没有 CORS 头，WebView 直连会被拦）。已导入的分片会记住，重复点不会重复建卡。
+        下载统一走本机代理（有些站点不允许网页直接取文件）。已导入的卡包会记住，重复点不会重复建卡。
         输入关键词（如「解剖室」）可以只下载某一片（约 250 张），不用整组下。
         同名卡默认跳过；卡库换版后勾上「同名卡用新内容覆盖」，老卡才会被新文本顶掉（顺序、收藏、聊天记录都不变）。</div>
     </div>
@@ -875,6 +912,26 @@
   </div>
 </div>
 
+<!-- ======================= 文本输入弹层（重命名 / 编辑重发） ======================= -->
+<div class="sheet-mask" id="askMask" hidden>
+  <div class="sheet compact" id="askSheet">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="askTitle">输入</div>
+      <button class="icon-btn" id="btnAskClose" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <textarea class="input" id="askInput" rows="1" placeholder=""></textarea>
+      <div class="muted xs" id="askHint" hidden style="margin-top:8px"></div>
+    </div>
+    <div class="sheet-foot">
+      <span class="grow"></span>
+      <button class="btn" id="btnAskCancel">取消</button>
+      <button class="btn btn-primary" id="btnAskOk">确定</button>
+    </div>
+  </div>
+</div>
+
 <!-- ======================= 记忆面板 ======================= -->
 <div class="sheet-mask" id="memMask" hidden>
   <div class="sheet" id="memSheet">
@@ -908,6 +965,7 @@
   <div class="boot-logo"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></div>
   <div class="boot-title">风月</div>
   <div class="boot-text" id="bootText">正在初始化…</div>
+  <div class="boot-bar" aria-hidden="true"><i></i></div>
 </div>
 
 <!-- 经典 script 加载（不用 ES module，保证 WebView 兼容性） -->

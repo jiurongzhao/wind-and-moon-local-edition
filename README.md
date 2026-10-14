@@ -1,13 +1,13 @@
 # 🌙 风月 · 本地版
 
-**一个完全离线的 Android AI 角色扮演 App** —— 推理引擎和 GGUF 大模型全部跑在手机本地。
+**一个完全离线的 Android AI 角色扮演 App** —— 本地模型全部跑在手机里。
 不登录、不联网、不上传对话。整个 App 在 Termux 里从零构建，不需要 Android Studio / NDK / Gradle。
 
 [![下载 fy.apk](https://img.shields.io/badge/%E2%AC%87%20%E4%B8%8B%E8%BD%BD-fy.apk%20(13MB)-brightgreen?style=for-the-badge)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
 [![offline](https://img.shields.io/badge/100%25-%E7%A6%BB%E7%BA%BF-brightgreen.svg)](#为什么是这套架构)
-[![tests](https://img.shields.io/badge/tests-432%20passing-success.svg)](runtests.sh)
+[![tests](https://img.shields.io/badge/tests-470%20passing-success.svg)](runtests.sh)
 [![apk](https://img.shields.io/badge/APK-13.8%20MB-blue.svg)](../../releases)
 
 **下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
@@ -20,13 +20,13 @@
 | | |
 |---|---|
 | 🔒 **真 · 离线** | 引擎是 llama.cpp 官方 Android arm64 预编译库，内置进 APK；模型放本地。**飞行模式照样聊**，对话永远不出这台手机 |
-| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 tok/s**，打字机效果和在线服务一样顺（数据都是自己量的，见下文）。v1.7 起默认**进程内引擎**（JNI 直连 libllama）：人设/世界书编译成 KV 里的常驻前缀，第二轮起只 decode 新增的几个 token；设置里可一键切回子进程 |
+| 🧠 **本机跑得动** | 0.5B 起，3B / 4B 也能加载。实测 0.5B 稳定 **42–52 字/秒**，打字机效果和在线服务一样顺（数据都是自己量的，见下文）。v1.7 起默认**把模型直接跑在 App 内**：人设 / 世界观固定成常驻记忆，第二轮起只管新说的话；设置里可一键切回兼容模式 |
 | 🎭 **32000 张原创卡** | 16 类 ×（1000 角色卡 + 1000 剧情卡），全部 **CC0**，**按需下载不进 APK**；还能按关键词只下命中那一片 |
 | ✍️ **创作者工具** | 16 类模板 + 48 个人设骨架 + **七维质量评分** + 用你配好的模型做 AI 辅助扩写 + 联网灵感面板 |
-| 🔁 **模型来源随便换** | 本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
+| 🔁 **模型来源随便换** | 本地模型 / 局域网 Ollama·LM Studio / 云模型（预置 **DeepSeek**、豆包、通义、智谱、Kimi、OpenAI…），顶栏一键切 |
 | 🎨 **界面是自己画的** | 手写 Material 3 风格设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，**零外部素材、零字体文件** |
 | 📦 **只有 13MB** | 引擎从 276MB strip 到 27MB 再压进 APK；32000 张卡库走发行版附件，不撑大安装包 |
-| 🧪 **432 项测试** | 前端 jsdom + JVM 真跑引擎（含进程内 JNI 引擎）/ 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
+| 🧪 **470 项测试** | 前端 jsdom + JVM 真跑引擎（含进程内 JNI 引擎）/ 代理 / PNG 卡解析 + 真实 4B 模型端到端，`./runtests.sh` 一条命令跑完 |
 
 ## 🚀 快速开始
 
@@ -38,7 +38,7 @@
 | 路径 | 适合 | 怎么弄 |
 |---|---|---|
 | **云端 API（默认推荐 DeepSeek）** | 想省事、手机内存小、要更好的输出质量 | 设置 → 模型来源 → 外部服务，已预填 DeepSeek，填个 API Key 就能聊 |
-| **本地模型（完全离线）** | 不想联网、不想花 API 钱 | 设置 → 模型，下载内置的 0.5B（约 0.5GB），或粘任意 GGUF 直链 |
+| **本地模型（完全离线）** | 不想联网、不想花 API 钱 | 设置 → 模型，下载内置的 0.5B（约 0.5GB），或粘任意模型直链 |
 | **局域网自建** | 有电脑/VPS 想跑大模型 | 填 `http://电脑IP:11434/v1`（Ollama / LM Studio / llama.cpp server） |
 
 **自己构建**（Termux 或任意 Linux，不需要 Android Studio / Gradle / NDK）：
@@ -98,9 +98,11 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 多存储后端（IndexedDB / SQLite / localStorage / 内存，可一键迁移）· 跨会话聊天记录搜索
 内置 160 张原创卡（16 个分类，角色卡 + 剧情卡）· 分类筛选 / 搜索 / 智能推荐 / 卡包一键导入
 创作者工具：16 分类模板 + 48 个人设骨架 + 七维质量评分 + AI 辅助扩写 + 联网灵感面板
-模型来源自由选（默认 DeepSeek）：内置引擎（本地 GGUF）/ 粘链接下载任意模型 / 连局域网自建或云端 OpenAI 兼容服务
+模型来源自由选（默认 DeepSeek）：内置本地模型 / 粘链接下载任意模型 / 连局域网自建或云模型
 首次启动三选一 · 顶栏一键切换模型来源 · 斜杠指令（/继续 /重写 /摘要 /导出 /清空）· 对话导出 Markdown · 正文字号 · 角色收藏
 深色 / 浅色 / 跟随系统三档外观 · 手写 Material 3 风格设计系统（无任何外部素材）
+采样算法可调：重复/频率/存在惩罚 · DRY · min-p · top-n-σ · XTC · 动态温度 · 选项模式 GBNF 语法约束
+长对话不卡：滑窗口时对齐并前移 KV（裁消息不重算）· 记忆改 append-only 消息（更新摘要不撕碎前缀）
 ```
 
 ---
@@ -112,16 +114,16 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 
 | 项目 | 状态 |
 |---|---|
-| 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 tok/s，预填充 47.6 tok/s，加载 19～60s |
+| 引擎在本机跑通（真实推理） | ✅ Qwen3-4B Q4_K_M：生成 12.0 字/秒，预填充 47.6 字/秒，加载 19～60s |
 | APK 构建（Termux 内，无 IDE） | ✅ `fy.apk` **13.8 MB**，含引擎，签名校验通过 |
 | APK 安装前结构校验 | ✅ resources.arsc 未压缩+4 字节对齐、清单开关正确、引擎库齐全 |
-| 前端功能（jsdom 集成测试） | ✅ **432 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像/进程内引擎流式/推理方式开关/Qwen3 关思考） |
+| 前端功能（jsdom 集成测试） | ✅ **470 项通过**（流式/思考段/选项/群聊/记忆/语音/设置/自检/诊断导出/弹层可隐藏/角色卡/创作者工具/界面图标系统/窗口化渲染/批量导入/在线卡库/卡库关键词下载/AI 立绘与程序化头像/进程内引擎流式/推理方式开关/Qwen3 关思考） |
 | `Engine.java` 真跑（JVM + 真引擎） | ✅ **14 项通过**：自检、状态机、真实流式对话、干净停止（0.5B / 4B / 3B+mlock 都跑过） |
-| `NativeEngine.java` 真跑（JVM + 真 libllama） | ✅ **27 项通过**：加载耗时、静态前缀写进 KV、**第二轮复用整段前缀**、换人设旧缓存失效、模型自带对话模板（ChatML）、小 ctx 必然溢出时 context-shift 不崩、**生成中途能真停下** |
+| `NativeEngine.java` 真跑（JVM + 真 libllama） | ✅ **42 项通过**：加载耗时、静态前缀写进 KV、**第二轮复用整段前缀**、换人设旧缓存失效、模型自带对话模板（ChatML）、小 ctx 必然溢出时 context-shift 不崩、**生成中途能真停下**、**n-gram 自投机（关/开输出逐字节一致）** |
 | 真实前端 + 真实模型端到端 | ✅ `tests/e2e-real.mjs`：角色扮演质量、剧情选项、记忆摘要，全部走真 4B 推理 |
 | 剧情选项成功率 | ✅ 真模型连跑 5 轮 **5/5** 解析出选项（含无标记时的兜底解析） |
 | `AssetServer.java` 真跑（JVM） | ✅ **17 项通过**：路由/MIME/query/404/并发/只监听回环不暴露局域网 |
-| `/fetch` 下载代理 | ✅ **27 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
+| `/fetch` 下载代理 | ✅ **12 项 JVM 实测**：只放行 https、不转发 Cookie/Authorization、缺参/非 http 拒 400、上游 404/连不上 → 502 快速失败、声明长度与 chunked 超限 → 413 |
 | 角色卡解析真跑（JVM） | ✅ **6 项通过**：`PngCardText` 解 PNG 的 `tEXt`/`zTXt`/`iTXt` 三种卡块（含截断文件不崩） |
 | 本地数据库 | ✅ **四个后端**（IndexedDB / SQLite / localStorage / 内存）+ 一键迁移 + 跨会话搜索；内存索引 + 增量落盘；修掉「设置表每次保存被清空」的持久化 bug |
 | 界面主题 | ✅ 深/浅/跟随系统 + 强调色对比度自适应，有 jsdom 回归测试（12 项） |
@@ -133,7 +135,7 @@ git clone https://gitee.com/zhao-jiurong/wind-and-moon-local-edition.git && cd w
 | 头像系统 | ✅ AI 立绘（一个主题一张，且**一张只给一张卡用**）+ 程序化 SVG 图标（逐卡色相偏移 / 10 种装饰 / 4 种边框 / 5×5 镜像 / 首字角标），有 9 项 jsdom 回归 |
 | 性能实测脚本 | ✅ `tests/bench-flags.mjs`（启动参数 A/B）、`tests/bench-prefix.mjs`（前缀复用）、`tests/bench-db.mjs`（数据库真实规模） |
 | 模型下载（断点续传） | ✅ 对真实 ModelScope 实测：重定向跟随、Range 206、续传逐字节一致 |
-| 在真机上安装并对话 | ✅ **Redmi Turbo 3 / Android 16 上跑通**。0.5B：预填充 **144 tok/s**、生成 **4.73 tok/s**、单轮 ~25s，流式/剧情/后台都验证过；3B 能加载，但在这台机器当前内存下会被换页拖死（见「踩过的坑」17、18） |
+| 在真机上安装并对话 | ✅ **Redmi Turbo 3 / Android 16 上跑通**。三条本地线路实测（CPU，maxTokens=160）：**LiteRT-LM Qwen3-0.6B int8 42–45 字/秒**、**MediaPipe Qwen2.5-0.5B `.task` 52 字/秒**（`mp_session` 把首字 617→311 ms）、**JNI Qwen2.5-0.5B GGUF 同档**；3B 能加载，但内存吃紧时会被换页拖死（见「踩过的坑」17、18）；明细见 [docs/engine-backends.md](docs/engine-backends.md) |
 
 > 「JVM 真跑」的做法：给用到的几个 Android API 写了最小桩（`tests/jvmstub/`），
 > 于是在 Termux 里就能直接 `java EngineJvmTest`，用真实的 llama-server 走完整流程 ——
@@ -215,13 +217,13 @@ App 退到后台时（`cpuset:/background`）只有 **4.7 t/s** —— 差 10 �
 │   ├── packapk.py        # 打包 + zipalign 对齐（Termux 没有 zipalign）
 │   └── checkapk.py       # APK 硬性要求校验（对齐/清单/引擎文件）
 ├── tests/
-│   ├── ui.test.mjs              # 前端 jsdom 集成测试（432 项）
+│   ├── ui.test.mjs              # 前端 jsdom 集成测试（470 项）
 │   ├── e2e-real.mjs             # 真实前端 + 真实 4B 模型端到端（角色扮演/剧情/记忆）
 │   ├── probe-speed.mjs          # 量化预填充 vs 生成耗时（定位多轮变慢）
 │   ├── probe-plot.mjs           # 剧情选项成功率统计
 │   ├── probe-prompts.mjs        # prompt 合规性对照实验
 │   ├── EngineJvmTest.java       # Engine.java 真跑：自检/状态机/推理/停止（14 项）
-│   ├── NativeEngineJvmTest.java # 进程内引擎真跑：前缀常驻/复用/换人设/溢出/停止（27 项）
+│   ├── NativeEngineJvmTest.java # 进程内引擎真跑：前缀常驻/复用/换人设/溢出/停止（42 项）
 │   ├── AssetServerJvmTest.java  # AssetServer.java 真跑：路由/MIME/404/并发/回环（17 项）
 │   ├── CardIOJvmTest.java       # PNG 角色卡解析真跑：tEXt/zTXt/iTXt（6 项）
 │   ├── DownloadResumeTest.java  # 下载与断点续传实测（逐字节比对）
@@ -337,7 +339,7 @@ pkg install x11-repo && pkg install chromium   # 一次性
 > 明文 http（Android **不支持按 IP 段放行**，只能整体开）。所以连公网服务时请填 `https://` 地址。
 > 这纯粹是"支持自建模型"这个功能的代价，已如实记录。
 
-自定义下载源：模型管理里粘贴任意 GGUF 直链（魔搭 / HF / 自建对象存储…），文件名自动从链接推导，
+自定义下载源：模型管理里粘贴任意模型直链（魔搭 / HF / 自建对象存储…），文件名自动从链接推导，
 断点续传。想接别的模型，不需要改代码。
 
 </details>
@@ -352,10 +354,10 @@ pkg install x11-repo && pkg install chromium   # 一次性
 
 | 分类 | 分类 | 分类 | 分类 |
 |---|---|---|---|
-| 🌤 日常治愈 | 💗 恋爱 | 🔍 悬疑推理 | ⚔️ 古风仙侠 |
-| 🛰 科幻未来 | 🐉 奇幻冒险 | 🎒 校园 | 💼 职场 |
-| 📜 历史 | 🕯 恐怖惊悚 | 🤣 喜剧沙雕 | 👻 灵异怪谈 |
-| ☢️ 末世生存 | 🌃 赛博朋克 | 🐚 神话志怪 | 🫂 情感树洞 |
+| 🌤 日常治愈 | 恋爱 | 悬疑推理 | 古风仙侠 |
+| 🛰 科幻未来 | 奇幻冒险 | 校园 | 职场 |
+| 📜 历史 | 恐怖惊悚 | 喜剧沙雕 | 灵异怪谈 |
+| ☢️ 末世生存 | 赛博朋克 | 神话志怪 | 情感树洞 |
 
 - **124 张角色卡 + 36 张剧情卡**（剧情卡自带世界观与群像，打开就进剧情模式）；
 - **全部原创**（AI 辅助创作），以 **CC0-1.0** 发布，可自由使用/修改/分发；
@@ -502,11 +504,10 @@ python3 tools/check-banks.py                                # 16 个素材库的
 8. **线程数要实测，别按核数×系数猜**。以前按 `0.75×核数` 取 6，实测这台机器上
    0.5B 生成 24～57 t/s 剧烈抖动；改 4 线程后稳定 42～52 t/s，3B 加载时间还从 17s 降到 8s。
    原因是慢核会拖同步点。现在的默认值是 `min(4, 核数-1)`，测量脚本 `tests/bench-flags.mjs`。
-9. 微信/其它脚本里的 `am start` 从 Termux 调不起未导出的 Activity，要借 adb shell 身份（与本项目无关，历史备忘）。
-10. **Qwen3 默认开思考模式 = 第一印象杀手**：token 全被思考段吃掉，主气泡几乎空白（看起来像"没回复"），
-    而且生成慢好几倍。默认必须发 `chat_template_kwargs.enable_thinking=false` +
-    对 Qwen3 补一句 `/no_think`（有些 chat template 会忽略前者）。这个 bug 是靠"JVM 真跑 4B"抓出来的，
-    纯静态检查和 jsdom 测试都发现不了。
+9. 微信/其它脚本里的 `am start` 从 Termux 调不起未导出的 Activity，要借 adb shell 身份（与风月·本地版无关，历史备忘）。
+10. **Qwen3 默认开思考模式 = 第一印象杀手**：字数全被思考段吃掉，主气泡几乎空白（看起来像"没回复"），
+    而且生成慢好几倍。默认要同时用两种方式关掉思考：只发其中一种，有些模型模板会忽略。
+    这个 bug 是靠"JVM 真跑 4B"抓出来的，纯静态检查和 jsdom 测试都发现不了。
 11. **孤儿引擎进程会拖垮下一次启动**：测试异常退出留下一个占 3.5GB RSS 的 llama-server 后，
     4B 加载从 19 秒变成 140 秒。排查内存问题时先 `ps -A | grep llama`。
     **v1.6.3 起已经自动处理**：`Engine.reapStrayEngines()` 会在启动和停止时扫 `/proc`，
@@ -525,7 +526,7 @@ python3 tools/check-banks.py                                # 16 个素材库的
     相同前缀的请求预填充从 559 token 降到 **1 token / 0.1s**。
 14. **多轮变慢要先怀疑"没命中前缀缓存"**，而不是"模型太慢"。用
     `tests/probe-speed.mjs` 打非流式请求读 `timings.prompt_ms / predicted_ms`，一眼看出瓶颈在预填充还是生成。
-15. **`--load-mode mlock` 能显著提速**（把权重锁在内存、避免换页）：3B 实测 3.6~4.7 → **8.4~9.2 tok/s**。
+15. **`--load-mode mlock` 能显著提速**（把权重锁在内存、避免换页）：3B 实测 3.6~4.7 → **8.4~9.2 字/秒**。
     代价是内存占用变硬，所以做成了可关的选项，并在加载失败时自动回退 mmap。
 16. **剧情选项不能只靠 prompt**：真模型有相当概率不吐 `<<<OPTIONS` 标记（甚至三条挤在一行），
     必须用"末尾编号列表"兜底解析。实测加兜底前会概率性失效，加兜底后 5/5 成功。
@@ -577,12 +578,12 @@ python3 tools/check-banks.py                                # 16 个素材库的
 
 ## 许可证与第三方组件
 
-- **本项目代码**：[MIT](LICENSE)。
+- **风月·本地版代码**：[MIT](LICENSE)。
 - **推理引擎**：llama.cpp（MIT）官方 Android 预编译二进制，仅为分发做了 `strip` 与改名，
   未修改代码；许可证全文见 [third_party/llama.cpp-LICENSE](third_party/llama.cpp-LICENSE)。
 - **构建期依赖**：`android.jar`（Android SDK，编译期用，不进 APK）。
 - **模型**：仓库不含任何模型，推荐型号与各自许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-- **图标与界面素材**：全部本项目原创 —— 界面图标是 `index.html` 内联的 SVG sprite（自绘路径，
+- **图标与界面素材**：全部为风月·本地版原创 —— 界面图标是 `index.html` 内联的 SVG sprite（自绘路径，
   无图标库、无字体文件），启动图标由 `tools/genicons.py` 代码绘制；无第三方素材授权问题。
 
 完整清单：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
@@ -593,4 +594,4 @@ python3 tools/check-banks.py                                # 16 个素材库的
   不构成医疗/法律/金融等专业建议。
 - 角色卡导入功能支持第三方 `chara_card_v2` 卡，**导入内容的合法性与适当性由使用者自负**；
   本仓库不附带任何第三方角色内容。
-- 本项目面向成年人使用。
+- 风月·本地版面向成年人使用。

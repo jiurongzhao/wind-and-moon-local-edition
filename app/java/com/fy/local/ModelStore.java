@@ -39,6 +39,13 @@ public class ModelStore {
         return d;
     }
 
+    /** 认识的模型后缀：.gguf（llama.cpp）、.litertlm / .task（LiteRT-LM，见 docs/engine-backends.md）。 */
+    private static boolean isModelFile(String lowerName) {
+        return lowerName.endsWith(".gguf") || lowerName.endsWith(".gguf.part")
+                || lowerName.endsWith(".task") || lowerName.endsWith(".task.part")
+                || lowerName.endsWith(".litertlm") || lowerName.endsWith(".litertlm.part");
+    }
+
     public JSONArray list() {
         JSONArray arr = new JSONArray();
         File[] files = dir().listFiles();
@@ -46,7 +53,7 @@ public class ModelStore {
         for (File f : files) {
             if (!f.isFile()) continue;
             String n = f.getName().toLowerCase();
-            if (!n.endsWith(".gguf") && !n.endsWith(".gguf.part")) continue;
+            if (!isModelFile(n)) continue;
             try {
                 JSONObject o = new JSONObject();
                 o.put("name", f.getName());
@@ -65,11 +72,11 @@ public class ModelStore {
             File f = new File(dir(), name);
             boolean ok = f.isFile() && f.delete();
             r.put("ok", ok);
-            r.put("message", ok ? "已删除 " + name : "删除失败（文件不存在？）");
+            r.put("message", ok ? "已删除 " + name : "没找到这个文件，可能已经被删掉了");
         } catch (Exception e) {
             try {
                 r.put("ok", false);
-                r.put("message", String.valueOf(e));
+                r.put("message", "删除失败，请稍后重试");
             } catch (Exception ignored) {
             }
         }
@@ -80,13 +87,13 @@ public class ModelStore {
     public JSONObject importFromUri(Uri uri, Progress cb) {
         JSONObject r = new JSONObject();
         String name = displayName(uri);
-        if (name == null || !name.toLowerCase().endsWith(".gguf")) {
+        if (name == null || !isModelFile(name.toLowerCase())) {
             name = "imported-" + System.currentTimeMillis() + ".gguf";
         }
         File dst = new File(dir(), name);
         try (InputStream in = ctx.getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(dst)) {
-            if (in == null) throw new IOException("无法打开输入流");
+            if (in == null) throw new IOException("这个文件读不了，换一个再试");
             long total = sizeOf(uri);
             byte[] buf = new byte[1 << 16];
             long got = 0;
@@ -112,7 +119,7 @@ public class ModelStore {
                 dst.delete();
                 r.put("ok", false);
                 r.put("name", name);
-                r.put("message", "导入失败: " + e.getMessage());
+                r.put("message", "导入没成功，换一个文件再试");
             } catch (Exception ignored) {
             }
         }
@@ -120,15 +127,17 @@ public class ModelStore {
     }
 
     /** 内置推荐模型源（ModelScope 直链，国内可直连）。
-        顺序和说明按实测来：这台机器上 3B + 内存锁定（默认开）是速度与质量的平衡点。 */
+        默认走云端（DeepSeek 等）；这里是"完全离线"时用的两个最小模型。 */
     public JSONArray downloadSources() {
         JSONArray arr = new JSONArray();
-        /* 只留一个最小的本地模型当"离线备选"。
-           默认路径已经改成云端（DeepSeek 等）：本机 CPU 跑 3B/4B 又慢又吃内存，
-           不如直接填个 API Key。想完全离线时再下载这个 0.5B，秒回但智力一般。 */
-        addSource(arr, "Qwen2.5-0.5B-Instruct（离线备选 · 0.49GB）",
+        /* 新默认引擎（litertlm）吃的是 .litertlm，别下成 GGUF 之后在设置里对着一个
+           起不来的后端发呆。两个都列出来，各自标注清楚给哪个引擎用。 */
+        addSource(arr, "Qwen3-0.6B（LiteRT-LM · 0.57GB）",
+                "https://www.modelscope.cn/models/litert-community/Qwen3-0.6B/resolve/master/Qwen3-0.6B.litertlm",
+                "0.57 GB", "内置推荐：0.6B，中文够用，打开后 1 秒内就能开始聊");
+        addSource(arr, "Qwen2.5-0.5B-Instruct（llama.cpp · 0.49GB）",
                 "https://www.modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-                "0.49 GB", "唯一内置的本地模型：完全离线、秒回，适合不想联网/没 Key 时用");
+                "0.49 GB", "旧格式模型文件：只在兼容模式下能用");
         return arr;
     }
 
@@ -139,9 +148,22 @@ public class ModelStore {
             o.put("url", url);
             o.put("sizeHint", size);
             o.put("note", note);
+            // 前端「下载」按钮按 file 存档：以前直接拿显示名，中文括号 + 没后缀，存下来是个怪文件
+            o.put("file", fileNameOf(url));
             arr.put(o);
         } catch (Exception ignored) {
         }
+    }
+
+    /** 从下载直链里取文件名，去 query。 */
+    static String fileNameOf(String url) {
+        if (url == null) return "model.bin";
+        String s = url;
+        int q = s.indexOf('?');
+        if (q >= 0) s = s.substring(0, q);
+        int slash = s.lastIndexOf('/');
+        String n = slash >= 0 ? s.substring(slash + 1) : s;
+        return n.isEmpty() ? "model.bin" : n;
     }
 
     /** 下载模型（支持断点续传）。在后台线程调用。 */
@@ -181,7 +203,7 @@ public class ModelStore {
             }
 
             if (dst.exists() && !dst.delete()) Log.w(TAG, "覆盖旧模型失败");
-            if (!part.renameTo(dst)) throw new IOException("重命名 .part 失败");
+            if (!part.renameTo(dst)) throw new IOException("下载的文件没能保存，请重试");
 
             r.put("ok", true);
             r.put("name", name);
@@ -190,10 +212,10 @@ public class ModelStore {
             Log.w(TAG, "下载失败", e);
             try {
                 r.put("ok", false);
-                r.put("message", "下载失败: " + e.getMessage() + "（已保留断点，可重试）");
+                r.put("message", "下载没成功（已经保留进度，可以接着下）");
             } catch (Exception ignored) {
             }
-            if (cb != null) cb.onProgress(name, part.length(), 0, "error", String.valueOf(e.getMessage()));
+            if (cb != null) cb.onProgress(name, part.length(), 0, "error", "下载没成功（已经保留进度，可以接着下）");
         } finally {
             if (c != null) c.disconnect();
         }
