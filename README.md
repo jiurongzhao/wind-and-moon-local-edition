@@ -3,6 +3,8 @@
 **一个完全离线的 Android AI 角色扮演 App** —— 本地模型全部跑在手机里。
 不登录、不联网、不上传对话。整个 App 在 Termux 里从零构建，不需要 Android Studio / NDK / Gradle。
 
+[English README](README.en.md)
+
 [![下载 fy.apk](https://img.shields.io/badge/%E2%AC%87%20%E4%B8%8B%E8%BD%BD-fy.apk%20(13MB)-brightgreen?style=for-the-badge)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%2010%2B%20(arm64)-green.svg)](#环境要求)
