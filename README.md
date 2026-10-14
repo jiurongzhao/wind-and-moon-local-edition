@@ -15,6 +15,11 @@
 **下载** → [发行版](../../releases) 里的 `fy.apk`（13MB，点开即装）
 **镜像** → [GitHub](https://github.com/jiurongzhao/wind-and-moon-local-edition) · [Gitee](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
 
+<p align="center">
+  <img src="docs/demo-airplane.gif" alt="飞行模式下：选角色 → 打字 → 本地 0.5B 逐字生成（真机录屏）" width="360">
+</p>
+<p align="center"><sub>真机录屏，全程<strong>飞行模式</strong>：选角色 → 打字 → 本地 0.5B 逐字生成。没有网络，模型跑在手机里。</sub></p>
+
 ---
 
 ## 为什么值得装

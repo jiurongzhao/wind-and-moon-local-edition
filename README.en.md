@@ -4,6 +4,11 @@
 
 [中文说明 (Chinese README)](README.md) · [Website](https://jiurongzhao.github.io/wind-and-moon-local-edition/) · [Gitee mirror](https://gitee.com/zhao-jiurong/wind-and-moon-local-edition)
 
+<p align="center">
+  <img src="docs/demo-airplane.gif" alt="Airplane mode: pick a character, type, and the on-device 0.5B streams the reply (real screen recording)" width="360">
+</p>
+<p align="center"><sub>Real screen recording in <strong>airplane mode</strong>: pick a character → type → the on-device 0.5B streams the reply. No network; the model runs on the phone.</sub></p>
+
 ## Why install it
 
 | | |
