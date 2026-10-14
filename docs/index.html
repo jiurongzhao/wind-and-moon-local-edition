@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>风月·本地版 · 完全离线的 Android AI 角色扮演</title>
+<meta name="description" content="完全离线的 Android AI 角色扮演 App：模型与推理全在手机本地跑，13.8MB，不用 Termux，32000 张 CC0 原创卡。">
+<style>
+  :root{--bg:#0d1017;--surface:#151a24;--line:#232a37;--text:#e8ecf4;--text2:#a9b3c6;--accent:#8ba4ff;--accent2:#c9a7ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  header{text-align:center;padding:72px 0 40px;background:radial-gradient(60% 80% at 50% 0,rgba(139,164,255,.16),transparent)}
+  h1{font-size:clamp(30px,6vw,46px);margin:0 0 8px;letter-spacing:.5px}
+  .sub{color:var(--text2);font-size:clamp(16px,3.4vw,20px);margin:0 0 28px}
+  .btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:12px 22px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-weight:600}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#0d1017}
+  .badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:28px 0 0}
+  .badge{font-size:13px;color:var(--text2);border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+  section{padding:40px 0;border-top:1px solid var(--line)}
+  h2{font-size:22px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .card b{display:block;margin-bottom:6px}
+  .card p{margin:0;color:var(--text2);font-size:14.5px}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .shots img{width:100%;border-radius:12px;border:1px solid var(--line);display:block}
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--text2);font-weight:600}
+  footer{padding:40px 0 64px;color:var(--text2);text-align:center;font-size:14px}
+  code{background:#1b2130;padding:2px 6px;border-radius:6px;font-size:13.5px}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <h1>🌙 风月 · 本地版</h1>
+  <p class="sub">完全离线的 Android AI 角色扮演 —— 模型与推理全在手机本地跑。<br>不登录、不联网、不上传对话。</p>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/jiurongzhao/wind-and-moon-local-edition/releases">⬇ 下载 APK（13.8MB）</a>
+    <a class="btn" href="https://gitee.com/zhao-jiurong/wind-and-moon-local-edition">Gitee 镜像（国内快）</a>
+    <a class="btn" href="https://github.com/jiurongzhao/wind-and-moon-local-edition/blob/main/README.en.md">English</a>
+  </div>
+  <div class="badges">
+    <span class="badge">📦 13.8 MB</span>
+    <span class="badge">✈️ 飞行模式可用</span>
+    <span class="badge">🎭 32,000 张 CC0 卡</span>
+    <span class="badge">🧪 470 项测试</span>
+    <span class="badge">🛠 不用 Termux</span>
+  </div>
+</header>
+
+<section class="wrap">
+  <h2>为什么值得装</h2>
+  <div class="grid">
+    <div class="card"><b>🔒 真 · 离线</b><p>llama.cpp 官方 Android 库内置进 APK，模型放本地。飞行模式照样聊，对话永远不出这台手机。</p></div>
+    <div class="card"><b>🧠 本机跑得动</b><p>0.5B 起，3B / 4B 也能加载。实测 0.5B 42–52 字/秒，打字机效果和在线服务一样顺。</p></div>
+    <div class="card"><b>🎭 32,000 张原创卡</b><p>16 类 ×（1000 角色 + 1000 剧情），全部 CC0，按需下载不进 APK。</p></div>
+    <div class="card"><b>✍️ 创作者工具</b><p>16 类模板 + 48 个人设骨架 + 七维质量评分 + 用你自己的模型 AI 辅助扩写。</p></div>
+    <div class="card"><b>🔁 模型来源随便换</b><p>本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 DeepSeek 等），顶栏一键切。</p></div>
+    <div class="card"><b>🎨 界面自己画的</b><p>手写设计系统，图标全是内联 SVG，深 / 浅 / 跟随系统三档，零外部素材。</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>界面预览</h2>
+  <div class="shots">
+    <img src="shots/01-characters.png" alt="角色页" loading="lazy">
+    <img src="shots/02-chat.png" alt="聊天页" loading="lazy">
+    <img src="shots/04-characters-light.png" alt="浅色角色页" loading="lazy">
+    <img src="shots/05-packs.png" alt="卡包" loading="lazy">
+    <img src="shots/07-settings.png" alt="设置" loading="lazy">
+    <img src="shots/12-creator-skeleton.png" alt="创作者工具" loading="lazy">
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>三步开始</h2>
+  <table>
+    <tr><th>路径</th><th>适合</th><th>怎么弄</th></tr>
+    <tr><td><b>云端 API（默认推荐 DeepSeek）</b></td><td>想省事、手机内存小、要更好的质量</td><td>设置 → 模型来源 → 外部服务，DeepSeek 已预填，填个 API Key 就能聊</td></tr>
+    <tr><td><b>本地模型（完全离线）</b></td><td>不想联网、不想花 API 钱</td><td>设置 → 模型，下载内置的 0.5B（约 0.5GB），或粘任意 GGUF 直链</td></tr>
+    <tr><td><b>局域网自建</b></td><td>有电脑 / VPS 想跑大模型</td><td>填 <code>http://电脑IP:11434/v1</code>（Ollama / LM Studio / llama.cpp server）</td></tr>
+  </table>
+</section>
+
+<footer class="wrap">
+  <p>MIT License · 引擎组件依其各自许可证 · <a href="https://github.com/jiurongzhao/wind-and-moon-local-edition">GitHub</a> · <a href="https://gitee.com/zhao-jiurong/wind-and-moon-local-edition">Gitee</a></p>
+</footer>
+</body>
+</html>
