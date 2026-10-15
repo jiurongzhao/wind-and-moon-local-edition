@@ -1,0 +1,22 @@
+一个完全离线的安卓 AI 角色扮演 App：装个 APK 就能聊，飞行模式也一样。
+
+起因很简单：想在手机上玩 AI 角色扮演，要么在 Termux 里装 Ollama + 前端，要么连电脑或云服务。我想要的是一条最短的路径——装个 APK，模型跑在手机里，断网也能聊。
+
+于是做了这些：
+
+- 模型和推理全在本机：引擎用 llama.cpp 官方 Android arm64 预编译库，直接内置进 APK；v1.7 起默认把模型跑在 App 进程内（JNI 直连），没有端口、没有子进程；人设固定成常驻前缀，第二轮起只算新说的话
+- APK 只有 13.8MB：引擎从 276MB strip 到 27MB 再压进去；不用 Termux、不用电脑、不用 Android Studio
+- 0.5B 实测 42–52 字/秒：打字机效果和在线服务一样顺；0.5B 起，3B / 4B 也能加载
+- 32000 张原创卡：16 类 ×（1000 角色 + 1000 剧情），全部 CC0，按需下载、不占安装包；也支持导入 SillyTavern 的 chara_card_v2（.json / .png）
+- 创作者工具：16 类模板 + 48 个人设骨架 + 七维质量评分 + 用你自己配的模型做 AI 辅助扩写
+- 模型来源随便换：本地 GGUF / 局域网 Ollama·LM Studio / 云端 API（预置 DeepSeek、豆包、通义、智谱、Kimi、OpenAI），顶栏一键切
+- 不登录、不联网、不上传对话：离线是真离线，聊天记录只在本机
+- 深 / 浅 / 跟随系统三档；界面图标全是自绘 SVG，零外部素材
+
+首图是一段 11 秒真机录屏，全程飞行模式：选角色 → 打字 → 本地 0.5B 逐字生成。没有网络，模型就在这台手机里跑。
+
+下载
+- Gitee（国内快）：https://gitee.com/zhao-jiurong/wind-and-moon-local-edition
+- GitHub：https://github.com/jiurongzhao/wind-and-moon-local-edition
+
+开源免费（MIT）。有安装 / 闪退 / 机型兼容问题在评论区问，我尽量都回。
