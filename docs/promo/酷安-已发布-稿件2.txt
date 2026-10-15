@@ -1,0 +1,21 @@
+Android 会给应用分 cpuset，前台和后台能用的核心不一样。
+
+先看在 Termux 里能直接验证的部分：
+cat /proc/self/cgroup        → 3:cpuset:/foreground
+grep Cpus_allowed /proc/self/status  → Cpus_allowed_list: 0-7
+
+前台状态下，8 个核全都给你，没问题。
+
+但退到后台就不是这回事了。我在跑本地模型时实测过同一件事：
+同一个 0.5B 模型，前台 48 字/秒，App 退到后台只剩 4.7 字/秒——
+差了 10 倍量级。不是被冻结这么简单，是直接给你换成慢核。
+
+所以“切后台继续跑”这种事，在 Android 上不只是会被冻，
+就算没冻也会被限核。前台服务 + 唤醒锁能缓解，但根治不了。
+
+有个坑我踩过：想排查的话别只看“进程还活着”，要看 cgroup.freeze 和
+/proc/pid/stat 的 CPU 时间增量。CPU 时间不动 = 被冻住了。
+
+你们平时遇到过退后台就断的情况吗？
+
+#数码日常#
