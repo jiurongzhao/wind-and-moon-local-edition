@@ -54,6 +54,7 @@ Works in Termux or any Linux; no Android Studio required. See [CONTRIBUTING.md](
 
 The interesting parts are documented (in Chinese) under `docs/`:
 
+- [docs/ENGINEERING.md](docs/ENGINEERING.md) — all measured data: performance tuning, architecture, 21 pitfalls
 - [docs/native-engine.md](docs/native-engine.md) — in-process JNI engine, prefix-KV reuse
 - [docs/engine-backends.md](docs/engine-backends.md) — backend selection, device measurements
 - [docs/user-guide.md](docs/user-guide.md) — user guide
