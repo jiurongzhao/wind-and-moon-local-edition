@@ -3,7 +3,7 @@
 > 这是 [README](../README.md) 里「深入细节」部分的全文。README 只留安装与概览，
 > 想验证据、抄参数、避坑的看这里。
 
-本文所有数字都是作者在 **Redmi Turbo 3 / 骁龙 8s Gen 3 / 8 核 / 12GB / Android 16**
+本文所有数字都是作者在 **Redmi K70 Pro / 骁龙 8 Gen 3 / 8 核 / 12GB / Android 16**
 上用 `tests/` 下的脚本实测出来的，不是估算值。凡未实测的部分都明确写了「还欠一次」。
 
 ---
@@ -33,7 +33,7 @@
 | 头像系统 | ✅ AI 立绘（一个主题一张，且**一张只给一张卡用**）+ 程序化 SVG 图标（逐卡色相偏移 / 10 种装饰 / 4 种边框 / 5×5 镜像 / 首字角标），有 9 项 jsdom 回归 |
 | 性能实测脚本 | ✅ `tests/bench-flags.mjs`（启动参数 A/B）、`tests/bench-prefix.mjs`（前缀复用）、`tests/bench-db.mjs`（数据库真实规模） |
 | 模型下载（断点续传） | ✅ 对真实 ModelScope 实测：重定向跟随、Range 206、续传逐字节一致 |
-| 在真机上安装并对话 | ✅ **Redmi Turbo 3 / Android 16 上跑通**。三条本地线路实测（CPU，maxTokens=160）：**LiteRT-LM Qwen3-0.6B int8 42–45 字/秒**、**MediaPipe Qwen2.5-0.5B `.task` 52 字/秒**（`mp_session` 把首字 617→311 ms）、**JNI Qwen2.5-0.5B GGUF 同档**；3B 能加载，但内存吃紧时会被换页拖死（见「踩过的坑」17、18）；明细见 [docs/engine-backends.md](docs/engine-backends.md) |
+| 在真机上安装并对话 | ✅ **Redmi K70 Pro / Android 16 上跑通**。三条本地线路实测（CPU，maxTokens=160）：**LiteRT-LM Qwen3-0.6B int8 42–45 字/秒**、**MediaPipe Qwen2.5-0.5B `.task` 52 字/秒**（`mp_session` 把首字 617→311 ms）、**JNI Qwen2.5-0.5B GGUF 同档**；3B 能加载，但内存吃紧时会被换页拖死（见「踩过的坑」17、18）；明细见 [docs/engine-backends.md](docs/engine-backends.md) |
 
 > 「JVM 真跑」的做法：给用到的几个 Android API 写了最小桩（`tests/jvmstub/`），
 > 于是在 Termux 里就能直接 `java EngineJvmTest`，用真实的 llama-server 走完整流程 ——
@@ -41,7 +41,7 @@
 
 ## ⚡ 实测性能：同一台机器，速度差 10 倍都是这些原因
 
-**Redmi Turbo 3 / 骁龙 8s Gen 3 / 8 核 / 12GB**，
+**Redmi K70 Pro / 骁龙 8 Gen 3 / 8 核 / 12GB**，
 下面全部是这台机器上用 `tests/bench-flags.mjs`、`tests/bench-prefix.mjs` 实测出来的：
 
 | 模型 | 线程 | 加载 | 预填充 | 生成 | 常驻内存 |

@@ -131,7 +131,7 @@ JNI 这条路认这些键，最终落到 `llama_context_params`：
 | `chunk` | 正整数（默认 128） | 预填充逻辑块大小：一次 `llama_decode` 喂多少 token |
 | `kv_unified` / `swa_full` | `0/1` | 同名布尔位 |
 
-**结论（Redmi Turbo 3 / 同进程同 libllama，0.5B Q4_K_M，4 线程，Termux 实测）：
+**结论（Redmi K70 Pro / 同进程同 libllama，0.5B Q4_K_M，4 线程，Termux 实测）：
 这些开关都不提速，所以默认一个都不开、`chunk` 保持 128。**
 
 手机 CPU 频率会飘，单次数字能差 ±20%，所以下表是**每档 4 轮的中位数**（冷前缀约 426 token）：

@@ -174,7 +174,7 @@ public class Bridge {
             String model = o.optString("model", "");
             if (model.isEmpty()) return fail("还没选模型。回设置里的「模型管理」点一下要用的那个，再启动");
             int ctx = o.optInt("ctx", 4096);
-            /* 线程数默认值：实测（Redmi Turbo 3 / 8 核 big.LITTLE：2 小核 + 5 中核 + 1 大核）
+            /* 线程数默认值：实测（Redmi K70 Pro / 8 核 big.LITTLE：2 小核 + 5 中核 + 1 大核）
                0.5B：4 线程稳定 48~52 tok/s；6 线程 24~57 抖动极大；8 线程 11~35 更差
                3B  ：4 线程 11.5 tok/s 且加载 8s；6 线程 11.3 tok/s 但加载 17s
                原因是慢核会把每次同步点拖成短板（llama.cpp 是同步并行的）。

@@ -14,7 +14,7 @@ import android.util.Log;
 /**
  * 引擎前台服务 —— 存在的唯一理由：**别让系统把 App 冻住**。
  *
- * 实测（Redmi Turbo 3 / Android 16 / HyperOS）：只要引擎在跑而 App 退到后台，
+ * 实测（Redmi K70 Pro / Android 16 / HyperOS）：只要引擎在跑而 App 退到后台，
  * 系统立刻把整个进程塞进冻结 cgroup（cgroup.freeze=1）。后果是：
  *   - llama-server 是子进程，跟着一起冻住 → 生成停摆；
  *   - WebView 也冻住 → 再切回来界面「点不动」，像死了一样；
@@ -66,7 +66,7 @@ public class FyService extends Service {
         }
         /* 立刻进前台，而不是等到 onStartCommand。
          *
-         * 真机（Redmi Turbo 3 / Android 16）：startForegroundService() 之后系统只给约 5 秒
+         * 真机（Redmi K70 Pro / Android 16）：startForegroundService() 之后系统只给约 5 秒
          * 让 Service.startForeground() 落地，而 onCreate/onStartCommand 都在主线程上排队。
          * 加载 3B（2.1GB）期间 App 一旦被系统冻进冻结 cgroup，这个排队就永远走不到，
          * 5 秒后直接 ForegroundServiceDidNotStartInTimeException 杀进程（实测崩过）。

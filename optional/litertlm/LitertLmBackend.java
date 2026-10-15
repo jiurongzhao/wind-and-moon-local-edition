@@ -194,7 +194,7 @@ public final class LitertLmBackend implements EngineBackend {
                 closeQuietly();
                 /* 后端：只用 CPU。
                    GPU 路试过了，结论是**不能开**：官方带 GPU 图优化的 dynamic-int4 变体
-                   在 Redmi Turbo 3（Snapdragon 8s Gen 3 / Adreno）上直接让进程 SIGSEGV——
+                   在 Redmi K70 Pro（Snapdragon 8 Gen 3 / Adreno）上直接让进程 SIGSEGV——
                    栈在厂商 OpenCL 编译器里：/vendor/lib64/libllvm-qgl.so。
                    Java 层 try/catch 拦不住 native crash，App 会当场死掉，这比慢更要命。
                    所以 GPU 不做默认；等 Google/高通修了编译器，或者只在确认可用的机型上开。 */

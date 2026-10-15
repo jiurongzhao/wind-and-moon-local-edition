@@ -4477,7 +4477,7 @@
   }
 
   /* ---------- 冻结自愈看门狗 ----------
-     真机实测（Redmi Turbo 3 / HyperOS）：App 退到后台会被系统冻进 cgroup（cgroup.freeze=1），
+     真机实测（Redmi K70 Pro / HyperOS）：App 退到后台会被系统冻进 cgroup（cgroup.freeze=1），
      SSE 连接随之断掉，但 S.generating 还停在 true —— 再切回前台时发送键不回来、
      整个界面像死了一样，就是用户说的「点不动」。前台服务能缓解但挡不住 MIUI 的冻结策略，
      所以在 UI 侧再兜一层：生成中但超过 60 秒没有任何新 token，就判定被打断并自动收尾。
@@ -5182,7 +5182,7 @@
       var sizeMB = m ? Math.round(Number(m.sizeBytes || 0) / 1048576) : 0;
       if (!sizeMB) return '';
       var pct = Math.round(sizeMB / avail * 100);
-      /* 真机实测（Redmi Turbo 3 / 12GB）：3B（2007MB）在可用 3430MB（59%）时
+      /* 真机实测（Redmi K70 Pro / 12GB）：3B（2007MB）在可用 3430MB（59%）时
          mlock 能成功、引擎也能就绪，但生成时 VmSwap 涨到 430MB、loadavg 7.2，
          十分钟吐不出一个字 —— 所以「能加载」不等于「能跑」，门槛要比以前严。 */
       if (sizeMB + 512 > avail) {

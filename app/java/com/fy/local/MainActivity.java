@@ -834,7 +834,7 @@ public class MainActivity extends Activity {
     /**
      * 引擎跑着的时候挂一个前台服务。
      *
-     * 真机实测（Redmi Turbo 3 / Android 16 / HyperOS）：引擎在跑而 App 退到后台时，
+     * 真机实测（Redmi K70 Pro / Android 16 / HyperOS）：引擎在跑而 App 退到后台时，
      * 系统会立刻把进程塞进冻结 cgroup（cgroup.freeze=1），llama-server 是子进程跟着冻住，
      * WebView 也冻住 —— 再切回来界面「点不动」，严重时还会被直接杀掉。
      * 挂上前台服务后进程是 foreground-service 级别，不再是 cached，就不会被冻。

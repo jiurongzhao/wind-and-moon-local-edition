@@ -104,7 +104,7 @@ Panama FFM（`java.lang.foreign`）；现成的纯 Java LLM 引擎全部把 Vect
 
 ## 四、真机实测：过得了"性能别变差"这关吗（2026-10-14）
 
-机型 Redmi Turbo 3 / 23117RK66C（Snapdragon 8s Gen 3，8 核）。同一段 prompt（约 55 token）、
+机型 Redmi K70 Pro / 23117RK66C（Snapdragon 8 Gen 3，8 核）。同一段 prompt（约 55 token）、
 `maxTokens=160`、`threads=4`：
 
 | 引擎 / 模型 | 加载 | 本轮 decode | 备注 |
@@ -132,7 +132,7 @@ F DEBUG   : #00 pc 0000000000d401f0  /vendor/lib64/libllvm-qgl.so   ← 高通 O
 F DEBUG   : #01 ... #09 全在 libllvm-qgl.so
 ```
 
-崩在厂商的 OpenCL shader 编译器里（Redmi Turbo 3 / Snapdragon 8s Gen 3 / Adreno）。
+崩在厂商的 OpenCL shader 编译器里（Redmi K70 Pro / Snapdragon 8 Gen 3 / Adreno）。
 Java 的 try/catch 拦不住 native crash，App 会当场死 —— 这比慢严重得多，所以
 **GPU 不做默认**，只在确认可用的机型上才考虑开。
 
@@ -228,7 +228,7 @@ NPU 委托也没注册（AAR 不带厂商 NPU 库：`npu_registry: NPU accelerat
 3. 「推理方式」切到 **MediaPipe / LiteRT（.task）** → 启动引擎 → 聊天；
 4. 看引擎状态栏里的加载耗时，和生成速度。
 
-**真机实测（Redmi Turbo 3 / 23117RK66C，MediaPipe tasks-genai 0.10.35）**：
+**真机实测（Redmi K70 Pro / 23117RK66C，MediaPipe tasks-genai 0.10.35）**：
 
 | 项 | 实测 |
 |---|---|
